@@ -1,9 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using Erp.Modules.Platform.Domain;
+using Erp.SharedKernel;
 
 namespace Erp.Modules.Platform.Infrastructure.Persistence;
 
 public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> options) : DbContext(options)
 {
+    public DbSet<Company> Companies => Set<Company>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
-        modelBuilder.HasDefaultSchema("platform");
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(PlatformDbContext).Assembly)
+            .HasDefaultSchema("platform");
 }

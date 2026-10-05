@@ -1,7 +1,7 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 0 platform foundation**. It is an executable API
+currently contains the **Phase 1.1 platform foundation**. It is an executable API
 and domain foundation, not yet a complete ERP application with a user interface
 or full business workflows.
 
@@ -68,13 +68,20 @@ A successful response has HTTP status `200`.
 
 ## Available API functionality
 
-The current API exposes only representative Phase 0 endpoints:
+The current API exposes the Phase 1.1 platform endpoints and representative
+company-scoped endpoints:
 
 | Method | Endpoint | Current behavior |
 |---|---|---|
 | `GET` | `/api/v1/health` | Returns `200` when the API host is running |
-| `GET` | `/api/v1/companies` | Returns an empty JSON array; company persistence is not implemented yet |
-| `GET` | `/api/v1/finance/accounts` | Returns an empty JSON array; account persistence is not implemented yet |
+| `POST` | `/api/v1/companies` | Creates an active company |
+| `GET` | `/api/v1/companies` | Lists persisted companies |
+| `GET` | `/api/v1/companies/{id}` | Gets a company by ID |
+| `GET` | `/api/v1/companies/by-code/{code}` | Gets a company by normalized code |
+| `PUT` | `/api/v1/companies/{id}/name` | Renames a company |
+| `POST` | `/api/v1/companies/{id}/activate` | Activates a company |
+| `POST` | `/api/v1/companies/{id}/deactivate` | Deactivates a company |
+| `GET` | `/api/v1/finance/accounts` | Representative company-scoped endpoint |
 | `GET` | `/openapi/v1.json` | Returns the generated OpenAPI document |
 
 Examples:
@@ -82,18 +89,17 @@ Examples:
 ```powershell
 Invoke-WebRequest http://localhost:5004/api/v1/health
 Invoke-RestMethod http://localhost:5004/api/v1/companies
-Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts
+Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts -Headers @{ "X-Company-Id" = "<company-id>" }
 Invoke-RestMethod http://localhost:5004/openapi/v1.json
 ```
 
-There is currently no frontend, login screen, user-management endpoint, or
-write endpoint. The API is intended to validate the host, module registration,
-database configuration, and initial architecture.
+There is currently no frontend, login screen, authentication, user-management
+endpoint, or finance transaction workflow.
 
-## Domain functionality available in Phase 0
+## Domain functionality available in Phase 1.1
 
-Although the API is intentionally small, the solution includes representative
-domain foundations:
+Although the API is intentionally small, the solution includes the Phase 1.1
+company-management slice and representative domain foundations:
 
 - Platform: `Company`, `User`, `Role`, and `Permission`
 - Finance: accounts, currencies, accounting periods, journals, and immutable
@@ -116,12 +122,14 @@ and persistence schema ownership.
 This is the recommended setup for the current development environment:
 
 ```powershell
+$env:PGPASSWORD = "postgres"
 psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
+psql -U postgres -h localhost -d gtek_erp -f .\scripts\database\apply-platform-migration.sql
 dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
 ```
 
-The Phase 0 contexts are registered for PostgreSQL, but no application
-migrations or full database-backed queries have been implemented yet.
+The SQL script is idempotent for the initial platform schema. Keep the password
+out of committed files; the environment variable is only a local example.
 
 ### Use Docker PostgreSQL
 
@@ -192,13 +200,12 @@ guide.
 
 ## Current limitations
 
-Phase 0 does not yet include:
+Phase 1.1 does not yet include:
 
 - A web frontend
 - Authentication or authorization
 - User/company administration screens
-- Database migrations
-- Database-backed company or account queries
+- Database-backed finance account queries
 - Journal-posting API endpoints
 - Sales, purchasing, inventory, invoicing, or payment workflows
 - Reporting, integrations, or production deployment configuration

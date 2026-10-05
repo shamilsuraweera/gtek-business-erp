@@ -2,11 +2,11 @@
 
 ## 1. What this application is
 
-The current release is **Phase 0** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.1** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
-- PostgreSQL connection and module database-context registration
+- PostgreSQL connection, platform persistence, and the initial platform schema
 - Platform, Finance, Sales, Purchasing, and Inventory module boundaries
 - Initial domain rules and immutable ledger concepts
 - OpenAPI metadata
@@ -15,7 +15,7 @@ technical foundation for a modular monolith:
 
 It is not yet a complete end-user ERP. There is no browser UI or login flow,
 and the current read endpoints intentionally return representative empty
-collections until Phase 1 persistence and application use cases are built.
+collections. Phase 1.1 now includes database-backed company management.
 
 ## 2. Start the application with local PostgreSQL
 
@@ -118,13 +118,32 @@ database-readiness check.
 Invoke-RestMethod http://localhost:5004/api/v1/companies
 ```
 
-Current response:
+Create a company, then use the returned ID for lifecycle operations:
 
-```json
-[]
+```powershell
+$company = Invoke-RestMethod -Method Post `
+  -Uri http://localhost:5004/api/v1/companies `
+  -ContentType "application/json" `
+  -Body '{"code":"DEMO","name":"Demo Company"}'
+$company
+Invoke-RestMethod http://localhost:5004/api/v1/companies
+Invoke-RestMethod "http://localhost:5004/api/v1/companies/$($company.id)"
 ```
 
-The endpoint is a placeholder for the Phase 1 company-management use case.
+Company codes are trimmed and normalized to uppercase. New companies are
+active. Rename, activate, and deactivate operations are available at
+`/api/v1/companies/{id}/name`, `/activate`, and `/deactivate`.
+
+Company-management endpoints are system endpoints and do not require a header.
+Company-scoped endpoints require `X-Company-Id`:
+
+```powershell
+Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts `
+  -Headers @{ "X-Company-Id" = $company.id }
+```
+
+Missing or malformed headers return `400`, an unknown company returns `404`,
+and an inactive company returns `409`.
 
 ### Finance accounts
 
@@ -132,13 +151,8 @@ The endpoint is a placeholder for the Phase 1 company-management use case.
 Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts
 ```
 
-Current response:
-
-```json
-[]
-```
-
-The endpoint is a placeholder for the Phase 2 account-management use case.
+This is currently a representative company-scoped endpoint and returns an empty
+array. Finance account management is planned for a later phase.
 
 ### OpenAPI
 
@@ -229,8 +243,8 @@ The following are intentionally deferred to later phases:
 
 - Authentication, login, and user administration
 - Frontend screens
-- CRUD or database-backed read models
-- EF Core migrations
+- Generic CRUD architecture and broad database-backed read models
+- Finance account persistence and database-backed account queries
 - Financial posting application services and APIs
 - Sales quotes, shipments, invoices, and customer payments
 - Purchase receipts, vendor invoices, and vendor payments
@@ -278,4 +292,4 @@ Use the HTTP URL while developing:
 http://localhost:5004
 ```
 
-HTTPS is optional for local Phase 0 development.
+HTTPS is optional for local Phase 1.1 development.

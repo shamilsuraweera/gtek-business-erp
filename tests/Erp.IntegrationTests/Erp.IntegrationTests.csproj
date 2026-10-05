@@ -17,5 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Finance\Erp.Modules.Finance.Infrastructure\Erp.Modules.Finance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Application\Erp.Modules.Platform.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using Erp.Application.Abstractions;
+using Erp.Modules.Platform.Application;
 using Microsoft.Extensions.DependencyInjection;
 using Erp.Modules.Platform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,7 @@ public static class PlatformInfrastructure
     {
         services.AddDbContext<PlatformDbContext>(options => options.UseNpgsql(connectionString));
         services.AddSingleton<IClock, SystemClock>();
+        services.AddScoped<ICompanyStore, PlatformCompanyStore>();
         return services;
     }
 }

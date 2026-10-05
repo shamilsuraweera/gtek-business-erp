@@ -5,14 +5,28 @@ public interface IDomainEvent
     DateTimeOffset OccurredAt { get; }
 }
 
-public abstract class Entity<TId>(TId id)
+public abstract class Entity<TId>
 {
-    public TId Id { get; } = id;
+    protected Entity()
+    {
+    }
+
+    protected Entity(TId id) => Id = id;
+
+    public TId Id { get; private set; } = default!;
 }
 
-public abstract class AggregateRoot<TId>(TId id) : Entity<TId>(id)
+public abstract class AggregateRoot<TId> : Entity<TId>
 {
     private readonly List<IDomainEvent> _domainEvents = [];
+
+    protected AggregateRoot()
+    {
+    }
+
+    protected AggregateRoot(TId id) : base(id)
+    {
+    }
 
     public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
 

@@ -9,13 +9,16 @@ using Erp.Modules.Purchasing.Application;
 using Erp.Modules.Purchasing.Infrastructure;
 using Erp.Modules.Sales.Application;
 using Erp.Modules.Sales.Infrastructure;
+using Erp.Api.Endpoints;
+using Erp.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();
-builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
+builder.Services.AddValidation();
 
 var connectionString = builder.Configuration.GetConnectionString("Erp")
     ?? "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres";
@@ -34,23 +37,16 @@ builder.Services
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseMiddleware<CompanyContextMiddleware>();
 app.MapOpenApi();
-
-app.MapHealthChecks("/api/v1/health");
-app.MapGet("/api/v1/companies", () => Results.Ok(Array.Empty<object>()));
-app.MapGet("/api/v1/finance/accounts", () => Results.Ok(Array.Empty<object>()));
+app.MapHealthChecks("/api/v1/health").WithMetadata(new SystemEndpointMetadata());
+app.MapCompanyEndpoints();
+app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
+    .RequireCompanyContext()
+    .WithSummary("List finance accounts")
+    .WithDescription("Representative company-scoped finance endpoint.")
+    .Produces<object[]>(StatusCodes.Status200OK);
 
 app.Run();
-
-public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
-{
-    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
-    {
-        logger.LogError(exception, "Unhandled request exception.");
-        httpContext.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        await Results.Problem("An unexpected error occurred.", statusCode: 500).ExecuteAsync(httpContext);
-        return true;
-    }
-}
 
 public partial class Program;
