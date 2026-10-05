@@ -19,10 +19,12 @@ public sealed class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.Property(company => company.ModifiedAt);
     }
 
-    public sealed class NumberSequenceConfiguration : IEntityTypeConfiguration<NumberSequence>
+}
+
+public sealed class NumberSequenceConfiguration : IEntityTypeConfiguration<NumberSequence>
+{
+    public void Configure(EntityTypeBuilder<NumberSequence> builder)
     {
-        public void Configure(EntityTypeBuilder<NumberSequence> builder)
-        {
             builder.HasKey(x => x.Id);
             builder.Property(x => x.Id).HasConversion(x => x.Value, x => new Erp.SharedKernel.NumberSequenceId(x));
             builder.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new Erp.SharedKernel.CompanyId(x)).IsRequired();
@@ -37,9 +39,13 @@ public sealed class CompanyConfiguration : IEntityTypeConfiguration<Company>
             builder.Property(x => x.ModifiedBy).HasConversion(
                 x => x.HasValue ? x.Value.Value : (Guid?)null,
                 x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
+            builder.Property<uint>("xmin").IsRowVersion().IsConcurrencyToken();
             builder.HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.HasIndex(x => x.CompanyId);
+            builder.HasOne<Company>()
+                .WithMany()
+                .HasForeignKey(x => x.CompanyId)
+                .OnDelete(DeleteBehavior.Restrict);
             builder.ToTable("NumberSequences", "platform");
-        }
     }
 }

@@ -221,6 +221,8 @@ public enum NumberSequenceStatus
 
 public sealed class NumberSequence
 {
+    public const int MaximumGeneratedLength = 100;
+
     private NumberSequence()
     {
         Code = string.Empty;
@@ -248,6 +250,7 @@ public sealed class NumberSequence
         Prefix = ValidateText(prefix, "Prefix", 50, allowEmpty: true)!;
         Suffix = ValidateText(suffix, "Suffix", 50, allowEmpty: true);
         ValidateValues(nextValue, padding, increment);
+        ValidateGeneratedLength(Prefix, Suffix, padding);
         NextValue = nextValue;
         Padding = padding;
         Increment = increment;
@@ -295,6 +298,7 @@ public sealed class NumberSequence
         ValidateValues(NextValue, padding, increment);
         Prefix = ValidateText(prefix, "Prefix", 50, allowEmpty: true)!;
         Suffix = ValidateText(suffix, "Suffix", 50, allowEmpty: true);
+        ValidateGeneratedLength(Prefix, Suffix, padding);
         Padding = padding;
         Increment = increment;
         Touch(actor, at);
@@ -354,6 +358,12 @@ public sealed class NumberSequence
         if (nextValue < 0) throw new DomainException("Next value cannot be negative.");
         if (padding is < 1 or > 19) throw new DomainException("Padding must be between 1 and 19.");
         if (increment <= 0) throw new DomainException("Increment must be greater than zero.");
+    }
+
+    private static void ValidateGeneratedLength(string prefix, string? suffix, int padding)
+    {
+        if (prefix.Length + (suffix?.Length ?? 0) + Math.Max(padding, 19) > MaximumGeneratedLength)
+            throw new DomainException($"Generated number cannot exceed {MaximumGeneratedLength} characters.");
     }
 }
 

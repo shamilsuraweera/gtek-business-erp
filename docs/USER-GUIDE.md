@@ -414,3 +414,14 @@ with the appropriate platform permission. Management endpoints require
 `POST /api/v1/number-sequences/{code}/next` to reserve the next value.
 Reservations are transactionally locked in PostgreSQL and safe across multiple
 API instances. Gaps can occur, and reserved values are never reused.
+
+## Database migrations
+
+The Phase 1.6 EF migration and model snapshot are generated from the current
+model. However, the repository's older EF migration chain has a historical
+ordering defect: its earliest migration references Platform tables before the
+migrations that create all dependencies. Until that chain is repaired without
+rewriting deployed history, use the idempotent SQL bootstrap script for a new
+local/disposable database. Do not fabricate `__EFMigrationsHistory` rows.
+Existing databases must be schema-checked before adopting later EF migrations;
+never drop the Platform schema to resolve differences.

@@ -20,6 +20,10 @@ safe across concurrent requests and API instances without process-local locks,
 Administration is permission-protected and company-scoped. Configuration changes
 and lifecycle changes use the existing append-only audit trail. Business modules
 will store issued document numbers separately when they consume this service.
+Configuration and lifecycle updates use PostgreSQL optimistic concurrency
+(`xmin`) so a stale update cannot overwrite a `NextValue` change made by an
+issuance transaction. A concurrency conflict is rejected rather than silently
+moving the sequence backward.
 
 ## Consequences
 

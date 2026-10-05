@@ -75,7 +75,7 @@ A successful response has HTTP status `200`.
 
 ## Available API functionality
 
-The current API exposes the Phase 1.5 platform endpoints and representative
+The current API exposes the Phase 1.6 platform endpoints and representative
 company-scoped endpoints:
 
 | Method | Endpoint | Current behavior |
@@ -98,6 +98,10 @@ company-scoped endpoints:
 | `DELETE` | `/api/v1/users/{userId}/companies/{companyId}` | Revokes company access |
 | `GET` | `/api/v1/companies/{companyId}/users` | Lists users with company access |
 | `GET` | `/api/v1/audit` | Queries append-only audit history with bounded pagination and filters |
+| `GET` | `/api/v1/number-sequences` | Lists number sequences for the active company |
+| `POST` | `/api/v1/number-sequences` | Creates a company-scoped number sequence |
+| `PUT` | `/api/v1/number-sequences/{id}/configuration` | Changes safe formatting configuration without resetting `NextValue` |
+| `POST` | `/api/v1/number-sequences/{code}/next` | Atomically reserves the next number |
 | `GET` | `/openapi/v1.json` | Returns the generated OpenAPI document |
 
 Examples:
@@ -112,9 +116,9 @@ Invoke-RestMethod http://localhost:5004/openapi/v1.json
 There is currently no frontend, finance transaction workflow, or full ERP
 business workflow.
 
-## Domain functionality available in Phase 1.5
+## Domain functionality available in Phase 1.6
 
-Although the API is intentionally small, the solution includes the Phase 1.5
+Although the API is intentionally small, the solution includes the Phase 1.6
 company-management slice and representative domain foundations:
 
 - Platform: `Company`, `User`, `Role`, and `Permission`
@@ -153,11 +157,26 @@ psql -U postgres -h localhost -d gtek_erp -f .\scripts\database\apply-platform-m
 dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
 ```
 
-The SQL script is idempotent for the initial platform schema. Keep the password
-out of committed files; the environment variable is only a local example.
-It also creates the Phase 1.5 `AuditEntries` table, indexes, and
-`platform.audit.read` permission. The equivalent incremental EF migration is
-`20261005160402_Phase15AuditTrail`.
+The generated EF migration and model snapshot are authoritative for the Phase
+1.6 model, but the existing pre-Phase-1.6 migration chain currently requires
+the SQL bootstrap baseline: its earliest migration references Platform tables
+before earlier migrations create all of those dependencies. Do not apply the
+current EF chain to an empty database until that historical ordering issue is
+resolved.
+
+```powershell
+$env:ConnectionStrings__Erp = "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres;Password=postgres"
+dotnet ef database update --project .\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj --startup-project .\src\Host\Erp.Api\Erp.Api.csproj
+```
+
+The SQL script remains an idempotent bootstrap helper for local/disposable
+environments and is currently the safe baseline for this repository. It is not
+safe to fabricate EF migration-history rows. Existing SQL-bootstrap databases
+must be schema-checked before adopting later EF migrations; do not drop the
+Platform schema.
+The Phase 1.6 migration is
+`20261005163552_Phase16NumberSequencesGenerated`, and its snapshot includes the
+number-sequence model and unique company/code index.
 
 ### Use Docker PostgreSQL
 
@@ -228,7 +247,7 @@ guide.
 
 ## Authentication and user management
 
-Phase 1.5 includes local JWT authentication, database-backed user management,
+Phase 1.6 includes local JWT authentication, database-backed user management,
 and policy-based roles and permissions.
 Set secrets through environment variables rather than committed configuration:
 
@@ -266,7 +285,7 @@ require `X-Company-Id` and active `UserCompanyAccess`.
 
 ## Current limitations
 
-Phase 1.5 does not yet include:
+Phase 1.6 does not yet include:
 
 - A web frontend
 - Company-specific roles or permissions
@@ -278,7 +297,7 @@ Phase 1.5 does not yet include:
 Do not treat the representative endpoints as a completed ERP feature set.
 ### Roles and permissions
 
-Phase 1.5 uses the server-side permission model and explicit company scope.
+Phase 1.6 uses the server-side permission model and explicit company scope.
 Permissions use stable
 `module.resource.action` codes, roles contain explicit permission assignments,
 and users have global role assignments. The initial catalogue includes
