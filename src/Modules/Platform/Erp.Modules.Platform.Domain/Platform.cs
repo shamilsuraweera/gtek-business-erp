@@ -213,6 +213,150 @@ public sealed record CompanyAccessGranted(UserId ActorUserId, UserId TargetUserI
 public sealed record CompanyAccessRevoked(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
 public sealed record CompanyAccessRestored(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
 
+public enum NumberSequenceStatus
+{
+    Active,
+    Inactive
+}
+
+public sealed class NumberSequence
+{
+    private NumberSequence()
+    {
+        Code = string.Empty;
+        Name = string.Empty;
+        Prefix = string.Empty;
+    }
+
+    private NumberSequence(
+        NumberSequenceId id,
+        CompanyId companyId,
+        string code,
+        string name,
+        string prefix,
+        string? suffix,
+        long nextValue,
+        int padding,
+        long increment,
+        DateTimeOffset createdAt,
+        UserId? createdBy)
+    {
+        Id = id;
+        CompanyId = companyId;
+        Code = NormalizeCode(code);
+        Name = ValidateText(name, "Sequence name", 200)!;
+        Prefix = ValidateText(prefix, "Prefix", 50, allowEmpty: true)!;
+        Suffix = ValidateText(suffix, "Suffix", 50, allowEmpty: true);
+        ValidateValues(nextValue, padding, increment);
+        NextValue = nextValue;
+        Padding = padding;
+        Increment = increment;
+        CreatedAt = createdAt;
+        CreatedBy = createdBy;
+        Status = NumberSequenceStatus.Active;
+    }
+
+    public NumberSequenceId Id { get; private set; }
+    public CompanyId CompanyId { get; private set; }
+    public string Code { get; private set; }
+    public string Name { get; private set; }
+    public string Prefix { get; private set; }
+    public string? Suffix { get; private set; }
+    public long NextValue { get; private set; }
+    public int Padding { get; private set; }
+    public long Increment { get; private set; }
+    public NumberSequenceStatus Status { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public UserId? CreatedBy { get; private set; }
+    public DateTimeOffset? ModifiedAt { get; private set; }
+    public UserId? ModifiedBy { get; private set; }
+
+    public static NumberSequence Create(
+        CompanyId companyId,
+        string code,
+        string name,
+        string prefix,
+        string? suffix,
+        long nextValue,
+        int padding,
+        long increment,
+        DateTimeOffset createdAt,
+        UserId? createdBy) =>
+        new(NumberSequenceId.New(), companyId, code, name, prefix, suffix, nextValue, padding, increment, createdAt, createdBy);
+
+    public void Rename(string name, UserId? actor, DateTimeOffset at)
+    {
+        Name = ValidateText(name, "Sequence name", 200)!;
+        Touch(actor, at);
+    }
+
+    public void ChangeConfiguration(string prefix, string? suffix, int padding, long increment, UserId? actor, DateTimeOffset at)
+    {
+        ValidateValues(NextValue, padding, increment);
+        Prefix = ValidateText(prefix, "Prefix", 50, allowEmpty: true)!;
+        Suffix = ValidateText(suffix, "Suffix", 50, allowEmpty: true);
+        Padding = padding;
+        Increment = increment;
+        Touch(actor, at);
+    }
+
+    public void Activate(UserId? actor, DateTimeOffset at)
+    {
+        Status = NumberSequenceStatus.Active;
+        Touch(actor, at);
+    }
+
+    public void Deactivate(UserId? actor, DateTimeOffset at)
+    {
+        Status = NumberSequenceStatus.Inactive;
+        Touch(actor, at);
+    }
+
+    public string Reserve()
+    {
+        if (Status != NumberSequenceStatus.Active)
+            throw new InvalidOperationException("The number sequence is inactive.");
+        if (NextValue > long.MaxValue - Increment)
+            throw new InvalidOperationException("The number sequence has reached its maximum value.");
+
+        var numeric = NextValue.ToString($"D{Padding}", System.Globalization.CultureInfo.InvariantCulture);
+        NextValue += Increment;
+        return Prefix + numeric + (Suffix ?? string.Empty);
+    }
+
+    private void Touch(UserId? actor, DateTimeOffset at)
+    {
+        ModifiedBy = actor;
+        ModifiedAt = at;
+    }
+
+    public static string NormalizeCode(string code)
+    {
+        var normalized = ValidateText(code, "Sequence code", 100);
+        return normalized!.ToUpperInvariant();
+    }
+
+    private static string? ValidateText(string? value, string field, int maximum, bool allowEmpty = false)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (allowEmpty) return string.Empty;
+            throw new DomainException($"{field} is required.");
+        }
+        var trimmed = value!.Trim();
+        if (trimmed.Length > maximum)
+            throw new DomainException($"{field} cannot exceed {maximum} characters.");
+        return trimmed;
+    }
+
+    private static void ValidateValues(long nextValue, int padding, long increment)
+    {
+        if (nextValue < 0) throw new DomainException("Next value cannot be negative.");
+        if (padding is < 1 or > 19) throw new DomainException("Padding must be between 1 and 19.");
+        if (increment <= 0) throw new DomainException("Increment must be greater than zero.");
+    }
+}
+
 public enum AuditOutcome
 {
     Succeeded,

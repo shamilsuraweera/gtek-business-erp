@@ -52,6 +52,32 @@ public sealed record AuditPageResponse(
     int PageSize,
     int TotalCount);
 
+public sealed record NumberSequenceResponse(
+    Guid Id,
+    Guid CompanyId,
+    string Code,
+    string Name,
+    string Prefix,
+    string? Suffix,
+    long NextValue,
+    int Padding,
+    long Increment,
+    NumberSequenceStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ModifiedAt);
+
+public sealed record CreateNumberSequenceRequest(
+    string Code,
+    string Name,
+    string Prefix,
+    string? Suffix,
+    long NextValue,
+    int Padding,
+    long Increment);
+
+public sealed record RenameNumberSequenceRequest(string Name);
+public sealed record ConfigureNumberSequenceRequest(string Prefix, string? Suffix, int Padding, long Increment);
+
 public interface ICompanyService
 {
     Task<CompanyResponse> CreateAsync(CreateCompanyRequest request, CancellationToken cancellationToken);
@@ -185,6 +211,28 @@ public interface IAuditEntryStore
     Task<(IReadOnlyList<AuditEntry> Items, int TotalCount)> QueryAsync(AuditQuery query, CancellationToken cancellationToken);
 }
 
+public interface INumberSequenceStore
+{
+    Task AddAsync(NumberSequence sequence, CancellationToken cancellationToken);
+    Task<NumberSequence?> GetAsync(CompanyId companyId, NumberSequenceId id, CancellationToken cancellationToken);
+    Task<NumberSequence?> GetByCodeAsync(CompanyId companyId, string code, CancellationToken cancellationToken);
+    Task<IReadOnlyList<NumberSequence>> ListAsync(CompanyId companyId, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+    Task<string> ReserveNextAsync(CompanyId companyId, string code, CancellationToken cancellationToken);
+}
+
+public interface INumberSequenceService
+{
+    Task<NumberSequenceResponse> CreateAsync(CreateNumberSequenceRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyList<NumberSequenceResponse>> ListAsync(CancellationToken cancellationToken);
+    Task<NumberSequenceResponse?> GetAsync(NumberSequenceId id, CancellationToken cancellationToken);
+    Task<NumberSequenceResponse?> GetByCodeAsync(string code, CancellationToken cancellationToken);
+    Task<NumberSequenceResponse?> RenameAsync(NumberSequenceId id, RenameNumberSequenceRequest request, CancellationToken cancellationToken);
+    Task<NumberSequenceResponse?> ConfigureAsync(NumberSequenceId id, ConfigureNumberSequenceRequest request, CancellationToken cancellationToken);
+    Task<NumberSequenceResponse?> SetStatusAsync(NumberSequenceId id, bool active, CancellationToken cancellationToken);
+    Task<string> GetNextAsync(string code, CancellationToken cancellationToken);
+}
+
 public interface IRolePermissionService
 {
     Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken);
@@ -215,6 +263,8 @@ public static class Permissions
         public const string CompanyAccessRead = "platform.company-access.read";
         public const string CompanyAccessManage = "platform.company-access.manage";
         public const string AuditRead = "platform.audit.read";
+        public const string NumberSequencesRead = "platform.number-sequences.read";
+        public const string NumberSequencesManage = "platform.number-sequences.manage";
     }
 
     public static class Finance
@@ -234,6 +284,8 @@ public static class Permissions
         (Platform.CompanyAccessRead, "Read company access", "platform", "View user and company access relationships."),
         (Platform.CompanyAccessManage, "Manage company access", "platform", "Grant, revoke, and restore user access to companies."),
         (Platform.AuditRead, "Read audit history", "platform", "View the append-only ERP audit history."),
+        (Platform.NumberSequencesRead, "Read number sequences", "platform", "View company number sequences."),
+        (Platform.NumberSequencesManage, "Manage number sequences", "platform", "Create and configure company number sequences."),
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts.")
     ];
 }
@@ -329,6 +381,7 @@ public static class PlatformModule
         services.AddScoped<IUserCompanyAccessService, UserCompanyAccessService>();
         services.AddScoped<ICompanyAccessAuthorizer, UserCompanyAccessService>();
         services.AddScoped<IAuditTrail, AuditTrailService>();
+        services.AddScoped<INumberSequenceService, NumberSequenceService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

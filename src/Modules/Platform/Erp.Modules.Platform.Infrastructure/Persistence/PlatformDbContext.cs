@@ -15,6 +15,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     public DbSet<RolePermissionEntity> RolePermissions => Set<RolePermissionEntity>();
     public DbSet<UserCompanyAccess> UserCompanyAccesses => Set<UserCompanyAccess>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PlatformDbContext).Assembly)

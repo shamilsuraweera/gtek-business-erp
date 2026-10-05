@@ -402,3 +402,15 @@ Invoke-RestMethod -Method Delete `
 The permission catalogue includes `platform.company-access.read` and
 `platform.company-access.manage`. Permission and company-access changes are
 resolved server-side and therefore affect an already-issued JWT immediately.
+## Number sequences
+
+Number sequences are configured per company. Supply `X-Company-Id` and a token
+with the appropriate platform permission. Management endpoints require
+`platform.number-sequences.manage`; listing and issuing require
+`platform.number-sequences.read`.
+
+`POST /api/v1/number-sequences` creates a sequence. Generated values use
+`prefix + padded number + suffix`, for example `INV-000001`. Use
+`POST /api/v1/number-sequences/{code}/next` to reserve the next value.
+Reservations are transactionally locked in PostgreSQL and safe across multiple
+API instances. Gaps can occur, and reserved values are never reused.

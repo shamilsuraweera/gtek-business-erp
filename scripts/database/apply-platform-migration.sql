@@ -129,6 +129,30 @@ CREATE INDEX IF NOT EXISTS "IX_AuditEntries_Action_OccurredAt"
 CREATE INDEX IF NOT EXISTS "IX_AuditEntries_EntityType_EntityId_OccurredAt"
     ON platform."AuditEntries" ("EntityType", "EntityId", "OccurredAt");
 
+CREATE TABLE IF NOT EXISTS platform."NumberSequences" (
+    "Id" uuid NOT NULL,
+    "CompanyId" uuid NOT NULL,
+    "Code" character varying(100) NOT NULL,
+    "Name" character varying(200) NOT NULL,
+    "Prefix" character varying(50) NOT NULL,
+    "Suffix" character varying(50) NULL,
+    "NextValue" bigint NOT NULL,
+    "Padding" integer NOT NULL,
+    "Increment" bigint NOT NULL,
+    "Status" character varying(20) NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "CreatedBy" uuid NULL,
+    "ModifiedAt" timestamp with time zone NULL,
+    "ModifiedBy" uuid NULL,
+    CONSTRAINT "PK_NumberSequences" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_NumberSequences_Companies_CompanyId"
+        FOREIGN KEY ("CompanyId") REFERENCES platform."Companies" ("Id") ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "IX_NumberSequences_CompanyId_Code"
+    ON platform."NumberSequences" ("CompanyId", "Code");
+CREATE INDEX IF NOT EXISTS "IX_NumberSequences_CompanyId"
+    ON platform."NumberSequences" ("CompanyId");
+
 INSERT INTO platform."Permissions" ("Id", "Code", "Name", "Module", "Description", "CreatedAt")
 VALUES
   (gen_random_uuid(), 'platform.companies.read', 'Read companies', 'platform', 'View companies.', now()),
@@ -141,6 +165,8 @@ VALUES
   (gen_random_uuid(), 'platform.company-access.read', 'Read company access', 'platform', 'View user and company access relationships.', now()),
   (gen_random_uuid(), 'platform.company-access.manage', 'Manage company access', 'platform', 'Grant, revoke, and restore user access to companies.', now()),
   (gen_random_uuid(), 'platform.audit.read', 'Read audit history', 'platform', 'View the append-only ERP audit history.', now()),
+  (gen_random_uuid(), 'platform.number-sequences.read', 'Read number sequences', 'platform', 'View and issue company number sequences.', now()),
+  (gen_random_uuid(), 'platform.number-sequences.manage', 'Manage number sequences', 'platform', 'Create and configure company number sequences.', now()),
   (gen_random_uuid(), 'finance.accounts.read', 'Read finance accounts', 'finance', 'View finance accounts.', now())
 ON CONFLICT ("Code") DO NOTHING;
 

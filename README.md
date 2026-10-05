@@ -1,7 +1,7 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 1.5 platform foundation**. It is an executable API
+currently contains the **Phase 1.6 platform foundation**. It is an executable API
 and domain foundation, not yet a complete ERP application with a user interface
 or full business workflows.
 
@@ -23,6 +23,13 @@ psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
 
 If PostgreSQL asks for a password, enter the password for your local
 `postgres` user.
+
+Phase 1.6 includes company-scoped number sequences. Configure them through
+`/api/v1/number-sequences` with `platform.number-sequences.manage`, then reserve
+numbers through `POST /api/v1/number-sequences/{code}/next` with
+`platform.number-sequences.read`. PostgreSQL row locking makes issuance safe
+across concurrent API instances. Gaps are allowed and reserved values are never
+reused.
 
 The development connection is configured in the ignored
 `src/Host/Erp.Api/appsettings.Development.json` file. Do not commit real
