@@ -101,6 +101,34 @@ CREATE INDEX IF NOT EXISTS "IX_UserCompanyAccess_CompanyId"
 CREATE INDEX IF NOT EXISTS "IX_UserCompanyAccess_CreatedBy"
     ON platform."UserCompanyAccess" ("CreatedBy");
 
+CREATE TABLE IF NOT EXISTS platform."AuditEntries" (
+    "Id" uuid NOT NULL,
+    "OccurredAt" timestamp with time zone NOT NULL,
+    "ActorUserId" uuid NULL,
+    "ActorUserName" character varying(100) NULL,
+    "CompanyId" uuid NULL,
+    "Category" character varying(100) NOT NULL,
+    "Action" character varying(200) NOT NULL,
+    "EntityType" character varying(100) NOT NULL,
+    "EntityId" character varying(200) NULL,
+    "EntityDisplay" character varying(500) NULL,
+    "Outcome" character varying(20) NOT NULL,
+    "CorrelationId" character varying(200) NULL,
+    "IpAddress" character varying(100) NULL,
+    "MetadataJson" character varying(4000) NULL,
+    CONSTRAINT "PK_AuditEntries" PRIMARY KEY ("Id")
+);
+CREATE INDEX IF NOT EXISTS "IX_AuditEntries_OccurredAt"
+    ON platform."AuditEntries" ("OccurredAt");
+CREATE INDEX IF NOT EXISTS "IX_AuditEntries_ActorUserId_OccurredAt"
+    ON platform."AuditEntries" ("ActorUserId", "OccurredAt");
+CREATE INDEX IF NOT EXISTS "IX_AuditEntries_CompanyId_OccurredAt"
+    ON platform."AuditEntries" ("CompanyId", "OccurredAt");
+CREATE INDEX IF NOT EXISTS "IX_AuditEntries_Action_OccurredAt"
+    ON platform."AuditEntries" ("Action", "OccurredAt");
+CREATE INDEX IF NOT EXISTS "IX_AuditEntries_EntityType_EntityId_OccurredAt"
+    ON platform."AuditEntries" ("EntityType", "EntityId", "OccurredAt");
+
 INSERT INTO platform."Permissions" ("Id", "Code", "Name", "Module", "Description", "CreatedAt")
 VALUES
   (gen_random_uuid(), 'platform.companies.read', 'Read companies', 'platform', 'View companies.', now()),
@@ -112,6 +140,7 @@ VALUES
   (gen_random_uuid(), 'platform.permissions.read', 'Read permissions', 'platform', 'View the permission catalogue.', now()),
   (gen_random_uuid(), 'platform.company-access.read', 'Read company access', 'platform', 'View user and company access relationships.', now()),
   (gen_random_uuid(), 'platform.company-access.manage', 'Manage company access', 'platform', 'Grant, revoke, and restore user access to companies.', now()),
+  (gen_random_uuid(), 'platform.audit.read', 'Read audit history', 'platform', 'View the append-only ERP audit history.', now()),
   (gen_random_uuid(), 'finance.accounts.read', 'Read finance accounts', 'finance', 'View finance accounts.', now())
 ON CONFLICT ("Code") DO NOTHING;
 

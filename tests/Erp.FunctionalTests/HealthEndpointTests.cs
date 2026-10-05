@@ -47,11 +47,13 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                     services.RemoveAll<ICompanyStore>();
                     services.RemoveAll<IUserStore>();
                     services.RemoveAll<IRolePermissionStore>();
+                    services.RemoveAll<IAuditEntryStore>();
                     services.AddDbContext<PlatformDbContext>(options =>
                         options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
                     services.AddSingleton<ICompanyStore, InMemoryCompanyStore>();
                     services.AddSingleton<IUserStore, InMemoryUserStore>();
                     services.AddSingleton<IRolePermissionStore, InMemoryUserStore.InMemoryRolePermissionStore>();
+                    services.AddSingleton<IAuditEntryStore, InMemoryAuditEntryStore>();
                     services.AddSingleton<ICompanyAccessAuthorizer, AllowAllCompanyAccessAuthorizer>();
                 });
             }).CreateClient();
@@ -133,6 +135,27 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
+        [Fact]
+        public async Task Audit_query_requires_authentication()
+        {
+            using var response = await _client.GetAsync("/api/v1/audit");
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task Bootstrap_administrator_can_query_audit_history_without_company_context()
+        {
+            await AuthenticateAsync();
+            using var response = await _client.GetAsync("/api/v1/audit?page=1&pageSize=10");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.DoesNotContain("password", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hash", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("jwt", body, StringComparison.OrdinalIgnoreCase);
+        }
+
         private sealed class InMemoryCompanyStore : ICompanyStore
         {
             private readonly List<Company> _companies = [];
@@ -162,6 +185,31 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         {
             public Task<bool> CanAccessCompanyAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken) =>
                 Task.FromResult(true);
+        }
+
+        private sealed class InMemoryAuditEntryStore : IAuditEntryStore
+        {
+            private readonly List<AuditEntry> entries = [];
+
+            public Task AddAsync(AuditEntry entry, CancellationToken cancellationToken)
+            {
+                entries.Add(entry);
+                return Task.CompletedTask;
+            }
+
+            public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+            public Task<(IReadOnlyList<AuditEntry> Items, int TotalCount)> QueryAsync(
+                AuditQuery query,
+                CancellationToken cancellationToken)
+            {
+                var filtered = entries.AsEnumerable();
+                if (query.Category is not null) filtered = filtered.Where(x => x.Category == query.Category);
+                if (query.Action is not null) filtered = filtered.Where(x => x.Action == query.Action);
+                var ordered = filtered.OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Id).ToArray();
+                return Task.FromResult(((IReadOnlyList<AuditEntry>)ordered
+                    .Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToArray(), ordered.Length));
+            }
         }
 
         private sealed class InMemoryUserStore : IUserStore

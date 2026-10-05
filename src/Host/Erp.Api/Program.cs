@@ -49,6 +49,7 @@ app.MapAuthEndpoints();
 app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapPermissionEndpoints();
+app.MapAuditEndpoints();
 app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
     .RequireCompanyContext()
     .RequirePermission(Permissions.Finance.AccountsRead)

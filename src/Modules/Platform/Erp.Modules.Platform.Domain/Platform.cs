@@ -213,6 +213,86 @@ public sealed record CompanyAccessGranted(UserId ActorUserId, UserId TargetUserI
 public sealed record CompanyAccessRevoked(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
 public sealed record CompanyAccessRestored(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
 
+public enum AuditOutcome
+{
+    Succeeded,
+    Failed
+}
+
+public sealed class AuditEntry
+{
+    private AuditEntry()
+    {
+        Category = string.Empty;
+        Action = string.Empty;
+        EntityType = string.Empty;
+    }
+
+    private AuditEntry(
+        Guid id,
+        DateTimeOffset occurredAt,
+        UserId? actorUserId,
+        string? actorUserName,
+        CompanyId? companyId,
+        string category,
+        string action,
+        string entityType,
+        string? entityId,
+        string? entityDisplay,
+        AuditOutcome outcome,
+        string? correlationId,
+        string? ipAddress,
+        string? metadataJson)
+    {
+        Id = id;
+        OccurredAt = occurredAt;
+        ActorUserId = actorUserId;
+        ActorUserName = actorUserName;
+        CompanyId = companyId;
+        Category = category;
+        Action = action;
+        EntityType = entityType;
+        EntityId = entityId;
+        EntityDisplay = entityDisplay;
+        Outcome = outcome;
+        CorrelationId = correlationId;
+        IpAddress = ipAddress;
+        MetadataJson = metadataJson;
+    }
+
+    public Guid Id { get; private set; }
+    public DateTimeOffset OccurredAt { get; private set; }
+    public UserId? ActorUserId { get; private set; }
+    public string? ActorUserName { get; private set; }
+    public CompanyId? CompanyId { get; private set; }
+    public string Category { get; private set; }
+    public string Action { get; private set; }
+    public string EntityType { get; private set; }
+    public string? EntityId { get; private set; }
+    public string? EntityDisplay { get; private set; }
+    public AuditOutcome Outcome { get; private set; }
+    public string? CorrelationId { get; private set; }
+    public string? IpAddress { get; private set; }
+    public string? MetadataJson { get; private set; }
+
+    public static AuditEntry Create(
+        DateTimeOffset occurredAt,
+        UserId? actorUserId,
+        string? actorUserName,
+        CompanyId? companyId,
+        string category,
+        string action,
+        string entityType,
+        string? entityId,
+        string? entityDisplay,
+        AuditOutcome outcome,
+        string? correlationId,
+        string? ipAddress,
+        string? metadataJson) =>
+        new(Guid.NewGuid(), occurredAt, actorUserId, actorUserName, companyId, category, action, entityType,
+            entityId, entityDisplay, outcome, correlationId, ipAddress, metadataJson);
+}
+
 public enum RoleStatus
 {
     Active,

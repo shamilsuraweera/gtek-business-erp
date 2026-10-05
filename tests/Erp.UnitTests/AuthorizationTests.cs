@@ -67,4 +67,40 @@ public sealed class AuthorizationTests
         access.Activate(actor, DateTimeOffset.UtcNow.AddMinutes(2));
         Assert.Equal(UserCompanyAccessStatus.Active, access.Status);
     }
+
+    [Fact]
+    public void Audit_entry_has_no_mutation_or_deletion_operations()
+    {
+        var methods = typeof(AuditEntry).GetMethods(System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static);
+
+        Assert.DoesNotContain(methods, method =>
+            method.Name.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
+            method.Name.Contains("Delete", StringComparison.OrdinalIgnoreCase) ||
+            method.Name.Contains("Edit", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Audit_entry_can_represent_a_system_actor_and_company_free_operation()
+    {
+        var entry = AuditEntry.Create(
+            DateTimeOffset.UtcNow,
+            null,
+            null,
+            null,
+            "Security",
+            "authentication.login.failed",
+            "User",
+            null,
+            null,
+            AuditOutcome.Failed,
+            "correlation",
+            "127.0.0.1",
+            """{"Reason":"Invalid credentials"}""");
+
+        Assert.Null(entry.ActorUserId);
+        Assert.Null(entry.CompanyId);
+        Assert.Equal(AuditOutcome.Failed, entry.Outcome);
+        Assert.DoesNotContain("Password", entry.MetadataJson, StringComparison.OrdinalIgnoreCase);
+    }
 }

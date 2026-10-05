@@ -4,7 +4,7 @@ using Erp.SharedKernel;
 
 namespace Erp.Modules.Platform.Application;
 
-public sealed class UserService(IUserStore store, IRolePermissionStore rolePermissions, IPasswordService passwords, IClock clock) : IUserService
+public sealed class UserService(IUserStore store, IRolePermissionStore rolePermissions, IPasswordService passwords, IClock clock, IAuditTrail audit) : IUserService
 {
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, bool isBootstrapAdministrator, CancellationToken cancellationToken)
     {
@@ -19,6 +19,8 @@ public sealed class UserService(IUserStore store, IRolePermissionStore rolePermi
 
         var user = User.Create(userName, email, clock.UtcNow, isBootstrapAdministrator);
         await store.AddAsync(user, passwords.Hash(request.Password), cancellationToken);
+        await audit.RecordAsync("UserManagement", "user.created", "User", user.Id.Value.ToString(), user.UserName, AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["UserName"] = user.UserName }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         if (isBootstrapAdministrator)
         {
@@ -64,7 +66,14 @@ public sealed class UserService(IUserStore store, IRolePermissionStore rolePermi
         var user = await store.GetByUserNameAsync(normalizedUserName, cancellationToken);
         var hash = user is null ? null : await store.GetPasswordHashAsync(user.Id, cancellationToken);
         if (user is null || hash is null || user.Status != UserStatus.Active || !passwords.Verify(hash, password))
+        {
+            await audit.RecordAsync("Security", "authentication.login.failed", "User", null, null, AuditOutcome.Failed, null, cancellationToken);
+            await audit.SaveAsync(cancellationToken);
             return null;
+        }
+        await audit.RecordAsync("Security", "authentication.login.succeeded", "User", user.Id.Value.ToString(), user.UserName, AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["UserName"] = user.UserName }, cancellationToken);
+        await audit.SaveAsync(cancellationToken);
         return new(user.Id, user.UserName, user.Email, user.IsBootstrapAdministrator);
     }
 
@@ -72,7 +81,11 @@ public sealed class UserService(IUserStore store, IRolePermissionStore rolePermi
     {
         var user = await store.GetByIdAsync(id, cancellationToken);
         if (user is null) return null;
+        var previousStatus = user.Status.ToString();
         change(user);
+        var action = user.Status == UserStatus.Active ? "user.activated" : "user.deactivated";
+        await audit.RecordAsync("UserManagement", action, "User", user.Id.Value.ToString(), user.UserName, AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["PreviousStatus"] = previousStatus, ["NewStatus"] = user.Status.ToString() }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return Map(user);
     }

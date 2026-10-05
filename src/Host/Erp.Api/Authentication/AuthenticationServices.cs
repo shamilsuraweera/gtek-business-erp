@@ -25,6 +25,16 @@ public sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentUse
     public bool IsAuthenticated => accessor.HttpContext?.User.Identity?.IsAuthenticated == true;
 }
 
+public sealed class HttpAuditRequestContext(IHttpContextAccessor accessor) : IAuditRequestContext
+{
+    public string CorrelationId =>
+        accessor.HttpContext?.Request.Headers["X-Correlation-Id"].SingleOrDefault()
+        ?? accessor.HttpContext?.TraceIdentifier
+        ?? "system";
+
+    public string? IpAddress => accessor.HttpContext?.Connection.RemoteIpAddress?.ToString();
+}
+
 public sealed class JwtTokenService(IConfiguration configuration, byte[] signingKey)
 {
     public string CreateToken(AuthenticatedUser user)
@@ -61,6 +71,7 @@ public static class AuthenticationRegistration
     {
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
+        services.AddScoped<IAuditRequestContext, HttpAuditRequestContext>();
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         var signingKey = LoadSigningKey(configuration, environment);

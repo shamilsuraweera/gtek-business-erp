@@ -19,6 +19,12 @@ public interface ICompanyContext
     bool HasCompany { get; }
 }
 
+public interface IAuditRequestContext
+{
+    string CorrelationId { get; }
+    string? IpAddress { get; }
+}
+
 public sealed class SystemClock : IClock
 {
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;

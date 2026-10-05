@@ -17,6 +17,7 @@ public static class PlatformInfrastructure
         services.AddScoped<IUserStore, PlatformUserStore>();
         services.AddScoped<IRolePermissionStore, RolePermissionStore>();
         services.AddScoped<IUserCompanyAccessStore, UserCompanyAccessStore>();
+        services.AddScoped<IAuditEntryStore, AuditEntryStore>();
         services.AddSingleton<IPasswordHasher<object>, PasswordHasher<object>>();
         services.AddSingleton<IPasswordService, AspNetPasswordService>();
         return services;

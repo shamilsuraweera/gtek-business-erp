@@ -2,7 +2,7 @@
 
 ## 1. What this application is
 
-The current release is **Phase 1.4** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.5** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
@@ -13,10 +13,11 @@ technical foundation for a modular monolith:
 - Health checks, problem-details responses, and structured logging
 - Unit, integration, architecture, and functional tests
 
-It is not yet a complete end-user ERP. There is no browser UI or login flow,
-and the current read endpoints intentionally return representative empty
-collections. Phase 1.4 now includes database-backed company management, local
+It is not yet a complete end-user ERP. There is no browser UI; authentication
+is provided through the documented API login endpoint, and current read endpoints intentionally return representative empty
+collections. Phase 1.5 now includes database-backed company management, local
 authentication, policy-based permissions, and explicit user-company access.
+It also records intentional security and administrative audit history.
 
 ## 2. Start the application with local PostgreSQL
 
@@ -166,6 +167,32 @@ http://localhost:5004/openapi/v1.json
 
 This is the machine-readable API document. A Swagger UI is not included in the
 current host configuration.
+
+### Audit history
+
+Phase 1.5 records intentional administrative and security actions in the
+append-only Platform audit table. It covers company, user, role,
+role-permission, user-role, user-company-access, and successful or failed
+authentication actions. Audit history is separate from operational logs and
+financial ledgers.
+
+Users with `platform.audit.read` can query the system-scoped endpoint:
+
+```powershell
+Invoke-RestMethod "http://localhost:5004/api/v1/audit?page=1&pageSize=50" `
+  -Headers @{ Authorization = "Bearer $token" }
+```
+
+Supported filters are `from`, `to`, `actorUserId`, `companyId`, `category`,
+`action`, `entityType`, `entityId`, and `outcome`. Results are newest first,
+default to 50 entries, and accept at most 200 entries per page. The endpoint
+does not require `X-Company-Id`; `companyId` is an explicit filter for
+platform auditors.
+
+Metadata is deliberately limited to safe identifiers and before/after values.
+Passwords, hashes, JWTs, signing keys, connection strings, tokens, and full
+request bodies are never stored. Audit entries have no update or delete use
+case, and no automatic retention purge is enabled.
 
 ## 5. Optional Docker database
 

@@ -30,6 +30,28 @@ public sealed record UserCompanyAccessResponse(
     DateTimeOffset? ModifiedAt,
     Guid? ModifiedBy);
 
+public sealed record AuditEntryResponse(
+    Guid Id,
+    DateTimeOffset OccurredAt,
+    Guid? ActorUserId,
+    string? ActorUserName,
+    Guid? CompanyId,
+    string Category,
+    string Action,
+    string EntityType,
+    string? EntityId,
+    string? EntityDisplay,
+    AuditOutcome Outcome,
+    string? CorrelationId,
+    string? IpAddress,
+    string? MetadataJson);
+
+public sealed record AuditPageResponse(
+    IReadOnlyList<AuditEntryResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
 public interface ICompanyService
 {
     Task<CompanyResponse> CreateAsync(CreateCompanyRequest request, CancellationToken cancellationToken);
@@ -127,6 +149,42 @@ public interface IUserCompanyAccessService
     Task<UserCompanyAccessResponse?> RestoreAsync(UserId actorUserId, UserId targetUserId, CompanyId companyId, CancellationToken cancellationToken);
 }
 
+public interface IAuditTrail
+{
+    Task RecordAsync(
+        string category,
+        string action,
+        string entityType,
+        string? entityId,
+        string? entityDisplay,
+        AuditOutcome outcome,
+        IReadOnlyDictionary<string, object?>? metadata,
+        CancellationToken cancellationToken);
+
+    Task SaveAsync(CancellationToken cancellationToken);
+    Task<AuditPageResponse> QueryAsync(AuditQuery query, CancellationToken cancellationToken);
+}
+
+public sealed record AuditQuery(
+    DateTimeOffset? From,
+    DateTimeOffset? To,
+    Guid? ActorUserId,
+    Guid? CompanyId,
+    string? Category,
+    string? Action,
+    string? EntityType,
+    string? EntityId,
+    AuditOutcome? Outcome,
+    int Page,
+    int PageSize);
+
+public interface IAuditEntryStore
+{
+    Task AddAsync(AuditEntry entry, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+    Task<(IReadOnlyList<AuditEntry> Items, int TotalCount)> QueryAsync(AuditQuery query, CancellationToken cancellationToken);
+}
+
 public interface IRolePermissionService
 {
     Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken);
@@ -156,6 +214,7 @@ public static class Permissions
         public const string PermissionsRead = "platform.permissions.read";
         public const string CompanyAccessRead = "platform.company-access.read";
         public const string CompanyAccessManage = "platform.company-access.manage";
+        public const string AuditRead = "platform.audit.read";
     }
 
     public static class Finance
@@ -174,6 +233,7 @@ public static class Permissions
         (Platform.PermissionsRead, "Read permissions", "platform", "View the permission catalogue."),
         (Platform.CompanyAccessRead, "Read company access", "platform", "View user and company access relationships."),
         (Platform.CompanyAccessManage, "Manage company access", "platform", "Grant, revoke, and restore user access to companies."),
+        (Platform.AuditRead, "Read audit history", "platform", "View the append-only ERP audit history."),
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts.")
     ];
 }
@@ -196,7 +256,7 @@ public sealed class ActiveCompanyContext : ICompanyContext
     }
 }
 
-public sealed class CompanyService(ICompanyStore store, IClock clock) : ICompanyService
+public sealed class CompanyService(ICompanyStore store, IClock clock, IAuditTrail audit) : ICompanyService
 {
     public async Task<CompanyResponse> CreateAsync(CreateCompanyRequest request, CancellationToken cancellationToken)
     {
@@ -206,6 +266,8 @@ public sealed class CompanyService(ICompanyStore store, IClock clock) : ICompany
 
         var company = Company.Create(code, request.Name, clock.UtcNow);
         await store.AddAsync(company, cancellationToken);
+        await audit.RecordAsync("CompanyManagement", "company.created", "Company", company.Id.Value.ToString(), company.Code, AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["CompanyCode"] = company.Code }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return MapRequired(company);
     }
@@ -223,7 +285,10 @@ public sealed class CompanyService(ICompanyStore store, IClock clock) : ICompany
     {
         var company = await store.GetByIdAsync(id, cancellationToken);
         if (company is null) return null;
+        var previousName = company.Name;
         company.Rename(request.Name);
+        await audit.RecordAsync("CompanyManagement", "company.renamed", "Company", company.Id.Value.ToString(), company.Code, AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["PreviousName"] = previousName, ["NewName"] = company.Name }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return MapRequired(company);
     }
@@ -238,7 +303,11 @@ public sealed class CompanyService(ICompanyStore store, IClock clock) : ICompany
     {
         var company = await store.GetByIdAsync(id, cancellationToken);
         if (company is null) return null;
+        var previousStatus = company.Status.ToString();
         change(company);
+        var action = company.Status == CompanyStatus.Active ? "company.activated" : "company.deactivated";
+        await audit.RecordAsync("CompanyManagement", action, "Company", company.Id.Value.ToString(), company.Code, AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["PreviousStatus"] = previousStatus, ["NewStatus"] = company.Status.ToString() }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return MapRequired(company);
     }
@@ -259,6 +328,7 @@ public static class PlatformModule
         services.AddScoped<IRolePermissionService, RolePermissionService>();
         services.AddScoped<IUserCompanyAccessService, UserCompanyAccessService>();
         services.AddScoped<ICompanyAccessAuthorizer, UserCompanyAccessService>();
+        services.AddScoped<IAuditTrail, AuditTrailService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

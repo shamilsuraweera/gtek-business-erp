@@ -1,7 +1,7 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 1.4 platform foundation**. It is an executable API
+currently contains the **Phase 1.5 platform foundation**. It is an executable API
 and domain foundation, not yet a complete ERP application with a user interface
 or full business workflows.
 
@@ -68,7 +68,7 @@ A successful response has HTTP status `200`.
 
 ## Available API functionality
 
-The current API exposes the Phase 1.4 platform endpoints and representative
+The current API exposes the Phase 1.5 platform endpoints and representative
 company-scoped endpoints:
 
 | Method | Endpoint | Current behavior |
@@ -90,6 +90,7 @@ company-scoped endpoints:
 | `POST` | `/api/v1/users/{userId}/companies/{companyId}` | Grants or restores company access |
 | `DELETE` | `/api/v1/users/{userId}/companies/{companyId}` | Revokes company access |
 | `GET` | `/api/v1/companies/{companyId}/users` | Lists users with company access |
+| `GET` | `/api/v1/audit` | Queries append-only audit history with bounded pagination and filters |
 | `GET` | `/openapi/v1.json` | Returns the generated OpenAPI document |
 
 Examples:
@@ -104,9 +105,9 @@ Invoke-RestMethod http://localhost:5004/openapi/v1.json
 There is currently no frontend, finance transaction workflow, or full ERP
 business workflow.
 
-## Domain functionality available in Phase 1.4
+## Domain functionality available in Phase 1.5
 
-Although the API is intentionally small, the solution includes the Phase 1.4
+Although the API is intentionally small, the solution includes the Phase 1.5
 company-management slice and representative domain foundations:
 
 - Platform: `Company`, `User`, `Role`, and `Permission`
@@ -118,6 +119,15 @@ company-management slice and representative domain foundations:
   entries
 - Shared kernel: aggregate roots, domain events, domain exceptions, company
   identifiers, clock abstraction, and company-context abstraction
+- Audit: append-only Platform audit entries for security and administrative
+  operations, queried with `platform.audit.read`
+
+Audit history is not application logging and is not a financial ledger. The
+audit API is system-scoped, so it does not require `X-Company-Id`; use
+`companyId` to filter history for a company. Supported filters include
+`from`, `to`, `actorUserId`, `companyId`, `category`, `action`, `entityType`,
+`entityId`, and `outcome`. Results default to 50 entries and are capped at 200,
+ordered newest first.
 
 The domain tests currently verify balanced journals, rejected unbalanced
 journals, controlled sales-order transitions, immutable posted ledger records,
@@ -138,6 +148,9 @@ dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
 
 The SQL script is idempotent for the initial platform schema. Keep the password
 out of committed files; the environment variable is only a local example.
+It also creates the Phase 1.5 `AuditEntries` table, indexes, and
+`platform.audit.read` permission. The equivalent incremental EF migration is
+`20261005160402_Phase15AuditTrail`.
 
 ### Use Docker PostgreSQL
 
@@ -208,7 +221,7 @@ guide.
 
 ## Authentication and user management
 
-Phase 1.4 includes local JWT authentication, database-backed user management,
+Phase 1.5 includes local JWT authentication, database-backed user management,
 and policy-based roles and permissions.
 Set secrets through environment variables rather than committed configuration:
 
@@ -246,7 +259,7 @@ require `X-Company-Id` and active `UserCompanyAccess`.
 
 ## Current limitations
 
-Phase 1.4 does not yet include:
+Phase 1.5 does not yet include:
 
 - A web frontend
 - Company-specific roles or permissions
@@ -258,12 +271,13 @@ Phase 1.4 does not yet include:
 Do not treat the representative endpoints as a completed ERP feature set.
 ### Roles and permissions
 
-Phase 1.4 uses the server-side permission model and explicit company scope.
+Phase 1.5 uses the server-side permission model and explicit company scope.
 Permissions use stable
 `module.resource.action` codes, roles contain explicit permission assignments,
 and users have global role assignments. The initial catalogue includes
 `platform.companies.*`, `platform.users.*`, `platform.roles.*`,
-`platform.permissions.read`, and `finance.accounts.read`.
+`platform.permissions.read`, `platform.audit.read`, and
+`finance.accounts.read`.
 
 Protected endpoints return `401` for an unauthenticated request and `403` for
 an authenticated user without the declared permission. Permissions are

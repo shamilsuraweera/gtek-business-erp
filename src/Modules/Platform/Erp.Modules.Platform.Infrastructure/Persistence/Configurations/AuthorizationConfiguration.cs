@@ -62,6 +62,36 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
         b.ToTable("RolePermissions", "platform");
     }
 
+    public sealed class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEntry>
+    {
+        public void Configure(EntityTypeBuilder<AuditEntry> b)
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.ActorUserId).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
+            b.Property(x => x.CompanyId).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.CompanyId(x.Value) : null);
+            b.Property(x => x.Category).HasMaxLength(100).IsRequired();
+            b.Property(x => x.Action).HasMaxLength(200).IsRequired();
+            b.Property(x => x.EntityType).HasMaxLength(100).IsRequired();
+            b.Property(x => x.EntityId).HasMaxLength(200);
+            b.Property(x => x.EntityDisplay).HasMaxLength(500);
+            b.Property(x => x.Outcome).HasConversion<string>().HasMaxLength(20).IsRequired();
+            b.Property(x => x.ActorUserName).HasMaxLength(100);
+            b.Property(x => x.CorrelationId).HasMaxLength(200);
+            b.Property(x => x.IpAddress).HasMaxLength(100);
+            b.Property(x => x.MetadataJson).HasMaxLength(4000);
+            b.HasIndex(x => x.OccurredAt);
+            b.HasIndex(x => new { x.ActorUserId, x.OccurredAt });
+            b.HasIndex(x => new { x.CompanyId, x.OccurredAt });
+            b.HasIndex(x => new { x.Action, x.OccurredAt });
+            b.HasIndex(x => new { x.EntityType, x.EntityId, x.OccurredAt });
+            b.ToTable("AuditEntries", "platform");
+        }
+    }
+
     public sealed class UserCompanyAccessConfiguration : IEntityTypeConfiguration<UserCompanyAccess>
     {
         public void Configure(EntityTypeBuilder<UserCompanyAccess> b)

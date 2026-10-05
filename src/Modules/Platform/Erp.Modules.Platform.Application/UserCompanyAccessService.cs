@@ -6,7 +6,8 @@ namespace Erp.Modules.Platform.Application;
 
 public sealed class UserCompanyAccessService(
     IUserCompanyAccessStore store,
-    IClock clock) : IUserCompanyAccessService, ICompanyAccessAuthorizer
+    IClock clock,
+    IAuditTrail audit) : IUserCompanyAccessService, ICompanyAccessAuthorizer
 {
     public Task<bool> CanAccessCompanyAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken) =>
         store.HasActiveAccessAsync(userId, companyId, cancellationToken);
@@ -42,12 +43,18 @@ public sealed class UserCompanyAccessService(
                 throw new InvalidOperationException("The user already has access to this company.");
 
             existing.Activate(actorUserId, clock.UtcNow);
+            await audit.RecordAsync("CompanyAccess", "user.company-access.restored", "UserCompanyAccess",
+                $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
+                new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
             await store.SaveChangesAsync(cancellationToken);
             return MapAccess(existing);
         }
 
         var access = UserCompanyAccess.Create(targetUserId, companyId, actorUserId, clock.UtcNow);
         await store.AddAsync(access, cancellationToken);
+        await audit.RecordAsync("CompanyAccess", "user.company-access.granted", "UserCompanyAccess",
+            $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return MapAccess(access);
     }
@@ -63,6 +70,9 @@ public sealed class UserCompanyAccessService(
             return null;
 
         access.Deactivate(actorUserId, clock.UtcNow);
+        await audit.RecordAsync("CompanyAccess", "user.company-access.revoked", "UserCompanyAccess",
+            $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return MapAccess(access);
     }
@@ -78,6 +88,9 @@ public sealed class UserCompanyAccessService(
             return null;
 
         access.Activate(actorUserId, clock.UtcNow);
+        await audit.RecordAsync("CompanyAccess", "user.company-access.restored", "UserCompanyAccess",
+            $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
+            new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         return MapAccess(access);
     }
