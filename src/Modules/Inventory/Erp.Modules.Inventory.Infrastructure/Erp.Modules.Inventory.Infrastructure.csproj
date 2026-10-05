@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Erp.Modules.Inventory.Domain\Erp.Modules.Inventory.Domain.csproj" />
+    <ProjectReference Include="..\Erp.Modules.Inventory.Application\Erp.Modules.Inventory.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Erp.Infrastructure\Erp.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

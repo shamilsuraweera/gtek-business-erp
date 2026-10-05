@@ -1,0 +1,48 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Erp.Application.Abstractions/Erp.Application.Abstractions.csproj" />
+    <Project Path="src/BuildingBlocks/Erp.Infrastructure/Erp.Infrastructure.csproj" />
+    <Project Path="src/BuildingBlocks/Erp.SharedKernel/Erp.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Host/">
+    <Project Path="src/Host/Erp.Api/Erp.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Finance/">
+    <Project Path="src/Modules/Finance/Erp.Modules.Finance.Application/Erp.Modules.Finance.Application.csproj" />
+    <Project Path="src/Modules/Finance/Erp.Modules.Finance.Contracts/Erp.Modules.Finance.Contracts.csproj" />
+    <Project Path="src/Modules/Finance/Erp.Modules.Finance.Domain/Erp.Modules.Finance.Domain.csproj" />
+    <Project Path="src/Modules/Finance/Erp.Modules.Finance.Infrastructure/Erp.Modules.Finance.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Inventory/">
+    <Project Path="src/Modules/Inventory/Erp.Modules.Inventory.Application/Erp.Modules.Inventory.Application.csproj" />
+    <Project Path="src/Modules/Inventory/Erp.Modules.Inventory.Contracts/Erp.Modules.Inventory.Contracts.csproj" />
+    <Project Path="src/Modules/Inventory/Erp.Modules.Inventory.Domain/Erp.Modules.Inventory.Domain.csproj" />
+    <Project Path="src/Modules/Inventory/Erp.Modules.Inventory.Infrastructure/Erp.Modules.Inventory.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Platform/">
+    <Project Path="src/Modules/Platform/Erp.Modules.Platform.Application/Erp.Modules.Platform.Application.csproj" />
+    <Project Path="src/Modules/Platform/Erp.Modules.Platform.Contracts/Erp.Modules.Platform.Contracts.csproj" />
+    <Project Path="src/Modules/Platform/Erp.Modules.Platform.Domain/Erp.Modules.Platform.Domain.csproj" />
+    <Project Path="src/Modules/Platform/Erp.Modules.Platform.Infrastructure/Erp.Modules.Platform.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Purchasing/">
+    <Project Path="src/Modules/Purchasing/Erp.Modules.Purchasing.Application/Erp.Modules.Purchasing.Application.csproj" />
+    <Project Path="src/Modules/Purchasing/Erp.Modules.Purchasing.Contracts/Erp.Modules.Purchasing.Contracts.csproj" />
+    <Project Path="src/Modules/Purchasing/Erp.Modules.Purchasing.Domain/Erp.Modules.Purchasing.Domain.csproj" />
+    <Project Path="src/Modules/Purchasing/Erp.Modules.Purchasing.Infrastructure/Erp.Modules.Purchasing.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Sales/">
+    <Project Path="src/Modules/Sales/Erp.Modules.Sales.Application/Erp.Modules.Sales.Application.csproj" />
+    <Project Path="src/Modules/Sales/Erp.Modules.Sales.Contracts/Erp.Modules.Sales.Contracts.csproj" />
+    <Project Path="src/Modules/Sales/Erp.Modules.Sales.Domain/Erp.Modules.Sales.Domain.csproj" />
+    <Project Path="src/Modules/Sales/Erp.Modules.Sales.Infrastructure/Erp.Modules.Sales.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Erp.ArchitectureTests/Erp.ArchitectureTests.csproj" />
+    <Project Path="tests/Erp.FunctionalTests/Erp.FunctionalTests.csproj" />
+    <Project Path="tests/Erp.IntegrationTests/Erp.IntegrationTests.csproj" />
+    <Project Path="tests/Erp.UnitTests/Erp.UnitTests.csproj" />
+  </Folder>
+</Solution>
