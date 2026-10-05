@@ -54,6 +54,18 @@ public readonly record struct UserId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
+public readonly record struct RoleId(Guid Value)
+{
+    public static RoleId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
+public readonly record struct PermissionId(Guid Value)
+{
+    public static PermissionId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
 public sealed record AuditMetadata(
     DateTimeOffset CreatedAt,
     UserId CreatedBy,

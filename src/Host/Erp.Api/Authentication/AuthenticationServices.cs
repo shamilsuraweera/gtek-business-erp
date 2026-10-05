@@ -6,6 +6,7 @@ using Erp.Modules.Platform.Application;
 using Erp.SharedKernel;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Erp.Api.Authentication;
 
@@ -60,6 +61,8 @@ public static class AuthenticationRegistration
     {
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
+        services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+        services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         var signingKey = LoadSigningKey(configuration, environment);
         services.AddSingleton(signingKey);
         services.AddSingleton<JwtTokenService>();
@@ -83,9 +86,7 @@ public static class AuthenticationRegistration
                     RoleClaimType = "bootstrap_admin"
                 };
             });
-        services.AddAuthorizationBuilder()
-            .AddPolicy("PlatformAdministrator", policy =>
-                policy.RequireAuthenticatedUser().RequireClaim("bootstrap_admin", "true"));
+        services.AddAuthorizationBuilder();
         return services;
     }
 

@@ -1,4 +1,5 @@
 using Erp.Modules.Platform.Application;
+using Erp.Api.Authentication;
 using Erp.SharedKernel;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -8,43 +9,43 @@ public static class CompanyEndpoints
 {
     public static IEndpointRouteBuilder MapCompanyEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/v1/companies").WithTags("Companies").RequireAuthorization("PlatformAdministrator");
+        var group = endpoints.MapGroup("/api/v1/companies").WithTags("Companies");
 
         group.MapPost("/", async (CreateCompanyRequest request, ICompanyService service, CancellationToken cancellationToken) =>
         {
             var response = await service.CreateAsync(request, cancellationToken);
             return TypedResults.Created($"/api/v1/companies/{response.Id}", response);
-        }).WithSummary("Create a company").WithMetadata(new SystemEndpointMetadata());
+        }).RequirePermission(Permissions.Platform.CompaniesManage).WithSummary("Create a company").WithMetadata(new SystemEndpointMetadata());
 
         group.MapGet("/", async (ICompanyService service, CancellationToken cancellationToken) =>
             TypedResults.Ok(await service.ListAsync(cancellationToken)))
-            .WithSummary("List companies").WithMetadata(new SystemEndpointMetadata());
+            .RequirePermission(Permissions.Platform.CompaniesRead).WithSummary("List companies").WithMetadata(new SystemEndpointMetadata());
 
         group.MapGet("/{id:guid}", async Task<Results<Ok<CompanyResponse>, NotFound>> (
             Guid id, ICompanyService service, CancellationToken cancellationToken) =>
         {
             var response = await service.GetByIdAsync(new CompanyId(id), cancellationToken);
             return response is null ? TypedResults.NotFound() : TypedResults.Ok(response);
-        }).WithSummary("Get a company").WithMetadata(new SystemEndpointMetadata());
+        }).RequirePermission(Permissions.Platform.CompaniesRead).WithSummary("Get a company").WithMetadata(new SystemEndpointMetadata());
 
         group.MapGet("/by-code/{code}", async Task<Results<Ok<CompanyResponse>, NotFound>> (
             string code, ICompanyService service, CancellationToken cancellationToken) =>
         {
             var response = await service.GetByCodeAsync(code, cancellationToken);
             return response is null ? TypedResults.NotFound() : TypedResults.Ok(response);
-        }).WithSummary("Get a company by code").WithMetadata(new SystemEndpointMetadata());
+        }).RequirePermission(Permissions.Platform.CompaniesRead).WithSummary("Get a company by code").WithMetadata(new SystemEndpointMetadata());
 
         group.MapPut("/{id:guid}/name", async Task<Results<Ok<CompanyResponse>, NotFound>> (
             Guid id, RenameCompanyRequest request, ICompanyService service, CancellationToken cancellationToken) =>
         {
             var response = await service.RenameAsync(new CompanyId(id), request, cancellationToken);
             return response is null ? TypedResults.NotFound() : TypedResults.Ok(response);
-        }).WithSummary("Rename a company").WithMetadata(new SystemEndpointMetadata());
+        }).RequirePermission(Permissions.Platform.CompaniesManage).WithSummary("Rename a company").WithMetadata(new SystemEndpointMetadata());
 
         group.MapPost("/{id:guid}/activate", ChangeStatus(activate: true))
-            .WithSummary("Activate a company").WithMetadata(new SystemEndpointMetadata());
+            .RequirePermission(Permissions.Platform.CompaniesManage).WithSummary("Activate a company").WithMetadata(new SystemEndpointMetadata());
         group.MapPost("/{id:guid}/deactivate", ChangeStatus(activate: false))
-            .WithSummary("Deactivate a company").WithMetadata(new SystemEndpointMetadata());
+            .RequirePermission(Permissions.Platform.CompaniesManage).WithSummary("Deactivate a company").WithMetadata(new SystemEndpointMetadata());
 
         return endpoints;
     }

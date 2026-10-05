@@ -1,7 +1,7 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 1.2 platform foundation**. It is an executable API
+currently contains the **Phase 1.3 platform foundation**. It is an executable API
 and domain foundation, not yet a complete ERP application with a user interface
 or full business workflows.
 
@@ -68,7 +68,7 @@ A successful response has HTTP status `200`.
 
 ## Available API functionality
 
-The current API exposes the Phase 1.2 platform endpoints and representative
+The current API exposes the Phase 1.3 platform endpoints and representative
 company-scoped endpoints:
 
 | Method | Endpoint | Current behavior |
@@ -99,9 +99,9 @@ Invoke-RestMethod http://localhost:5004/openapi/v1.json
 There is currently no frontend, login screen, authentication, user-management
 endpoint, or finance transaction workflow.
 
-## Domain functionality available in Phase 1.2
+## Domain functionality available in Phase 1.3
 
-Although the API is intentionally small, the solution includes the Phase 1.2
+Although the API is intentionally small, the solution includes the Phase 1.3
 company-management slice and representative domain foundations:
 
 - Platform: `Company`, `User`, `Role`, and `Permission`
@@ -203,7 +203,8 @@ guide.
 
 ## Authentication and user management
 
-Phase 1.2 adds local JWT authentication and database-backed user management.
+Phase 1.3 includes local JWT authentication, database-backed user management,
+and policy-based roles and permissions.
 Set secrets through environment variables rather than committed configuration:
 
 ```powershell
@@ -240,7 +241,7 @@ still require `X-Company-Id`.
 
 ## Current limitations
 
-Phase 1.2 does not yet include:
+Phase 1.3 does not yet include:
 
 - A web frontend
 - Roles, permissions, or user-company access assignment
@@ -250,3 +251,17 @@ Phase 1.2 does not yet include:
 - Reporting, integrations, or production deployment configuration
 
 Do not treat the representative endpoints as a completed ERP feature set.
+### Roles and permissions
+
+Phase 1.3 replaces the temporary bootstrap authorization shortcut with a
+server-side permission model. Permissions use stable
+`module.resource.action` codes, roles contain explicit permission assignments,
+and users have global role assignments. The initial catalogue includes
+`platform.companies.*`, `platform.users.*`, `platform.roles.*`,
+`platform.permissions.read`, and `finance.accounts.read`.
+
+Protected endpoints return `401` for an unauthenticated request and `403` for
+an authenticated user without the declared permission. Permissions are
+resolved from PostgreSQL at request time and are not copied into JWTs.
+Company access is intentionally not part of Phase 1.3; it is a Phase 1.4
+boundary.

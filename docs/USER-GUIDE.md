@@ -2,7 +2,7 @@
 
 ## 1. What this application is
 
-The current release is **Phase 1.2** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.3** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
@@ -15,7 +15,7 @@ technical foundation for a modular monolith:
 
 It is not yet a complete end-user ERP. There is no browser UI or login flow,
 and the current read endpoints intentionally return representative empty
-collections. Phase 1.2 now includes database-backed company management and
+collections. Phase 1.3 now includes database-backed company management,
 local authentication.
 
 ## 2. Start the application with local PostgreSQL
@@ -333,4 +333,26 @@ Use the HTTP URL while developing:
 http://localhost:5004
 ```
 
-HTTPS is optional for local Phase 1.2 development.
+HTTPS is optional for local Phase 1.3 development.
+## Roles and permissions
+
+Users receive global roles, and roles receive explicit permissions. Permission
+codes follow `module.resource.action`, for example
+`finance.accounts.read`. Use the role and permission endpoints to inspect and
+manage assignments:
+
+- `GET /api/v1/permissions`
+- `GET|POST /api/v1/roles`
+- `GET /api/v1/roles/{id}/permissions`
+- `POST|DELETE /api/v1/roles/{id}/permissions/{permissionCode}`
+- `GET /api/v1/users/{userId}/roles`
+- `POST|DELETE /api/v1/users/{userId}/roles/{roleId}`
+
+`SYSTEM_ADMIN` is created with explicit rows for the current permission
+catalogue and is assigned to the first bootstrap administrator. The JWT
+contains identity, not permissions; changing a role or permission takes effect
+without issuing a new token. Inactive users and roles do not authorize access.
+
+Authorization is separate from company selection. Phase 1.3 role assignments
+are global; user-company access and company-specific roles are deferred to
+Phase 1.4.

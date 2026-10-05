@@ -15,6 +15,7 @@ public static class PlatformInfrastructure
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<ICompanyStore, PlatformCompanyStore>();
         services.AddScoped<IUserStore, PlatformUserStore>();
+        services.AddScoped<IRolePermissionStore, RolePermissionStore>();
         services.AddSingleton<IPasswordHasher<object>, PasswordHasher<object>>();
         services.AddSingleton<IPasswordService, AspNetPasswordService>();
         return services;

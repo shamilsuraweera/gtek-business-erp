@@ -4,7 +4,7 @@ using Erp.SharedKernel;
 
 namespace Erp.Modules.Platform.Application;
 
-public sealed class UserService(IUserStore store, IPasswordService passwords, IClock clock) : IUserService
+public sealed class UserService(IUserStore store, IRolePermissionStore rolePermissions, IPasswordService passwords, IClock clock) : IUserService
 {
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, bool isBootstrapAdministrator, CancellationToken cancellationToken)
     {
@@ -20,6 +20,12 @@ public sealed class UserService(IUserStore store, IPasswordService passwords, IC
         var user = User.Create(userName, email, clock.UtcNow, isBootstrapAdministrator);
         await store.AddAsync(user, passwords.Hash(request.Password), cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        if (isBootstrapAdministrator)
+        {
+            await rolePermissions.EnsurePermissionCatalogueAsync(cancellationToken);
+            await rolePermissions.EnsureSystemAdministratorAsync(user.Id, cancellationToken);
+            await rolePermissions.SaveChangesAsync(cancellationToken);
+        }
         return Map(user);
     }
 

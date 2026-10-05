@@ -17,6 +17,10 @@ public sealed record CreateCompanyRequest(string Code, string Name);
 public sealed record RenameCompanyRequest(string Name);
 public sealed record UserResponse(Guid Id, string UserName, string Email, UserStatus Status, DateTimeOffset CreatedAt, DateTimeOffset? ModifiedAt);
 public sealed record CreateUserRequest(string UserName, string Email, string Password);
+public sealed record RoleResponse(Guid Id, string Code, string Name, string? Description, RoleStatus Status, bool IsSystem, DateTimeOffset CreatedAt, DateTimeOffset? ModifiedAt);
+public sealed record CreateRoleRequest(string Code, string Name, string? Description);
+public sealed record RenameRoleRequest(string Name);
+public sealed record PermissionResponse(Guid Id, string Code, string Name, string Module, string? Description);
 
 public interface ICompanyService
 {
@@ -64,6 +68,76 @@ public interface IUserStore
     Task<string?> GetPasswordHashAsync(UserId id, CancellationToken cancellationToken);
     Task SaveChangesAsync(CancellationToken cancellationToken);
     Task<bool> HasUsersAsync(CancellationToken cancellationToken);
+}
+
+public interface IRolePermissionStore
+{
+    Task<IReadOnlyList<Role>> ListRolesAsync(CancellationToken cancellationToken);
+    Task<Role?> GetRoleAsync(RoleId id, CancellationToken cancellationToken);
+    Task<Role?> GetRoleByCodeAsync(string code, CancellationToken cancellationToken);
+    Task<bool> RoleCodeExistsAsync(string code, CancellationToken cancellationToken);
+    Task AddRoleAsync(Role role, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Permission>> ListPermissionsAsync(CancellationToken cancellationToken);
+    Task<Permission?> GetPermissionByCodeAsync(string code, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Permission>> ListRolePermissionsAsync(RoleId roleId, CancellationToken cancellationToken);
+    Task<bool> HasRolePermissionAsync(RoleId roleId, PermissionId permissionId, CancellationToken cancellationToken);
+    Task AddRolePermissionAsync(RoleId roleId, PermissionId permissionId, CancellationToken cancellationToken);
+    Task RemoveRolePermissionAsync(RoleId roleId, PermissionId permissionId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Role>> ListUserRolesAsync(UserId userId, CancellationToken cancellationToken);
+    Task<bool> HasUserRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
+    Task AddUserRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
+    Task RemoveUserRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
+    Task<bool> UserHasPermissionAsync(UserId userId, string permissionCode, CancellationToken cancellationToken);
+    Task EnsurePermissionCatalogueAsync(CancellationToken cancellationToken);
+    Task EnsureSystemAdministratorAsync(UserId userId, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public interface IRolePermissionService
+{
+    Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyList<RoleResponse>> ListRolesAsync(CancellationToken cancellationToken);
+    Task<RoleResponse?> GetRoleAsync(RoleId id, CancellationToken cancellationToken);
+    Task<RoleResponse?> RenameRoleAsync(RoleId id, RenameRoleRequest request, CancellationToken cancellationToken);
+    Task<RoleResponse?> SetRoleStatusAsync(RoleId id, bool active, CancellationToken cancellationToken);
+    Task<IReadOnlyList<PermissionResponse>> ListPermissionsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<PermissionResponse>?> ListRolePermissionsAsync(RoleId roleId, CancellationToken cancellationToken);
+    Task<bool> AssignPermissionAsync(RoleId roleId, string permissionCode, CancellationToken cancellationToken);
+    Task<bool> RemovePermissionAsync(RoleId roleId, string permissionCode, CancellationToken cancellationToken);
+    Task<IReadOnlyList<RoleResponse>?> ListUserRolesAsync(UserId userId, CancellationToken cancellationToken);
+    Task<bool> AssignRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
+    Task<bool> RemoveRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
+}
+
+public static class Permissions
+{
+    public static class Platform
+    {
+        public const string CompaniesRead = "platform.companies.read";
+        public const string CompaniesManage = "platform.companies.manage";
+        public const string UsersRead = "platform.users.read";
+        public const string UsersManage = "platform.users.manage";
+        public const string RolesRead = "platform.roles.read";
+        public const string RolesManage = "platform.roles.manage";
+        public const string PermissionsRead = "platform.permissions.read";
+    }
+
+    public static class Finance
+    {
+        public const string AccountsRead = "finance.accounts.read";
+    }
+
+    public static readonly IReadOnlyList<(string Code, string Name, string Module, string Description)> Catalogue =
+    [
+        (Platform.CompaniesRead, "Read companies", "platform", "View companies."),
+        (Platform.CompaniesManage, "Manage companies", "platform", "Create and manage companies."),
+        (Platform.UsersRead, "Read users", "platform", "View users."),
+        (Platform.UsersManage, "Manage users", "platform", "Create and manage users and role assignments."),
+        (Platform.RolesRead, "Read roles", "platform", "View roles."),
+        (Platform.RolesManage, "Manage roles", "platform", "Create and manage roles and assignments."),
+        (Platform.PermissionsRead, "Read permissions", "platform", "View the permission catalogue."),
+        (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts.")
+    ];
 }
 
 public interface IPasswordService
@@ -144,6 +218,7 @@ public static class PlatformModule
     {
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IRolePermissionService, RolePermissionService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

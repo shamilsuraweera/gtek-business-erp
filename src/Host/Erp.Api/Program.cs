@@ -47,8 +47,11 @@ app.MapHealthChecks("/api/v1/health").WithMetadata(new SystemEndpointMetadata())
 app.MapCompanyEndpoints();
 app.MapAuthEndpoints();
 app.MapUserEndpoints();
+app.MapRoleEndpoints();
+app.MapPermissionEndpoints();
 app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
     .RequireCompanyContext()
+    .RequirePermission(Permissions.Finance.AccountsRead)
     .WithSummary("List finance accounts")
     .WithDescription("Representative company-scoped finance endpoint.")
     .Produces<object[]>(StatusCodes.Status200OK);

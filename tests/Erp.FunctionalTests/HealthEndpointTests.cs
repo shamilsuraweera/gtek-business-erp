@@ -14,6 +14,7 @@ using System.Text.Json;
 
 namespace Erp.FunctionalTests;
 
+[Collection("Functional API")]
 public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly HttpClient _client;
@@ -28,6 +29,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.True(response.IsSuccessStatusCode);
     }
 
+    [Collection("Functional API")]
     public sealed class CompanyEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     {
         private readonly HttpClient _client;
@@ -44,10 +46,12 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                     services.RemoveAll<PlatformDbContext>();
                     services.RemoveAll<ICompanyStore>();
                     services.RemoveAll<IUserStore>();
+                    services.RemoveAll<IRolePermissionStore>();
                     services.AddDbContext<PlatformDbContext>(options =>
                         options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
                     services.AddSingleton<ICompanyStore, InMemoryCompanyStore>();
                     services.AddSingleton<IUserStore, InMemoryUserStore>();
+                    services.AddSingleton<IRolePermissionStore, InMemoryUserStore.InMemoryRolePermissionStore>();
                 });
             }).CreateClient();
         }
@@ -165,6 +169,47 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 return Task.CompletedTask;
             }
 
+            public sealed class InMemoryRolePermissionStore : IRolePermissionStore
+            {
+                private readonly List<Role> roles = [];
+                private readonly List<Permission> permissions = [];
+                private readonly HashSet<(UserId User, RoleId Role)> userRoles = [];
+                private readonly HashSet<(RoleId Role, PermissionId Permission)> rolePermissions = [];
+
+                public Task<IReadOnlyList<Role>> ListRolesAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<Role>>(roles.ToArray());
+                public Task<Role?> GetRoleAsync(RoleId id, CancellationToken ct) => Task.FromResult(roles.SingleOrDefault(x => x.Id == id));
+                public Task<Role?> GetRoleByCodeAsync(string code, CancellationToken ct) => Task.FromResult(roles.SingleOrDefault(x => x.Code == code));
+                public Task<bool> RoleCodeExistsAsync(string code, CancellationToken ct) => Task.FromResult(roles.Any(x => x.Code == code));
+                public Task AddRoleAsync(Role role, CancellationToken ct) { roles.Add(role); return Task.CompletedTask; }
+                public Task<IReadOnlyList<Permission>> ListPermissionsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<Permission>>(permissions.ToArray());
+                public Task<Permission?> GetPermissionByCodeAsync(string code, CancellationToken ct) => Task.FromResult(permissions.SingleOrDefault(x => x.Code == code));
+                public Task<IReadOnlyList<Permission>> ListRolePermissionsAsync(RoleId roleId, CancellationToken ct) => Task.FromResult<IReadOnlyList<Permission>>(permissions.Where(p => rolePermissions.Contains((roleId, p.Id))).ToArray());
+                public Task<bool> HasRolePermissionAsync(RoleId roleId, PermissionId permissionId, CancellationToken ct) => Task.FromResult(rolePermissions.Contains((roleId, permissionId)));
+                public Task AddRolePermissionAsync(RoleId roleId, PermissionId permissionId, CancellationToken ct) { rolePermissions.Add((roleId, permissionId)); return Task.CompletedTask; }
+                public Task RemoveRolePermissionAsync(RoleId roleId, PermissionId permissionId, CancellationToken ct) { rolePermissions.Remove((roleId, permissionId)); return Task.CompletedTask; }
+                public Task<IReadOnlyList<Role>> ListUserRolesAsync(UserId userId, CancellationToken ct) => Task.FromResult<IReadOnlyList<Role>>(roles.Where(r => userRoles.Contains((userId, r.Id))).ToArray());
+                public Task<bool> HasUserRoleAsync(UserId userId, RoleId roleId, CancellationToken ct) => Task.FromResult(userRoles.Contains((userId, roleId)));
+                public Task AddUserRoleAsync(UserId userId, RoleId roleId, CancellationToken ct) { userRoles.Add((userId, roleId)); return Task.CompletedTask; }
+                public Task RemoveUserRoleAsync(UserId userId, RoleId roleId, CancellationToken ct) { userRoles.Remove((userId, roleId)); return Task.CompletedTask; }
+                public Task<bool> UserHasPermissionAsync(UserId userId, string code, CancellationToken ct) =>
+                    Task.FromResult(ListUserRolesAsync(userId, ct).Result.Any(r => r.Status == RoleStatus.Active && permissions.Where(p => p.Code == code).Any(p => rolePermissions.Contains((r.Id, p.Id)))));
+                public Task EnsurePermissionCatalogueAsync(CancellationToken ct)
+                {
+                    foreach (var item in Permissions.Catalogue.Where(item => permissions.All(p => p.Code != item.Code)))
+                        permissions.Add(Permission.Create(item.Code, item.Name, item.Module, item.Description, DateTimeOffset.UtcNow));
+                    return Task.CompletedTask;
+                }
+                public async Task EnsureSystemAdministratorAsync(UserId userId, CancellationToken ct)
+                {
+                    var role = roles.SingleOrDefault(r => r.Code == "SYSTEM_ADMIN") ?? Role.Create("SYSTEM_ADMIN", "System Administrator", null, true, DateTimeOffset.UtcNow);
+                    if (!roles.Contains(role)) roles.Add(role);
+                    foreach (var permission in permissions) rolePermissions.Add((role.Id, permission.Id));
+                    userRoles.Add((userId, role.Id));
+                    await Task.CompletedTask;
+                }
+                public Task SaveChangesAsync(CancellationToken ct) => Task.CompletedTask;
+            }
+
             public Task<IReadOnlyList<User>> ListAsync(CancellationToken cancellationToken) =>
                 Task.FromResult<IReadOnlyList<User>>(users.OrderBy(user => user.UserName).ToArray());
 
@@ -189,4 +234,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 Task.FromResult(users.Count != 0);
         }
     }
+
+    [CollectionDefinition("Functional API", DisableParallelization = true)]
+    public sealed class FunctionalApiCollection;
 }
