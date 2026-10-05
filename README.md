@@ -1,7 +1,7 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 1.1 platform foundation**. It is an executable API
+currently contains the **Phase 1.2 platform foundation**. It is an executable API
 and domain foundation, not yet a complete ERP application with a user interface
 or full business workflows.
 
@@ -68,7 +68,7 @@ A successful response has HTTP status `200`.
 
 ## Available API functionality
 
-The current API exposes the Phase 1.1 platform endpoints and representative
+The current API exposes the Phase 1.2 platform endpoints and representative
 company-scoped endpoints:
 
 | Method | Endpoint | Current behavior |
@@ -82,6 +82,9 @@ company-scoped endpoints:
 | `POST` | `/api/v1/companies/{id}/activate` | Activates a company |
 | `POST` | `/api/v1/companies/{id}/deactivate` | Deactivates a company |
 | `GET` | `/api/v1/finance/accounts` | Representative company-scoped endpoint |
+| `POST` | `/api/v1/auth/login` | Authenticates a user and returns a JWT |
+| `GET` | `/api/v1/auth/me` | Returns the authenticated user |
+| `GET` | `/api/v1/users` | Lists users for a bootstrap administrator |
 | `GET` | `/openapi/v1.json` | Returns the generated OpenAPI document |
 
 Examples:
@@ -96,9 +99,9 @@ Invoke-RestMethod http://localhost:5004/openapi/v1.json
 There is currently no frontend, login screen, authentication, user-management
 endpoint, or finance transaction workflow.
 
-## Domain functionality available in Phase 1.1
+## Domain functionality available in Phase 1.2
 
-Although the API is intentionally small, the solution includes the Phase 1.1
+Although the API is intentionally small, the solution includes the Phase 1.2
 company-management slice and representative domain foundations:
 
 - Platform: `Company`, `User`, `Role`, and `Permission`
@@ -198,13 +201,49 @@ for the complete Phases 1–12 roadmap and
 [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for the detailed operator/developer
 guide.
 
+## Authentication and user management
+
+Phase 1.2 adds local JWT authentication and database-backed user management.
+Set secrets through environment variables rather than committed configuration:
+
+```powershell
+$env:Authentication__BootstrapSecret = "operator-supplied-bootstrap-secret"
+$env:Authentication__Jwt__SigningKey = "<base64-encoded-32-byte-key>"
+dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
+```
+
+In Development, the API can generate an ephemeral signing key when one is not
+configured. Configure a persistent key for any environment where tokens must
+survive restarts. Create the first user once:
+
+```powershell
+$body = '{"userName":"admin","email":"admin@example.com","password":"use-a-long-unique-password"}'
+curl.exe -X POST http://localhost:5004/api/v1/users `
+  -H "Content-Type: application/json" `
+  -H "X-Bootstrap-Secret: $env:Authentication__BootstrapSecret" `
+  -d $body
+```
+
+Then log in and call the authenticated user endpoint:
+
+```powershell
+$login = curl.exe -s -X POST http://localhost:5004/api/v1/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{"userName":"admin","password":"use-a-long-unique-password"}' | ConvertFrom-Json
+curl.exe http://localhost:5004/api/v1/auth/me -H "Authorization: Bearer $($login.accessToken)"
+```
+
+`GET /api/v1/users`, user lifecycle endpoints, and company-management
+endpoints require the temporary bootstrap-administrator boundary. The
+authentication identity does not select a company; company-scoped requests
+still require `X-Company-Id`.
+
 ## Current limitations
 
-Phase 1.1 does not yet include:
+Phase 1.2 does not yet include:
 
 - A web frontend
-- Authentication or authorization
-- User/company administration screens
+- Roles, permissions, or user-company access assignment
 - Database-backed finance account queries
 - Journal-posting API endpoints
 - Sales, purchasing, inventory, invoicing, or payment workflows

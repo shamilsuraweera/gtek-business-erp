@@ -9,8 +9,8 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     {
         var (status, title) = exception switch
         {
-            DomainException => (StatusCodes.Status400BadRequest, "Invalid company data"),
-            InvalidOperationException => (StatusCodes.Status409Conflict, "Company conflict"),
+            DomainException => (StatusCodes.Status400BadRequest, "Invalid request data"),
+            InvalidOperationException => (StatusCodes.Status409Conflict, "Request conflict"),
             _ => (0, string.Empty)
         };
 

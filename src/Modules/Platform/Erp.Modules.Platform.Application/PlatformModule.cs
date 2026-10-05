@@ -15,6 +15,8 @@ public sealed record CompanyResponse(
 
 public sealed record CreateCompanyRequest(string Code, string Name);
 public sealed record RenameCompanyRequest(string Name);
+public sealed record UserResponse(Guid Id, string UserName, string Email, UserStatus Status, DateTimeOffset CreatedAt, DateTimeOffset? ModifiedAt);
+public sealed record CreateUserRequest(string UserName, string Email, string Password);
 
 public interface ICompanyService
 {
@@ -35,6 +37,39 @@ public interface ICompanyStore
     Task<Company?> GetByCodeAsync(string code, CancellationToken cancellationToken);
     Task<bool> ExistsByCodeAsync(string code, CancellationToken cancellationToken);
     Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public interface IUserService
+{
+    Task<UserResponse> CreateAsync(CreateUserRequest request, bool isBootstrapAdministrator, CancellationToken cancellationToken);
+    Task<IReadOnlyList<UserResponse>> ListAsync(CancellationToken cancellationToken);
+    Task<UserResponse?> GetByIdAsync(UserId id, CancellationToken cancellationToken);
+    Task<UserResponse?> GetByUserNameAsync(string userName, CancellationToken cancellationToken);
+    Task<UserResponse?> ActivateAsync(UserId id, CancellationToken cancellationToken);
+    Task<UserResponse?> DeactivateAsync(UserId id, CancellationToken cancellationToken);
+    Task<bool> HasUsersAsync(CancellationToken cancellationToken);
+    Task<AuthenticatedUser?> AuthenticateAsync(string userName, string password, CancellationToken cancellationToken);
+}
+
+public sealed record AuthenticatedUser(UserId Id, string UserName, string Email, bool IsBootstrapAdministrator);
+
+public interface IUserStore
+{
+    Task AddAsync(User user, string passwordHash, CancellationToken cancellationToken);
+    Task<IReadOnlyList<User>> ListAsync(CancellationToken cancellationToken);
+    Task<User?> GetByIdAsync(UserId id, CancellationToken cancellationToken);
+    Task<User?> GetByUserNameAsync(string userName, CancellationToken cancellationToken);
+    Task<bool> ExistsByUserNameAsync(string userName, CancellationToken cancellationToken);
+    Task<bool> ExistsByEmailAsync(string email, CancellationToken cancellationToken);
+    Task<string?> GetPasswordHashAsync(UserId id, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+    Task<bool> HasUsersAsync(CancellationToken cancellationToken);
+}
+
+public interface IPasswordService
+{
+    string Hash(string password);
+    bool Verify(string passwordHash, string password);
 }
 
 public sealed class ActiveCompanyContext : ICompanyContext
@@ -108,6 +143,7 @@ public static class PlatformModule
     public static IServiceCollection AddPlatformModule(this IServiceCollection services)
     {
         services.AddScoped<ICompanyService, CompanyService>();
+        services.AddScoped<IUserService, UserService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

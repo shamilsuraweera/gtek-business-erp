@@ -11,6 +11,7 @@ using Erp.Modules.Sales.Application;
 using Erp.Modules.Sales.Infrastructure;
 using Erp.Api.Endpoints;
 using Erp.Api.Middleware;
+using Erp.Api.Authentication;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +20,7 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 builder.Services.AddValidation();
+builder.Services.AddLocalAuthentication(builder.Configuration, builder.Environment);
 
 var connectionString = builder.Configuration.GetConnectionString("Erp")
     ?? "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres";
@@ -37,10 +39,14 @@ builder.Services
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseAuthentication();
 app.UseMiddleware<CompanyContextMiddleware>();
+app.UseAuthorization();
 app.MapOpenApi();
 app.MapHealthChecks("/api/v1/health").WithMetadata(new SystemEndpointMetadata());
 app.MapCompanyEndpoints();
+app.MapAuthEndpoints();
+app.MapUserEndpoints();
 app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
     .RequireCompanyContext()
     .WithSummary("List finance accounts")

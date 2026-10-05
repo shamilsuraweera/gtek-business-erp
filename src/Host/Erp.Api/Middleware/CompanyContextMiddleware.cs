@@ -16,6 +16,12 @@ public sealed class CompanyContextMiddleware(RequestDelegate next, ILogger<Compa
             return;
         }
 
+        if (httpContext.User.Identity?.IsAuthenticated != true)
+        {
+            await next(httpContext);
+            return;
+        }
+
         if (!httpContext.Request.Headers.TryGetValue("X-Company-Id", out var header) ||
             !Guid.TryParse(header.SingleOrDefault(), out var companyId))
         {

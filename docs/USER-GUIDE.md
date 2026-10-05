@@ -2,7 +2,7 @@
 
 ## 1. What this application is
 
-The current release is **Phase 1.1** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.2** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
@@ -15,7 +15,8 @@ technical foundation for a modular monolith:
 
 It is not yet a complete end-user ERP. There is no browser UI or login flow,
 and the current read endpoints intentionally return representative empty
-collections. Phase 1.1 now includes database-backed company management.
+collections. Phase 1.2 now includes database-backed company management and
+local authentication.
 
 ## 2. Start the application with local PostgreSQL
 
@@ -213,7 +214,8 @@ dotnet test .\tests\Erp.FunctionalTests\Erp.FunctionalTests.csproj
 - `CompanyId` and company-scoped aggregate foundations
 - `ICompanyContext`
 - `IClock` and `SystemClock`
-- Representative `Company`, `User`, `Role`, and `Permission` concepts
+- `Company` and database-backed `User` aggregate
+- JWT authentication and HTTP-independent `ICurrentUser`
 
 ### Finance foundations
 
@@ -237,14 +239,53 @@ dotnet test .\tests\Erp.FunctionalTests\Erp.FunctionalTests.csproj
 - Units of measure
 - Immutable item-ledger movement concept
 
-## 8. What is not implemented yet
+## 8. Authentication and first-user bootstrap
+
+Set the bootstrap secret and, outside Development, a persistent base64 JWT
+signing key as environment variables:
+
+```powershell
+$env:Authentication__BootstrapSecret = "operator-supplied-bootstrap-secret"
+$env:Authentication__Jwt__SigningKey = "<base64-encoded-32-byte-key>"
+```
+
+Create the first user once:
+
+```powershell
+$body = '{"userName":"admin","email":"admin@example.com","password":"use-a-long-unique-password"}'
+curl.exe -X POST http://localhost:5004/api/v1/users `
+  -H "Content-Type: application/json" `
+  -H "X-Bootstrap-Secret: $env:Authentication__BootstrapSecret" `
+  -d $body
+```
+
+Login is anonymous and returns a one-hour JWT:
+
+```powershell
+$login = curl.exe -s -X POST http://localhost:5004/api/v1/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{"userName":"admin","password":"use-a-long-unique-password"}' | ConvertFrom-Json
+curl.exe http://localhost:5004/api/v1/auth/me `
+  -H "Authorization: Bearer $($login.accessToken)"
+```
+
+Invalid credentials and inactive users return the same unauthorized result.
+Password hashes and passwords are never returned. Deactivation blocks future
+logins; already-issued tokens remain valid until their one-hour expiry.
+
+User-management and company-management endpoints require the temporary
+bootstrap-administrator claim until the Phase 1.3 permission model exists.
+Authentication and active-company selection remain separate: authenticated
+company-scoped requests still require `X-Company-Id`.
+
+## 9. What is not implemented yet
 
 The following are intentionally deferred to later phases:
 
-- Authentication, login, and user administration
 - Frontend screens
 - Generic CRUD architecture and broad database-backed read models
 - Finance account persistence and database-backed account queries
+- Roles, permissions, and user-company access assignment
 - Financial posting application services and APIs
 - Sales quotes, shipments, invoices, and customer payments
 - Purchase receipts, vendor invoices, and vendor payments
@@ -254,7 +295,7 @@ The following are intentionally deferred to later phases:
 The implementation roadmap and acceptance criteria are documented in
 [ERP-IMPLEMENTATION-SPECIFICATION.md](../ERP-IMPLEMENTATION-SPECIFICATION.md).
 
-## 9. Common problems
+## 10. Common problems
 
 ### PostgreSQL connection refused
 
@@ -292,4 +333,4 @@ Use the HTTP URL while developing:
 http://localhost:5004
 ```
 
-HTTPS is optional for local Phase 1.1 development.
+HTTPS is optional for local Phase 1.2 development.

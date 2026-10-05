@@ -9,6 +9,8 @@ using Erp.Modules.Platform.Domain;
 using Erp.SharedKernel;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace Erp.FunctionalTests;
 
@@ -32,21 +34,28 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 
         public CompanyEndpointTests(WebApplicationFactory<Program> factory)
         {
-            _client = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            _client = factory.WithWebHostBuilder(builder =>
             {
-                services.RemoveAll<DbContextOptions<PlatformDbContext>>();
-                services.RemoveAll<DbContextOptions>();
-                services.RemoveAll<PlatformDbContext>();
-                services.RemoveAll<ICompanyStore>();
-                services.AddDbContext<PlatformDbContext>(options =>
-                    options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
-                services.AddSingleton<ICompanyStore, InMemoryCompanyStore>();
-            })).CreateClient();
+                builder.UseSetting("Authentication:BootstrapSecret", "test-bootstrap-secret");
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<DbContextOptions<PlatformDbContext>>();
+                    services.RemoveAll<DbContextOptions>();
+                    services.RemoveAll<PlatformDbContext>();
+                    services.RemoveAll<ICompanyStore>();
+                    services.RemoveAll<IUserStore>();
+                    services.AddDbContext<PlatformDbContext>(options =>
+                        options.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+                    services.AddSingleton<ICompanyStore, InMemoryCompanyStore>();
+                    services.AddSingleton<IUserStore, InMemoryUserStore>();
+                });
+            }).CreateClient();
         }
 
         [Fact]
         public async Task Company_can_be_created_and_retrieved()
         {
+            await AuthenticateAsync();
             using var create = await _client.PostAsJsonAsync("/api/v1/companies", new { code = $"DEMO{Guid.NewGuid():N}"[..12], name = "Demo Company" });
             Assert.True(create.StatusCode == HttpStatusCode.Created, await create.Content.ReadAsStringAsync());
             var response = await create.Content.ReadFromJsonAsync<CompanyResponse>();
@@ -59,18 +68,64 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         [Fact]
         public async Task Invalid_company_returns_problem_details()
         {
+            await AuthenticateAsync();
             using var response = await _client.PostAsJsonAsync("/api/v1/companies", new { code = "", name = "Demo" });
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         }
 
+        private async Task AuthenticateAsync()
+        {
+            _client.DefaultRequestHeaders.Remove("Authorization");
+            var username = $"test{Guid.NewGuid():N}";
+            using var createRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/users")
+            {
+                Content = JsonContent.Create(new
+                {
+                    userName = username,
+                    email = $"{username}@example.com",
+                    password = "CorrectHorseBattery12!"
+                })
+            };
+            createRequest.Headers.Add("X-Bootstrap-Secret", "test-bootstrap-secret");
+            using var create = await _client.SendAsync(createRequest);
+            Assert.True(create.IsSuccessStatusCode, await create.Content.ReadAsStringAsync());
+            create.Dispose();
+            using var login = await _client.PostAsJsonAsync("/api/v1/auth/login", new { userName = username, password = "CorrectHorseBattery12!" });
+            login.EnsureSuccessStatusCode();
+            var result = await login.Content.ReadFromJsonAsync<JsonElement>();
+            _client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", result.GetProperty("accessToken").GetString());
+        }
+
         [Fact]
         public async Task Company_scoped_endpoint_requires_active_company_header()
         {
+            await AuthenticateAsync();
             using var response = await _client.GetAsync("/api/v1/finance/accounts");
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task Login_and_me_return_safe_identity()
+        {
+            await AuthenticateAsync();
+            using var response = await _client.GetAsync("/api/v1/auth/me");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var json = await response.Content.ReadAsStringAsync();
+            Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hash", json, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task Protected_company_management_requires_authentication()
+        {
+            using var response = await _client.GetAsync("/api/v1/companies");
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
         private sealed class InMemoryCompanyStore : ICompanyStore
@@ -96,6 +151,42 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 Task.FromResult(_companies.Any(company => company.Code == code));
 
             public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        }
+
+        private sealed class InMemoryUserStore : IUserStore
+        {
+            private readonly List<User> users = [];
+            private readonly Dictionary<UserId, string> hashes = [];
+
+            public Task AddAsync(User user, string passwordHash, CancellationToken cancellationToken)
+            {
+                users.Add(user);
+                hashes[user.Id] = passwordHash;
+                return Task.CompletedTask;
+            }
+
+            public Task<IReadOnlyList<User>> ListAsync(CancellationToken cancellationToken) =>
+                Task.FromResult<IReadOnlyList<User>>(users.OrderBy(user => user.UserName).ToArray());
+
+            public Task<User?> GetByIdAsync(UserId id, CancellationToken cancellationToken) =>
+                Task.FromResult(users.SingleOrDefault(user => user.Id == id));
+
+            public Task<User?> GetByUserNameAsync(string userName, CancellationToken cancellationToken) =>
+                Task.FromResult(users.SingleOrDefault(user => user.UserName == userName));
+
+            public Task<bool> ExistsByUserNameAsync(string userName, CancellationToken cancellationToken) =>
+                Task.FromResult(users.Any(user => user.UserName == userName));
+
+            public Task<bool> ExistsByEmailAsync(string email, CancellationToken cancellationToken) =>
+                Task.FromResult(users.Any(user => user.Email == email));
+
+            public Task<string?> GetPasswordHashAsync(UserId id, CancellationToken cancellationToken) =>
+                Task.FromResult(hashes.TryGetValue(id, out var hash) ? hash : null);
+
+            public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+            public Task<bool> HasUsersAsync(CancellationToken cancellationToken) =>
+                Task.FromResult(users.Count != 0);
         }
     }
 }
