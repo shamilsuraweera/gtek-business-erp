@@ -1,3 +1,8 @@
+-- LEGACY BOOTSTRAP ONLY:
+-- EF Core migrations are authoritative for new databases and future schema
+-- evolution. This idempotent script is retained for SQL-bootstrap databases
+-- that predate the EF baseline. Validate such a database with
+-- adopt-platform-bootstrap.ps1 before recording EF migration history.
 CREATE SCHEMA IF NOT EXISTS platform;
 
 CREATE TABLE IF NOT EXISTS platform."Companies" (

@@ -136,6 +136,24 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         }
 
         [Fact]
+        public async Task Number_sequence_management_requires_authentication()
+        {
+            using var response = await _client.PostAsJsonAsync(
+                "/api/v1/number-sequences",
+                new
+                {
+                    code = "TEST",
+                    name = "Test sequence",
+                    prefix = "T-",
+                    startingValue = 1,
+                    padding = 4,
+                    increment = 1
+                });
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        [Fact]
         public async Task Audit_query_requires_authentication()
         {
             using var response = await _client.GetAsync("/api/v1/audit");

@@ -157,26 +157,24 @@ psql -U postgres -h localhost -d gtek_erp -f .\scripts\database\apply-platform-m
 dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
 ```
 
-The generated EF migration and model snapshot are authoritative for the Phase
-1.6 model, but the existing pre-Phase-1.6 migration chain currently requires
-the SQL bootstrap baseline: its earliest migration references Platform tables
-before earlier migrations create all of those dependencies. Do not apply the
-current EF chain to an empty database until that historical ordering issue is
-resolved.
+The dependency-safe `20261005164810_PlatformBaseline` migration is authoritative
+for new databases and future schema changes.
 
 ```powershell
 $env:ConnectionStrings__Erp = "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres;Password=postgres"
-dotnet ef database update --project .\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj --startup-project .\src\Host\Erp.Api\Erp.Api.csproj
+dotnet ef database update --connection $env:ConnectionStrings__Erp --project .\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj --startup-project .\src\Host\Erp.Api\Erp.Api.csproj
 ```
 
-The SQL script remains an idempotent bootstrap helper for local/disposable
-environments and is currently the safe baseline for this repository. It is not
-safe to fabricate EF migration-history rows. Existing SQL-bootstrap databases
-must be schema-checked before adopting later EF migrations; do not drop the
-Platform schema.
-The Phase 1.6 migration is
-`20261005163552_Phase16NumberSequencesGenerated`, and its snapshot includes the
-number-sequence model and unique company/code index.
+Existing SQL-bootstrap databases require a backup and explicit schema validation
+before adoption:
+
+```powershell
+.\scripts\database\adopt-platform-bootstrap.ps1 -ConnectionString $env:ConnectionStrings__Erp
+.\scripts\database\adopt-platform-bootstrap.ps1 -ConnectionString $env:ConnectionStrings__Erp -Apply
+```
+
+The first command is read-only. The second records the baseline only after
+validation succeeds. See [ADR 0012](docs/adr/0012-database-migration-authority.md).
 
 ### Use Docker PostgreSQL
 

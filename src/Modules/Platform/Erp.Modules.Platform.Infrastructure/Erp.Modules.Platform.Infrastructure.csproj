@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Erp.Modules.Platform.Domain\Erp.Modules.Platform.Domain.csproj" />
@@ -18,4 +18,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="Persistence\LegacyMigrations\**" />
+    <None Include="Persistence\LegacyMigrations\**" />
+  </ItemGroup>
 </Project>
+

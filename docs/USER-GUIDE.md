@@ -417,11 +417,9 @@ API instances. Gaps can occur, and reserved values are never reused.
 
 ## Database migrations
 
-The Phase 1.6 EF migration and model snapshot are generated from the current
-model. However, the repository's older EF migration chain has a historical
-ordering defect: its earliest migration references Platform tables before the
-migrations that create all dependencies. Until that chain is repaired without
-rewriting deployed history, use the idempotent SQL bootstrap script for a new
-local/disposable database. Do not fabricate `__EFMigrationsHistory` rows.
-Existing databases must be schema-checked before adopting later EF migrations;
-never drop the Platform schema to resolve differences.
+EF Core migrations are authoritative. New databases use the dependency-safe
+`20261005164810_PlatformBaseline` migration. Existing SQL-bootstrap databases
+require a backup and explicit schema validation with
+`scripts/database/adopt-platform-bootstrap.ps1`; run it once without `-Apply`
+to review checks, then use `-Apply` only for a compatible schema. Mismatches
+are rejected without dropping data. See [ADR 0012](adr/0012-database-migration-authority.md).

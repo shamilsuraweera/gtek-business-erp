@@ -11,7 +11,9 @@ public static class PlatformInfrastructure
 {
     public static IServiceCollection AddPlatformInfrastructure(this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<PlatformDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<PlatformDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "platform")));
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<ICompanyStore, PlatformCompanyStore>();
         services.AddScoped<IUserStore, PlatformUserStore>();
