@@ -27,6 +27,15 @@ public static class AuthEndpoints
             var user = await users.GetByIdAsync(userId, ct);
             return user is null ? TypedResults.NotFound() : TypedResults.Ok(user);
         }).RequireAuthorization().WithSummary("Get the authenticated user");
+        group.MapGet("/me/companies", async Task<Results<Ok<IReadOnlyList<CompanyResponse>>, UnauthorizedHttpResult>>(
+            ICurrentUser currentUser,
+            IUserCompanyAccessService access,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } userId)
+                return TypedResults.Unauthorized();
+            return TypedResults.Ok(await access.ListCompaniesForUserAsync(userId, ct));
+        }).RequireAuthorization().WithSummary("List companies available to the authenticated user");
         return endpoints;
     }
 
@@ -80,6 +89,49 @@ public static class UserEndpoints
             Guid userId, Guid roleId, IRolePermissionService service, CancellationToken ct) =>
             await service.RemoveRoleAsync(new UserId(userId), new RoleId(roleId), ct)
                 ? TypedResults.NoContent() : TypedResults.NotFound()).RequirePermission(Permissions.Platform.UsersManage);
+        group.MapGet("/{userId:guid}/companies", async (
+            Guid userId,
+            IUserCompanyAccessService access,
+            CancellationToken ct) =>
+            TypedResults.Ok(await access.ListCompaniesForUserAsync(new UserId(userId), ct)))
+            .RequirePermission(Permissions.Platform.CompanyAccessRead);
+        group.MapPost("/{userId:guid}/companies/{companyId:guid}", async Task<Results<Ok<UserCompanyAccessResponse>, NotFound>>(
+            Guid userId,
+            Guid companyId,
+            ICurrentUser currentUser,
+            IUserCompanyAccessService access,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } actor)
+                return TypedResults.NotFound();
+            var result = await access.GrantAsync(actor, new UserId(userId), new CompanyId(companyId), ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Platform.CompanyAccessManage);
+        group.MapDelete("/{userId:guid}/companies/{companyId:guid}", async Task<Results<NoContent, NotFound>>(
+            Guid userId,
+            Guid companyId,
+            ICurrentUser currentUser,
+            IUserCompanyAccessService access,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } actor)
+                return TypedResults.NotFound();
+            return await access.RevokeAsync(actor, new UserId(userId), new CompanyId(companyId), ct) is null
+                ? TypedResults.NotFound()
+                : TypedResults.NoContent();
+        }).RequirePermission(Permissions.Platform.CompanyAccessManage);
+        group.MapPost("/{userId:guid}/companies/{companyId:guid}/restore", async Task<Results<Ok<UserCompanyAccessResponse>, NotFound>>(
+            Guid userId,
+            Guid companyId,
+            ICurrentUser currentUser,
+            IUserCompanyAccessService access,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } actor)
+                return TypedResults.NotFound();
+            var result = await access.RestoreAsync(actor, new UserId(userId), new CompanyId(companyId), ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Platform.CompanyAccessManage);
         return endpoints;
     }
 

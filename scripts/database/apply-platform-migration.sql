@@ -80,6 +80,27 @@ CREATE TABLE IF NOT EXISTS platform."RolePermissions" (
 );
 CREATE INDEX IF NOT EXISTS "IX_RolePermissions_PermissionId" ON platform."RolePermissions" ("PermissionId");
 
+CREATE TABLE IF NOT EXISTS platform."UserCompanyAccess" (
+    "UserId" uuid NOT NULL,
+    "CompanyId" uuid NOT NULL,
+    "Status" character varying(20) NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL,
+    "CreatedBy" uuid NOT NULL,
+    "ModifiedAt" timestamp with time zone NULL,
+    "ModifiedBy" uuid NULL,
+    CONSTRAINT "PK_UserCompanyAccess" PRIMARY KEY ("UserId", "CompanyId"),
+    CONSTRAINT "FK_UserCompanyAccess_Users_UserId"
+        FOREIGN KEY ("UserId") REFERENCES platform."Users" ("Id") ON DELETE RESTRICT,
+    CONSTRAINT "FK_UserCompanyAccess_Companies_CompanyId"
+        FOREIGN KEY ("CompanyId") REFERENCES platform."Companies" ("Id") ON DELETE RESTRICT,
+    CONSTRAINT "FK_UserCompanyAccess_Users_CreatedBy"
+        FOREIGN KEY ("CreatedBy") REFERENCES platform."Users" ("Id") ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS "IX_UserCompanyAccess_CompanyId"
+    ON platform."UserCompanyAccess" ("CompanyId");
+CREATE INDEX IF NOT EXISTS "IX_UserCompanyAccess_CreatedBy"
+    ON platform."UserCompanyAccess" ("CreatedBy");
+
 INSERT INTO platform."Permissions" ("Id", "Code", "Name", "Module", "Description", "CreatedAt")
 VALUES
   (gen_random_uuid(), 'platform.companies.read', 'Read companies', 'platform', 'View companies.', now()),
@@ -89,6 +110,8 @@ VALUES
   (gen_random_uuid(), 'platform.roles.read', 'Read roles', 'platform', 'View roles.', now()),
   (gen_random_uuid(), 'platform.roles.manage', 'Manage roles', 'platform', 'Create and manage roles and assignments.', now()),
   (gen_random_uuid(), 'platform.permissions.read', 'Read permissions', 'platform', 'View the permission catalogue.', now()),
+  (gen_random_uuid(), 'platform.company-access.read', 'Read company access', 'platform', 'View user and company access relationships.', now()),
+  (gen_random_uuid(), 'platform.company-access.manage', 'Manage company access', 'platform', 'Grant, revoke, and restore user access to companies.', now()),
   (gen_random_uuid(), 'finance.accounts.read', 'Read finance accounts', 'finance', 'View finance accounts.', now())
 ON CONFLICT ("Code") DO NOTHING;
 

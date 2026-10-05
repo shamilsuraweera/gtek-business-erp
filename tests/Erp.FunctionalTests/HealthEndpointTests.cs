@@ -52,6 +52,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                     services.AddSingleton<ICompanyStore, InMemoryCompanyStore>();
                     services.AddSingleton<IUserStore, InMemoryUserStore>();
                     services.AddSingleton<IRolePermissionStore, InMemoryUserStore.InMemoryRolePermissionStore>();
+                    services.AddSingleton<ICompanyAccessAuthorizer, AllowAllCompanyAccessAuthorizer>();
                 });
             }).CreateClient();
         }
@@ -155,6 +156,12 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
                 Task.FromResult(_companies.Any(company => company.Code == code));
 
             public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        }
+
+        private sealed class AllowAllCompanyAccessAuthorizer : ICompanyAccessAuthorizer
+        {
+            public Task<bool> CanAccessCompanyAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken) =>
+                Task.FromResult(true);
         }
 
         private sealed class InMemoryUserStore : IUserStore

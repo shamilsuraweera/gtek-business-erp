@@ -1,5 +1,6 @@
 using Erp.Modules.Platform.Application;
 using Erp.Api.Endpoints;
+using Erp.Application.Abstractions;
 using Erp.Modules.Platform.Domain;
 using Erp.SharedKernel;
 
@@ -7,7 +8,12 @@ namespace Erp.Api.Middleware;
 
 public sealed class CompanyContextMiddleware(RequestDelegate next, ILogger<CompanyContextMiddleware> logger)
 {
-    public async Task InvokeAsync(HttpContext httpContext, ActiveCompanyContext context, ICompanyService companyService)
+    public async Task InvokeAsync(
+        HttpContext httpContext,
+        ActiveCompanyContext context,
+        ICompanyService companyService,
+        ICompanyAccessAuthorizer accessAuthorizer,
+        ICurrentUser currentUser)
     {
         var endpoint = httpContext.GetEndpoint();
         if (endpoint?.Metadata.GetMetadata<CompanyScopedEndpointMetadata>() is null)
@@ -19,6 +25,12 @@ public sealed class CompanyContextMiddleware(RequestDelegate next, ILogger<Compa
         if (httpContext.User.Identity?.IsAuthenticated != true)
         {
             await next(httpContext);
+            return;
+        }
+
+        if (currentUser.UserId is not { } userId)
+        {
+            await WriteProblemAsync(httpContext, StatusCodes.Status401Unauthorized, "Authentication is required.");
             return;
         }
 
@@ -39,6 +51,12 @@ public sealed class CompanyContextMiddleware(RequestDelegate next, ILogger<Compa
         if (company.Status != CompanyStatus.Active)
         {
             await WriteProblemAsync(httpContext, StatusCodes.Status409Conflict, "The requested company is inactive.");
+            return;
+        }
+
+        if (!await accessAuthorizer.CanAccessCompanyAsync(userId, new CompanyId(companyId), httpContext.RequestAborted))
+        {
+            await WriteProblemAsync(httpContext, StatusCodes.Status403Forbidden, "You do not have access to the requested company.");
             return;
         }
 

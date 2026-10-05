@@ -157,6 +157,62 @@ public sealed class User : AggregateRoot<UserId>
         return normalized;
     }
 }
+
+public enum UserCompanyAccessStatus
+{
+    Active,
+    Inactive
+}
+
+public sealed class UserCompanyAccess
+{
+    private UserCompanyAccess()
+    {
+    }
+
+    private UserCompanyAccess(
+        UserId userId,
+        CompanyId companyId,
+        UserId grantedBy,
+        DateTimeOffset createdAt)
+    {
+        UserId = userId;
+        CompanyId = companyId;
+        CreatedAt = createdAt;
+        CreatedBy = grantedBy;
+        Status = UserCompanyAccessStatus.Active;
+    }
+
+    public UserId UserId { get; private set; }
+    public CompanyId CompanyId { get; private set; }
+    public UserCompanyAccessStatus Status { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public UserId CreatedBy { get; private set; }
+    public DateTimeOffset? ModifiedAt { get; private set; }
+    public UserId? ModifiedBy { get; private set; }
+
+    public static UserCompanyAccess Create(UserId userId, CompanyId companyId, UserId grantedBy, DateTimeOffset createdAt) =>
+        new(userId, companyId, grantedBy, createdAt);
+
+    public void Activate(UserId actor, DateTimeOffset at)
+    {
+        Status = UserCompanyAccessStatus.Active;
+        ModifiedAt = at;
+        ModifiedBy = actor;
+    }
+
+    public void Deactivate(UserId actor, DateTimeOffset at)
+    {
+        Status = UserCompanyAccessStatus.Inactive;
+        ModifiedAt = at;
+        ModifiedBy = actor;
+    }
+}
+
+public sealed record CompanyAccessGranted(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
+public sealed record CompanyAccessRevoked(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
+public sealed record CompanyAccessRestored(UserId ActorUserId, UserId TargetUserId, CompanyId CompanyId, DateTimeOffset OccurredAt) : IDomainEvent;
+
 public enum RoleStatus
 {
     Active,

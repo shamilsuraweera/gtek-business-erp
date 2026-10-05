@@ -2,7 +2,7 @@
 
 ## 1. What this application is
 
-The current release is **Phase 1.3** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.4** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
@@ -15,8 +15,8 @@ technical foundation for a modular monolith:
 
 It is not yet a complete end-user ERP. There is no browser UI or login flow,
 and the current read endpoints intentionally return representative empty
-collections. Phase 1.3 now includes database-backed company management,
-local authentication.
+collections. Phase 1.4 now includes database-backed company management, local
+authentication, policy-based permissions, and explicit user-company access.
 
 ## 2. Start the application with local PostgreSQL
 
@@ -144,7 +144,8 @@ Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts `
 ```
 
 Missing or malformed headers return `400`, an unknown company returns `404`,
-and an inactive company returns `409`.
+an inactive company returns `409`, and a user without active company access
+returns `403`.
 
 ### Finance accounts
 
@@ -273,8 +274,8 @@ Invalid credentials and inactive users return the same unauthorized result.
 Password hashes and passwords are never returned. Deactivation blocks future
 logins; already-issued tokens remain valid until their one-hour expiry.
 
-User-management and company-management endpoints require the temporary
-bootstrap-administrator claim until the Phase 1.3 permission model exists.
+User-management and company-management endpoints require the appropriate
+server-side permission.
 Authentication and active-company selection remain separate: authenticated
 company-scoped requests still require `X-Company-Id`.
 
@@ -285,7 +286,7 @@ The following are intentionally deferred to later phases:
 - Frontend screens
 - Generic CRUD architecture and broad database-backed read models
 - Finance account persistence and database-backed account queries
-- Roles, permissions, and user-company access assignment
+- Company-specific roles or permissions
 - Financial posting application services and APIs
 - Sales quotes, shipments, invoices, and customer payments
 - Purchase receipts, vendor invoices, and vendor payments
@@ -333,7 +334,7 @@ Use the HTTP URL while developing:
 http://localhost:5004
 ```
 
-HTTPS is optional for local Phase 1.3 development.
+HTTPS is optional for local Phase 1.4 development.
 ## Roles and permissions
 
 Users receive global roles, and roles receive explicit permissions. Permission
@@ -353,6 +354,24 @@ catalogue and is assigned to the first bootstrap administrator. The JWT
 contains identity, not permissions; changing a role or permission takes effect
 without issuing a new token. Inactive users and roles do not authorize access.
 
-Authorization is separate from company selection. Phase 1.3 role assignments
-are global; user-company access and company-specific roles are deferred to
-Phase 1.4.
+Authorization is separate from company selection. Global roles grant
+capability, while `UserCompanyAccess` grants company scope. `SYSTEM_ADMIN`
+has no implicit access to every company; access must be explicitly granted.
+`GET /api/v1/auth/me/companies` does not require `X-Company-Id`, while
+company-scoped operations require both the header and active access.
+
+Grant and revoke access with the system-scoped administrative endpoints:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:5004/api/v1/users/$userId/companies/$companyId" `
+  -Headers @{ Authorization = "Bearer $token" }
+
+Invoke-RestMethod -Method Delete `
+  -Uri "http://localhost:5004/api/v1/users/$userId/companies/$companyId" `
+  -Headers @{ Authorization = "Bearer $token" }
+```
+
+The permission catalogue includes `platform.company-access.read` and
+`platform.company-access.manage`. Permission and company-access changes are
+resolved server-side and therefore affect an already-issued JWT immediately.

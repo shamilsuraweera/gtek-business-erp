@@ -21,6 +21,14 @@ public sealed record RoleResponse(Guid Id, string Code, string Name, string? Des
 public sealed record CreateRoleRequest(string Code, string Name, string? Description);
 public sealed record RenameRoleRequest(string Name);
 public sealed record PermissionResponse(Guid Id, string Code, string Name, string Module, string? Description);
+public sealed record UserCompanyAccessResponse(
+    Guid UserId,
+    Guid CompanyId,
+    UserCompanyAccessStatus Status,
+    DateTimeOffset CreatedAt,
+    Guid CreatedBy,
+    DateTimeOffset? ModifiedAt,
+    Guid? ModifiedBy);
 
 public interface ICompanyService
 {
@@ -93,6 +101,32 @@ public interface IRolePermissionStore
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
+public interface IUserCompanyAccessStore
+{
+    Task<UserCompanyAccess?> GetAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken);
+    Task<bool> UserExistsAsync(UserId userId, CancellationToken cancellationToken);
+    Task<bool> CompanyExistsAsync(CompanyId companyId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Company>> ListCompaniesForUserAsync(UserId userId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<User>> ListUsersForCompanyAsync(CompanyId companyId, CancellationToken cancellationToken);
+    Task<bool> HasActiveAccessAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken);
+    Task AddAsync(UserCompanyAccess access, CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public interface ICompanyAccessAuthorizer
+{
+    Task<bool> CanAccessCompanyAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken);
+}
+
+public interface IUserCompanyAccessService
+{
+    Task<IReadOnlyList<CompanyResponse>> ListCompaniesForUserAsync(UserId userId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<UserResponse>> ListUsersForCompanyAsync(CompanyId companyId, CancellationToken cancellationToken);
+    Task<UserCompanyAccessResponse?> GrantAsync(UserId actorUserId, UserId targetUserId, CompanyId companyId, CancellationToken cancellationToken);
+    Task<UserCompanyAccessResponse?> RevokeAsync(UserId actorUserId, UserId targetUserId, CompanyId companyId, CancellationToken cancellationToken);
+    Task<UserCompanyAccessResponse?> RestoreAsync(UserId actorUserId, UserId targetUserId, CompanyId companyId, CancellationToken cancellationToken);
+}
+
 public interface IRolePermissionService
 {
     Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken);
@@ -120,6 +154,8 @@ public static class Permissions
         public const string RolesRead = "platform.roles.read";
         public const string RolesManage = "platform.roles.manage";
         public const string PermissionsRead = "platform.permissions.read";
+        public const string CompanyAccessRead = "platform.company-access.read";
+        public const string CompanyAccessManage = "platform.company-access.manage";
     }
 
     public static class Finance
@@ -136,6 +172,8 @@ public static class Permissions
         (Platform.RolesRead, "Read roles", "platform", "View roles."),
         (Platform.RolesManage, "Manage roles", "platform", "Create and manage roles and assignments."),
         (Platform.PermissionsRead, "Read permissions", "platform", "View the permission catalogue."),
+        (Platform.CompanyAccessRead, "Read company access", "platform", "View user and company access relationships."),
+        (Platform.CompanyAccessManage, "Manage company access", "platform", "Grant, revoke, and restore user access to companies."),
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts.")
     ];
 }
@@ -219,6 +257,8 @@ public static class PlatformModule
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRolePermissionService, RolePermissionService>();
+        services.AddScoped<IUserCompanyAccessService, UserCompanyAccessService>();
+        services.AddScoped<ICompanyAccessAuthorizer, UserCompanyAccessService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

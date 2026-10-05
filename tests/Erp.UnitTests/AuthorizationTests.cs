@@ -42,4 +42,29 @@ public sealed class AuthorizationTests
         var permission = Permission.Create(" Finance.Accounts.Read ", "Read accounts", "finance", null, DateTimeOffset.UtcNow);
         Assert.Equal("finance.accounts.read", permission.Code);
     }
+
+    [Fact]
+    public void User_company_access_starts_active()
+    {
+        var userId = UserId.New();
+        var companyId = CompanyId.New();
+        var access = UserCompanyAccess.Create(userId, companyId, userId, DateTimeOffset.UtcNow);
+
+        Assert.Equal(UserCompanyAccessStatus.Active, access.Status);
+        Assert.Equal(userId, access.UserId);
+        Assert.Equal(companyId, access.CompanyId);
+    }
+
+    [Fact]
+    public void User_company_access_can_be_deactivated_and_restored()
+    {
+        var actor = UserId.New();
+        var access = UserCompanyAccess.Create(UserId.New(), CompanyId.New(), actor, DateTimeOffset.UtcNow);
+
+        access.Deactivate(actor, DateTimeOffset.UtcNow.AddMinutes(1));
+        Assert.Equal(UserCompanyAccessStatus.Inactive, access.Status);
+
+        access.Activate(actor, DateTimeOffset.UtcNow.AddMinutes(2));
+        Assert.Equal(UserCompanyAccessStatus.Active, access.Status);
+    }
 }

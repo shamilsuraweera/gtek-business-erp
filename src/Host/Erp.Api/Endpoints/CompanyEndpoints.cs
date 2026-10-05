@@ -46,6 +46,14 @@ public static class CompanyEndpoints
             .RequirePermission(Permissions.Platform.CompaniesManage).WithSummary("Activate a company").WithMetadata(new SystemEndpointMetadata());
         group.MapPost("/{id:guid}/deactivate", ChangeStatus(activate: false))
             .RequirePermission(Permissions.Platform.CompaniesManage).WithSummary("Deactivate a company").WithMetadata(new SystemEndpointMetadata());
+        group.MapGet("/{companyId:guid}/users", async (
+            Guid companyId,
+            IUserCompanyAccessService access,
+            CancellationToken ct) =>
+            TypedResults.Ok(await access.ListUsersForCompanyAsync(new CompanyId(companyId), ct)))
+            .RequirePermission(Permissions.Platform.CompanyAccessRead)
+            .WithMetadata(new SystemEndpointMetadata())
+            .WithSummary("List users with access to a company");
 
         return endpoints;
     }
