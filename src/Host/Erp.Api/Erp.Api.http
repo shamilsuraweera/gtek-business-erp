@@ -1,6 +1,40 @@
-@Erp.Api_HostAddress = http://localhost:5004
+@baseUrl = http://localhost:5004
 
-GET {{Erp.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Health
+GET {{baseUrl}}/api/v1/health
 
-###
+### Create a company
+POST {{baseUrl}}/api/v1/companies/
+Content-Type: application/json
+
+{
+  "code": "DEMO",
+  "name": "Demo Company"
+}
+
+### List companies
+GET {{baseUrl}}/api/v1/companies/
+
+### Get a company by ID
+GET {{baseUrl}}/api/v1/companies/00000000-0000-0000-0000-000000000000
+
+### Get a company by code
+GET {{baseUrl}}/api/v1/companies/by-code/DEMO
+
+### Rename a company
+PUT {{baseUrl}}/api/v1/companies/00000000-0000-0000-0000-000000000000/name
+Content-Type: application/json
+
+{
+  "name": "Renamed Demo Company"
+}
+
+### Activate a company
+POST {{baseUrl}}/api/v1/companies/00000000-0000-0000-0000-000000000000/activate
+
+### Deactivate a company
+POST {{baseUrl}}/api/v1/companies/00000000-0000-0000-0000-000000000000/deactivate
+
+### Company-scoped endpoint (requires X-Company-Id)
+GET {{baseUrl}}/api/v1/finance/accounts
+X-Company-Id: 00000000-0000-0000-0000-000000000000
