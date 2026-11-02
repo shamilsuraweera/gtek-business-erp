@@ -5,14 +5,28 @@ public interface IDomainEvent
     DateTimeOffset OccurredAt { get; }
 }
 
-public abstract class Entity<TId>(TId id)
+public abstract class Entity<TId>
 {
-    public TId Id { get; } = id;
+    protected Entity()
+    {
+    }
+
+    protected Entity(TId id) => Id = id;
+
+    public TId Id { get; private set; } = default!;
 }
 
-public abstract class AggregateRoot<TId>(TId id) : Entity<TId>(id)
+public abstract class AggregateRoot<TId> : Entity<TId>
 {
     private readonly List<IDomainEvent> _domainEvents = [];
+
+    protected AggregateRoot()
+    {
+    }
+
+    protected AggregateRoot(TId id) : base(id)
+    {
+    }
 
     public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
 
@@ -34,7 +48,28 @@ public readonly record struct CompanyId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
-public readonly record struct UserId(Guid Value);
+public readonly record struct UserId(Guid Value)
+{
+    public static UserId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
+public readonly record struct RoleId(Guid Value)
+{
+    public static RoleId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
+public readonly record struct PermissionId(Guid Value)
+{
+    public static PermissionId New() => new(Guid.NewGuid());
+}
+
+public readonly record struct NumberSequenceId(Guid Value)
+{
+    public static NumberSequenceId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
 
 public sealed record AuditMetadata(
     DateTimeOffset CreatedAt,

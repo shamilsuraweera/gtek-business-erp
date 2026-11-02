@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingBlocks\Erp.SharedKernel\Erp.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Modules\Finance\Erp.Modules.Finance.Domain\Erp.Modules.Finance.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Domain\Erp.Modules.Platform.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Domain\Erp.Modules.Sales.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Domain\Erp.Modules.Purchasing.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Inventory\Erp.Modules.Inventory.Domain\Erp.Modules.Inventory.Domain.csproj" />

@@ -2,20 +2,22 @@
 
 ## 1. What this application is
 
-The current release is **Phase 0** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.5** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
-- PostgreSQL connection and module database-context registration
+- PostgreSQL connection, platform persistence, and the initial platform schema
 - Platform, Finance, Sales, Purchasing, and Inventory module boundaries
 - Initial domain rules and immutable ledger concepts
 - OpenAPI metadata
 - Health checks, problem-details responses, and structured logging
 - Unit, integration, architecture, and functional tests
 
-It is not yet a complete end-user ERP. There is no browser UI or login flow,
-and the current read endpoints intentionally return representative empty
-collections until Phase 1 persistence and application use cases are built.
+It is not yet a complete end-user ERP. There is no browser UI; authentication
+is provided through the documented API login endpoint, and current read endpoints intentionally return representative empty
+collections. Phase 1.5 now includes database-backed company management, local
+authentication, policy-based permissions, and explicit user-company access.
+It also records intentional security and administrative audit history.
 
 ## 2. Start the application with local PostgreSQL
 
@@ -118,13 +120,33 @@ database-readiness check.
 Invoke-RestMethod http://localhost:5004/api/v1/companies
 ```
 
-Current response:
+Create a company, then use the returned ID for lifecycle operations:
 
-```json
-[]
+```powershell
+$company = Invoke-RestMethod -Method Post `
+  -Uri http://localhost:5004/api/v1/companies `
+  -ContentType "application/json" `
+  -Body '{"code":"DEMO","name":"Demo Company"}'
+$company
+Invoke-RestMethod http://localhost:5004/api/v1/companies
+Invoke-RestMethod "http://localhost:5004/api/v1/companies/$($company.id)"
 ```
 
-The endpoint is a placeholder for the Phase 1 company-management use case.
+Company codes are trimmed and normalized to uppercase. New companies are
+active. Rename, activate, and deactivate operations are available at
+`/api/v1/companies/{id}/name`, `/activate`, and `/deactivate`.
+
+Company-management endpoints are system endpoints and do not require a header.
+Company-scoped endpoints require `X-Company-Id`:
+
+```powershell
+Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts `
+  -Headers @{ "X-Company-Id" = $company.id }
+```
+
+Missing or malformed headers return `400`, an unknown company returns `404`,
+an inactive company returns `409`, and a user without active company access
+returns `403`.
 
 ### Finance accounts
 
@@ -132,13 +154,8 @@ The endpoint is a placeholder for the Phase 1 company-management use case.
 Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts
 ```
 
-Current response:
-
-```json
-[]
-```
-
-The endpoint is a placeholder for the Phase 2 account-management use case.
+This is currently a representative company-scoped endpoint and returns an empty
+array. Finance account management is planned for a later phase.
 
 ### OpenAPI
 
@@ -150,6 +167,32 @@ http://localhost:5004/openapi/v1.json
 
 This is the machine-readable API document. A Swagger UI is not included in the
 current host configuration.
+
+### Audit history
+
+Phase 1.5 records intentional administrative and security actions in the
+append-only Platform audit table. It covers company, user, role,
+role-permission, user-role, user-company-access, and successful or failed
+authentication actions. Audit history is separate from operational logs and
+financial ledgers.
+
+Users with `platform.audit.read` can query the system-scoped endpoint:
+
+```powershell
+Invoke-RestMethod "http://localhost:5004/api/v1/audit?page=1&pageSize=50" `
+  -Headers @{ Authorization = "Bearer $token" }
+```
+
+Supported filters are `from`, `to`, `actorUserId`, `companyId`, `category`,
+`action`, `entityType`, `entityId`, and `outcome`. Results are newest first,
+default to 50 entries, and accept at most 200 entries per page. The endpoint
+does not require `X-Company-Id`; `companyId` is an explicit filter for
+platform auditors.
+
+Metadata is deliberately limited to safe identifiers and before/after values.
+Passwords, hashes, JWTs, signing keys, connection strings, tokens, and full
+request bodies are never stored. Audit entries have no update or delete use
+case, and no automatic retention purge is enabled.
 
 ## 5. Optional Docker database
 
@@ -199,7 +242,8 @@ dotnet test .\tests\Erp.FunctionalTests\Erp.FunctionalTests.csproj
 - `CompanyId` and company-scoped aggregate foundations
 - `ICompanyContext`
 - `IClock` and `SystemClock`
-- Representative `Company`, `User`, `Role`, and `Permission` concepts
+- `Company` and database-backed `User` aggregate
+- JWT authentication and HTTP-independent `ICurrentUser`
 
 ### Finance foundations
 
@@ -223,14 +267,53 @@ dotnet test .\tests\Erp.FunctionalTests\Erp.FunctionalTests.csproj
 - Units of measure
 - Immutable item-ledger movement concept
 
-## 8. What is not implemented yet
+## 8. Authentication and first-user bootstrap
+
+Set the bootstrap secret and, outside Development, a persistent base64 JWT
+signing key as environment variables:
+
+```powershell
+$env:Authentication__BootstrapSecret = "operator-supplied-bootstrap-secret"
+$env:Authentication__Jwt__SigningKey = "<base64-encoded-32-byte-key>"
+```
+
+Create the first user once:
+
+```powershell
+$body = '{"userName":"admin","email":"admin@example.com","password":"use-a-long-unique-password"}'
+curl.exe -X POST http://localhost:5004/api/v1/users `
+  -H "Content-Type: application/json" `
+  -H "X-Bootstrap-Secret: $env:Authentication__BootstrapSecret" `
+  -d $body
+```
+
+Login is anonymous and returns a one-hour JWT:
+
+```powershell
+$login = curl.exe -s -X POST http://localhost:5004/api/v1/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{"userName":"admin","password":"use-a-long-unique-password"}' | ConvertFrom-Json
+curl.exe http://localhost:5004/api/v1/auth/me `
+  -H "Authorization: Bearer $($login.accessToken)"
+```
+
+Invalid credentials and inactive users return the same unauthorized result.
+Password hashes and passwords are never returned. Deactivation blocks future
+logins; already-issued tokens remain valid until their one-hour expiry.
+
+User-management and company-management endpoints require the appropriate
+server-side permission.
+Authentication and active-company selection remain separate: authenticated
+company-scoped requests still require `X-Company-Id`.
+
+## 9. What is not implemented yet
 
 The following are intentionally deferred to later phases:
 
-- Authentication, login, and user administration
 - Frontend screens
-- CRUD or database-backed read models
-- EF Core migrations
+- Generic CRUD architecture and broad database-backed read models
+- Finance account persistence and database-backed account queries
+- Company-specific roles or permissions
 - Financial posting application services and APIs
 - Sales quotes, shipments, invoices, and customer payments
 - Purchase receipts, vendor invoices, and vendor payments
@@ -240,7 +323,7 @@ The following are intentionally deferred to later phases:
 The implementation roadmap and acceptance criteria are documented in
 [ERP-IMPLEMENTATION-SPECIFICATION.md](../ERP-IMPLEMENTATION-SPECIFICATION.md).
 
-## 9. Common problems
+## 10. Common problems
 
 ### PostgreSQL connection refused
 
@@ -278,4 +361,65 @@ Use the HTTP URL while developing:
 http://localhost:5004
 ```
 
-HTTPS is optional for local Phase 0 development.
+HTTPS is optional for local Phase 1.4 development.
+## Roles and permissions
+
+Users receive global roles, and roles receive explicit permissions. Permission
+codes follow `module.resource.action`, for example
+`finance.accounts.read`. Use the role and permission endpoints to inspect and
+manage assignments:
+
+- `GET /api/v1/permissions`
+- `GET|POST /api/v1/roles`
+- `GET /api/v1/roles/{id}/permissions`
+- `POST|DELETE /api/v1/roles/{id}/permissions/{permissionCode}`
+- `GET /api/v1/users/{userId}/roles`
+- `POST|DELETE /api/v1/users/{userId}/roles/{roleId}`
+
+`SYSTEM_ADMIN` is created with explicit rows for the current permission
+catalogue and is assigned to the first bootstrap administrator. The JWT
+contains identity, not permissions; changing a role or permission takes effect
+without issuing a new token. Inactive users and roles do not authorize access.
+
+Authorization is separate from company selection. Global roles grant
+capability, while `UserCompanyAccess` grants company scope. `SYSTEM_ADMIN`
+has no implicit access to every company; access must be explicitly granted.
+`GET /api/v1/auth/me/companies` does not require `X-Company-Id`, while
+company-scoped operations require both the header and active access.
+
+Grant and revoke access with the system-scoped administrative endpoints:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:5004/api/v1/users/$userId/companies/$companyId" `
+  -Headers @{ Authorization = "Bearer $token" }
+
+Invoke-RestMethod -Method Delete `
+  -Uri "http://localhost:5004/api/v1/users/$userId/companies/$companyId" `
+  -Headers @{ Authorization = "Bearer $token" }
+```
+
+The permission catalogue includes `platform.company-access.read` and
+`platform.company-access.manage`. Permission and company-access changes are
+resolved server-side and therefore affect an already-issued JWT immediately.
+## Number sequences
+
+Number sequences are configured per company. Supply `X-Company-Id` and a token
+with the appropriate platform permission. Management endpoints require
+`platform.number-sequences.manage`; listing and issuing require
+`platform.number-sequences.read`.
+
+`POST /api/v1/number-sequences` creates a sequence. Generated values use
+`prefix + padded number + suffix`, for example `INV-000001`. Use
+`POST /api/v1/number-sequences/{code}/next` to reserve the next value.
+Reservations are transactionally locked in PostgreSQL and safe across multiple
+API instances. Gaps can occur, and reserved values are never reused.
+
+## Database migrations
+
+EF Core migrations are authoritative. New databases use the dependency-safe
+`20261005164810_PlatformBaseline` migration. Existing SQL-bootstrap databases
+require a backup and explicit schema validation with
+`scripts/database/adopt-platform-bootstrap.ps1`; run it once without `-Apply`
+to review checks, then use `-Apply` only for a compatible schema. Mismatches
+are rejected without dropping data. See [ADR 0012](adr/0012-database-migration-authority.md).

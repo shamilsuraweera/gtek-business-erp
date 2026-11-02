@@ -1,7 +1,7 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 0 platform foundation**. It is an executable API
+currently contains the **Phase 1.6 platform foundation**. It is an executable API
 and domain foundation, not yet a complete ERP application with a user interface
 or full business workflows.
 
@@ -23,6 +23,13 @@ psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
 
 If PostgreSQL asks for a password, enter the password for your local
 `postgres` user.
+
+Phase 1.6 includes company-scoped number sequences. Configure them through
+`/api/v1/number-sequences` with `platform.number-sequences.manage`, then reserve
+numbers through `POST /api/v1/number-sequences/{code}/next` with
+`platform.number-sequences.read`. PostgreSQL row locking makes issuance safe
+across concurrent API instances. Gaps are allowed and reserved values are never
+reused.
 
 The development connection is configured in the ignored
 `src/Host/Erp.Api/appsettings.Development.json` file. Do not commit real
@@ -68,13 +75,33 @@ A successful response has HTTP status `200`.
 
 ## Available API functionality
 
-The current API exposes only representative Phase 0 endpoints:
+The current API exposes the Phase 1.6 platform endpoints and representative
+company-scoped endpoints:
 
 | Method | Endpoint | Current behavior |
 |---|---|---|
 | `GET` | `/api/v1/health` | Returns `200` when the API host is running |
-| `GET` | `/api/v1/companies` | Returns an empty JSON array; company persistence is not implemented yet |
-| `GET` | `/api/v1/finance/accounts` | Returns an empty JSON array; account persistence is not implemented yet |
+| `POST` | `/api/v1/companies` | Creates an active company |
+| `GET` | `/api/v1/companies` | Lists persisted companies |
+| `GET` | `/api/v1/companies/{id}` | Gets a company by ID |
+| `GET` | `/api/v1/companies/by-code/{code}` | Gets a company by normalized code |
+| `PUT` | `/api/v1/companies/{id}/name` | Renames a company |
+| `POST` | `/api/v1/companies/{id}/activate` | Activates a company |
+| `POST` | `/api/v1/companies/{id}/deactivate` | Deactivates a company |
+| `GET` | `/api/v1/finance/accounts` | Representative company-scoped endpoint |
+| `POST` | `/api/v1/auth/login` | Authenticates a user and returns a JWT |
+| `GET` | `/api/v1/auth/me` | Returns the authenticated user |
+| `GET` | `/api/v1/auth/me/companies` | Lists companies available to the authenticated user |
+| `GET` | `/api/v1/users` | Lists users for a bootstrap administrator |
+| `GET` | `/api/v1/users/{userId}/companies` | Lists companies assigned to a user |
+| `POST` | `/api/v1/users/{userId}/companies/{companyId}` | Grants or restores company access |
+| `DELETE` | `/api/v1/users/{userId}/companies/{companyId}` | Revokes company access |
+| `GET` | `/api/v1/companies/{companyId}/users` | Lists users with company access |
+| `GET` | `/api/v1/audit` | Queries append-only audit history with bounded pagination and filters |
+| `GET` | `/api/v1/number-sequences` | Lists number sequences for the active company |
+| `POST` | `/api/v1/number-sequences` | Creates a company-scoped number sequence |
+| `PUT` | `/api/v1/number-sequences/{id}/configuration` | Changes safe formatting configuration without resetting `NextValue` |
+| `POST` | `/api/v1/number-sequences/{code}/next` | Atomically reserves the next number |
 | `GET` | `/openapi/v1.json` | Returns the generated OpenAPI document |
 
 Examples:
@@ -82,18 +109,17 @@ Examples:
 ```powershell
 Invoke-WebRequest http://localhost:5004/api/v1/health
 Invoke-RestMethod http://localhost:5004/api/v1/companies
-Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts
+Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts -Headers @{ "X-Company-Id" = "<company-id>" }
 Invoke-RestMethod http://localhost:5004/openapi/v1.json
 ```
 
-There is currently no frontend, login screen, user-management endpoint, or
-write endpoint. The API is intended to validate the host, module registration,
-database configuration, and initial architecture.
+There is currently no frontend, finance transaction workflow, or full ERP
+business workflow.
 
-## Domain functionality available in Phase 0
+## Domain functionality available in Phase 1.6
 
-Although the API is intentionally small, the solution includes representative
-domain foundations:
+Although the API is intentionally small, the solution includes the Phase 1.6
+company-management slice and representative domain foundations:
 
 - Platform: `Company`, `User`, `Role`, and `Permission`
 - Finance: accounts, currencies, accounting periods, journals, and immutable
@@ -104,6 +130,15 @@ domain foundations:
   entries
 - Shared kernel: aggregate roots, domain events, domain exceptions, company
   identifiers, clock abstraction, and company-context abstraction
+- Audit: append-only Platform audit entries for security and administrative
+  operations, queried with `platform.audit.read`
+
+Audit history is not application logging and is not a financial ledger. The
+audit API is system-scoped, so it does not require `X-Company-Id`; use
+`companyId` to filter history for a company. Supported filters include
+`from`, `to`, `actorUserId`, `companyId`, `category`, `action`, `entityType`,
+`entityId`, and `outcome`. Results default to 50 entries and are capped at 200,
+ordered newest first.
 
 The domain tests currently verify balanced journals, rejected unbalanced
 journals, controlled sales-order transitions, immutable posted ledger records,
@@ -116,12 +151,30 @@ and persistence schema ownership.
 This is the recommended setup for the current development environment:
 
 ```powershell
+$env:PGPASSWORD = "postgres"
 psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
+psql -U postgres -h localhost -d gtek_erp -f .\scripts\database\apply-platform-migration.sql
 dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
 ```
 
-The Phase 0 contexts are registered for PostgreSQL, but no application
-migrations or full database-backed queries have been implemented yet.
+The dependency-safe `20261005164810_PlatformBaseline` migration is authoritative
+for new databases and future schema changes.
+
+```powershell
+$env:ConnectionStrings__Erp = "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres;Password=postgres"
+dotnet ef database update --connection $env:ConnectionStrings__Erp --project .\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj --startup-project .\src\Host\Erp.Api\Erp.Api.csproj
+```
+
+Existing SQL-bootstrap databases require a backup and explicit schema validation
+before adoption:
+
+```powershell
+.\scripts\database\adopt-platform-bootstrap.ps1 -ConnectionString $env:ConnectionStrings__Erp
+.\scripts\database\adopt-platform-bootstrap.ps1 -ConnectionString $env:ConnectionStrings__Erp -Apply
+```
+
+The first command is read-only. The second records the baseline only after
+validation succeeds. See [ADR 0012](docs/adr/0012-database-migration-authority.md).
 
 ### Use Docker PostgreSQL
 
@@ -190,17 +243,73 @@ for the complete Phases 1–12 roadmap and
 [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for the detailed operator/developer
 guide.
 
+## Authentication and user management
+
+Phase 1.6 includes local JWT authentication, database-backed user management,
+and policy-based roles and permissions.
+Set secrets through environment variables rather than committed configuration:
+
+```powershell
+$env:Authentication__BootstrapSecret = "operator-supplied-bootstrap-secret"
+$env:Authentication__Jwt__SigningKey = "<base64-encoded-32-byte-key>"
+dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
+```
+
+In Development, the API can generate an ephemeral signing key when one is not
+configured. Configure a persistent key for any environment where tokens must
+survive restarts. Create the first user once:
+
+```powershell
+$body = '{"userName":"admin","email":"admin@example.com","password":"use-a-long-unique-password"}'
+curl.exe -X POST http://localhost:5004/api/v1/users `
+  -H "Content-Type: application/json" `
+  -H "X-Bootstrap-Secret: $env:Authentication__BootstrapSecret" `
+  -d $body
+```
+
+Then log in and call the authenticated user endpoint:
+
+```powershell
+$login = curl.exe -s -X POST http://localhost:5004/api/v1/auth/login `
+  -H "Content-Type: application/json" `
+  -d '{"userName":"admin","password":"use-a-long-unique-password"}' | ConvertFrom-Json
+curl.exe http://localhost:5004/api/v1/auth/me -H "Authorization: Bearer $($login.accessToken)"
+```
+
+`GET /api/v1/users`, user lifecycle endpoints, and company-management
+endpoints require the appropriate current server-side permission. The
+authentication identity does not select a company; company-scoped requests
+require `X-Company-Id` and active `UserCompanyAccess`.
+
 ## Current limitations
 
-Phase 0 does not yet include:
+Phase 1.6 does not yet include:
 
 - A web frontend
-- Authentication or authorization
-- User/company administration screens
-- Database migrations
-- Database-backed company or account queries
+- Company-specific roles or permissions
+- Database-backed finance account queries
 - Journal-posting API endpoints
 - Sales, purchasing, inventory, invoicing, or payment workflows
 - Reporting, integrations, or production deployment configuration
 
 Do not treat the representative endpoints as a completed ERP feature set.
+### Roles and permissions
+
+Phase 1.6 uses the server-side permission model and explicit company scope.
+Permissions use stable
+`module.resource.action` codes, roles contain explicit permission assignments,
+and users have global role assignments. The initial catalogue includes
+`platform.companies.*`, `platform.users.*`, `platform.roles.*`,
+`platform.permissions.read`, `platform.audit.read`, and
+`finance.accounts.read`.
+
+Protected endpoints return `401` for an unauthenticated request and `403` for
+an authenticated user without the declared permission. Permissions are
+resolved from PostgreSQL at request time and are not copied into JWTs.
+Company access is not copied into JWTs. It is resolved server-side before
+CompanyContext is established, so revocation affects an existing token.
+`SYSTEM_ADMIN` receives company-access permissions through normal role
+assignments but has no implicit access to every company. Grant access with
+`POST /api/v1/users/{userId}/companies/{companyId}` and discover selectable
+companies with `GET /api/v1/auth/me/companies`; neither endpoint requires an
+active company header.
