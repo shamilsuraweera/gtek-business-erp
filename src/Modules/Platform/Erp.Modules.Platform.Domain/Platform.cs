@@ -367,6 +367,137 @@ public sealed class NumberSequence
     }
 }
 
+public enum AccountingPeriodStatus
+{
+    Open,
+    Closed,
+    Locked
+}
+
+public sealed class AccountingPeriod
+{
+    private AccountingPeriod()
+    {
+        Code = string.Empty;
+        Name = string.Empty;
+    }
+
+    private AccountingPeriod(
+        AccountingPeriodId id,
+        CompanyId companyId,
+        string code,
+        string name,
+        DateOnly startDate,
+        DateOnly endDate,
+        DateTimeOffset createdAt,
+        UserId? createdBy)
+    {
+        if (endDate < startDate)
+            throw new DomainException("Accounting period end date cannot be before its start date.");
+
+        Id = id;
+        CompanyId = companyId;
+        Code = NormalizeCode(code);
+        Name = ValidateName(name);
+        StartDate = startDate;
+        EndDate = endDate;
+        CreatedAt = createdAt;
+        CreatedBy = createdBy;
+        Status = AccountingPeriodStatus.Open;
+    }
+
+    public AccountingPeriodId Id { get; private set; }
+    public CompanyId CompanyId { get; private set; }
+    public string Code { get; private set; }
+    public string Name { get; private set; }
+    public DateOnly StartDate { get; private set; }
+    public DateOnly EndDate { get; private set; }
+    public AccountingPeriodStatus Status { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public UserId? CreatedBy { get; private set; }
+    public DateTimeOffset? ModifiedAt { get; private set; }
+    public UserId? ModifiedBy { get; private set; }
+
+    public static AccountingPeriod Create(
+        CompanyId companyId,
+        string code,
+        string name,
+        DateOnly startDate,
+        DateOnly endDate,
+        DateTimeOffset createdAt,
+        UserId? createdBy) =>
+        new(AccountingPeriodId.New(), companyId, code, name, startDate, endDate, createdAt, createdBy);
+
+    public void Rename(string name, UserId? actor, DateTimeOffset at)
+    {
+        if (Status == AccountingPeriodStatus.Locked)
+            throw new DomainException("A locked accounting period cannot be changed.");
+
+        Name = ValidateName(name);
+        Touch(actor, at);
+    }
+
+    public void Close(UserId? actor, DateTimeOffset at)
+    {
+        if (Status != AccountingPeriodStatus.Open)
+            throw new DomainException("Only an open accounting period can be closed.");
+
+        Status = AccountingPeriodStatus.Closed;
+        Touch(actor, at);
+    }
+
+    public void Reopen(UserId? actor, DateTimeOffset at)
+    {
+        if (Status != AccountingPeriodStatus.Closed)
+            throw new DomainException("Only a closed accounting period can be reopened.");
+
+        Status = AccountingPeriodStatus.Open;
+        Touch(actor, at);
+    }
+
+    public void Lock(UserId? actor, DateTimeOffset at)
+    {
+        if (Status != AccountingPeriodStatus.Closed)
+            throw new DomainException("Only a closed accounting period can be locked.");
+
+        Status = AccountingPeriodStatus.Locked;
+        Touch(actor, at);
+    }
+
+    public bool Contains(DateOnly date) => date >= StartDate && date <= EndDate;
+
+    private void Touch(UserId? actor, DateTimeOffset at)
+    {
+        ModifiedBy = actor;
+        ModifiedAt = at;
+    }
+
+    public static string NormalizeCode(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            throw new DomainException("Accounting period code is required.");
+
+        var normalized = code.Trim().ToUpperInvariant();
+        if (normalized.Length is < 2 or > 50 ||
+            normalized.Any(character => !char.IsLetterOrDigit(character) && character != '-' && character != '_'))
+            throw new DomainException("Accounting period code must contain 2 to 50 letters, numbers, hyphens, or underscores.");
+
+        return normalized;
+    }
+
+    private static string ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("Accounting period name is required.");
+
+        var trimmed = name.Trim();
+        if (trimmed.Length > 200)
+            throw new DomainException("Accounting period name cannot exceed 200 characters.");
+
+        return trimmed;
+    }
+}
+
 public enum AuditOutcome
 {
     Succeeded,

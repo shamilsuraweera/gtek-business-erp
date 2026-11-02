@@ -21,6 +21,7 @@ public static class PlatformInfrastructure
         services.AddScoped<IUserCompanyAccessStore, UserCompanyAccessStore>();
         services.AddScoped<IAuditEntryStore, AuditEntryStore>();
         services.AddScoped<INumberSequenceStore, NumberSequenceStore>();
+        services.AddScoped<IAccountingPeriodStore, AccountingPeriodStore>();
         services.AddSingleton<IPasswordHasher<object>, PasswordHasher<object>>();
         services.AddSingleton<IPasswordService, AspNetPasswordService>();
         return services;

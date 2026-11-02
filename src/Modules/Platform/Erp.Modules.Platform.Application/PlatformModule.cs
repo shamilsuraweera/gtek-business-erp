@@ -77,6 +77,18 @@ public sealed record CreateNumberSequenceRequest(
 
 public sealed record RenameNumberSequenceRequest(string Name);
 public sealed record ConfigureNumberSequenceRequest(string Prefix, string? Suffix, int Padding, long Increment);
+public sealed record AccountingPeriodResponse(
+    Guid Id,
+    Guid CompanyId,
+    string Code,
+    string Name,
+    DateOnly StartDate,
+    DateOnly EndDate,
+    AccountingPeriodStatus Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ModifiedAt);
+public sealed record CreateAccountingPeriodRequest(string Code, string Name, DateOnly StartDate, DateOnly EndDate);
+public sealed record RenameAccountingPeriodRequest(string Name);
 
 public interface ICompanyService
 {
@@ -97,6 +109,30 @@ public interface ICompanyStore
     Task<Company?> GetByCodeAsync(string code, CancellationToken cancellationToken);
     Task<bool> ExistsByCodeAsync(string code, CancellationToken cancellationToken);
     Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public interface IAccountingPeriodStore
+{
+    Task AddAsync(AccountingPeriod period, CancellationToken cancellationToken);
+    Task<IReadOnlyList<AccountingPeriod>> ListAsync(CompanyId companyId, CancellationToken cancellationToken);
+    Task<AccountingPeriod?> GetAsync(CompanyId companyId, AccountingPeriodId id, CancellationToken cancellationToken);
+    Task<AccountingPeriod?> GetByCodeAsync(CompanyId companyId, string code, CancellationToken cancellationToken);
+    Task<bool> OverlapsAsync(
+        CompanyId companyId,
+        DateOnly startDate,
+        DateOnly endDate,
+        AccountingPeriodId? excludingId,
+        CancellationToken cancellationToken);
+    Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public interface IAccountingPeriodService
+{
+    Task<AccountingPeriodResponse> CreateAsync(CreateAccountingPeriodRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyList<AccountingPeriodResponse>> ListAsync(CancellationToken cancellationToken);
+    Task<AccountingPeriodResponse?> GetAsync(AccountingPeriodId id, CancellationToken cancellationToken);
+    Task<AccountingPeriodResponse?> RenameAsync(AccountingPeriodId id, RenameAccountingPeriodRequest request, CancellationToken cancellationToken);
+    Task<AccountingPeriodResponse?> ChangeStatusAsync(AccountingPeriodId id, AccountingPeriodStatus status, CancellationToken cancellationToken);
 }
 
 public interface IUserService
@@ -265,6 +301,8 @@ public static class Permissions
         public const string AuditRead = "platform.audit.read";
         public const string NumberSequencesRead = "platform.number-sequences.read";
         public const string NumberSequencesManage = "platform.number-sequences.manage";
+        public const string AccountingPeriodsRead = "platform.accounting-periods.read";
+        public const string AccountingPeriodsManage = "platform.accounting-periods.manage";
     }
 
     public static class Finance
@@ -286,6 +324,8 @@ public static class Permissions
         (Platform.AuditRead, "Read audit history", "platform", "View the append-only ERP audit history."),
         (Platform.NumberSequencesRead, "Read number sequences", "platform", "View company number sequences."),
         (Platform.NumberSequencesManage, "Manage number sequences", "platform", "Create and configure company number sequences."),
+        (Platform.AccountingPeriodsRead, "Read accounting periods", "platform", "View company accounting periods."),
+        (Platform.AccountingPeriodsManage, "Manage accounting periods", "platform", "Create and manage company accounting periods."),
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts.")
     ];
 }
@@ -382,6 +422,7 @@ public static class PlatformModule
         services.AddScoped<ICompanyAccessAuthorizer, UserCompanyAccessService>();
         services.AddScoped<IAuditTrail, AuditTrailService>();
         services.AddScoped<INumberSequenceService, NumberSequenceService>();
+        services.AddScoped<IAccountingPeriodService, AccountingPeriodService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

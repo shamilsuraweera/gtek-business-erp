@@ -51,6 +51,7 @@ app.MapRoleEndpoints();
 app.MapPermissionEndpoints();
 app.MapAuditEndpoints();
 app.MapNumberSequenceEndpoints();
+app.MapAccountingPeriodEndpoints();
 app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
     .RequireCompanyContext()
     .RequirePermission(Permissions.Finance.AccountsRead)
