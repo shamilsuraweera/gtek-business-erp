@@ -12,6 +12,7 @@ using Erp.Modules.Sales.Infrastructure;
 using Erp.Api.Endpoints;
 using Erp.Api.Middleware;
 using Erp.Api.Authentication;
+using Erp.Api.Seeding;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,12 +58,15 @@ app.MapPermissionEndpoints();
 app.MapAuditEndpoints();
 app.MapNumberSequenceEndpoints();
 app.MapAccountingPeriodEndpoints();
-app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
-    .RequireCompanyContext()
-    .RequirePermission(Permissions.Finance.AccountsRead)
-    .WithSummary("List finance accounts")
-    .WithDescription("Representative company-scoped finance endpoint.")
-    .Produces<object[]>(StatusCodes.Status200OK);
+app.MapFinanceEndpoints();
+
+if (args.Contains("--seed"))
+{
+    if (!app.Environment.IsDevelopment())
+        throw new InvalidOperationException("--seed is only allowed in the Development environment.");
+    await DevSeeder.RunAsync(app.Services);
+    return;
+}
 
 app.Run();
 

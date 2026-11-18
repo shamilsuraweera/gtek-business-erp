@@ -22,7 +22,8 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
 
         logger.LogWarning(exception, "Handled API exception: {Title}", title);
         context.Response.StatusCode = status;
-        await Results.Problem(statusCode: status, title: title, detail: title).ExecuteAsync(context);
+        var detail = exception is DomainException or InvalidOperationException ? exception.Message : title;
+        await Results.Problem(statusCode: status, title: title, detail: detail).ExecuteAsync(context);
         return true;
     }
 }
