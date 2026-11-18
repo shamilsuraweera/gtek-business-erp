@@ -21,6 +21,10 @@ builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 builder.Services.AddValidation();
 builder.Services.AddLocalAuthentication(builder.Configuration, builder.Environment);
+builder.Services.AddCors(options => options.AddPolicy("DevFrontend", policy => policy
+    .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"])
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
 
 var connectionString = builder.Configuration.GetConnectionString("Erp")
     ?? "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres";
@@ -39,6 +43,7 @@ builder.Services
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseCors("DevFrontend");
 app.UseAuthentication();
 app.UseMiddleware<CompanyContextMiddleware>();
 app.UseAuthorization();
