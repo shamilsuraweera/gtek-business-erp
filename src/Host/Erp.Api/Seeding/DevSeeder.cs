@@ -2,6 +2,7 @@ using Erp.Application.Abstractions;
 using Erp.Modules.Finance.Application;
 using Erp.Modules.Finance.Contracts;
 using Erp.Modules.Finance.Domain;
+using Erp.Modules.Inventory.Application;
 using Erp.Modules.Platform.Application;
 using Erp.SharedKernel;
 
@@ -30,6 +31,7 @@ public static class DevSeeder
         await SeedPeriodsAsync(sp, log, ct);
         await SeedAccountsAsync(sp, log, ct);
         await SeedOpeningBalancesAsync(sp, log, ct);
+        await SeedInventoryAsync(sp, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
     }
@@ -129,5 +131,60 @@ public static class DevSeeder
                 new PostJournalLine("3000", 0, 5_000_000m, "Owner's capital")
             ]), ct);
         log.LogInformation("Posted opening balances.");
+    }
+
+    public static readonly (string Sku, string Name, string Uom, decimal Price, decimal Cost, decimal OpeningQty)[] Items =
+    [
+        ("LAP-001", "Business Laptop 14\"", "EA", 185_000m, 142_000m, 12),
+        ("LAP-002", "Ultrabook 13\"", "EA", 245_000m, 195_000m, 6),
+        ("MON-024", "24\" LED Monitor", "EA", 42_000m, 31_500m, 25),
+        ("MON-027", "27\" 4K Monitor", "EA", 95_000m, 74_000m, 10),
+        ("KEY-001", "Wired Keyboard", "EA", 3_500m, 2_100m, 80),
+        ("KEY-002", "Wireless Keyboard & Mouse", "SET", 7_800m, 5_200m, 45),
+        ("MOU-001", "Optical Mouse", "EA", 1_800m, 950m, 120),
+        ("PRN-100", "Laser Printer", "EA", 68_000m, 52_000m, 8),
+        ("TON-100", "Printer Toner Cartridge", "EA", 14_500m, 9_800m, 40),
+        ("NET-008", "8-Port Gigabit Switch", "EA", 12_500m, 8_600m, 30),
+        ("NET-RTR", "Wi-Fi 6 Router", "EA", 21_000m, 14_900m, 22),
+        ("CBL-CAT6", "Cat6 Cable 305m Box", "BOX", 38_000m, 27_500m, 9),
+        ("SSD-512", "512GB NVMe SSD", "EA", 24_000m, 17_800m, 35),
+        ("RAM-16", "16GB DDR4 Memory", "EA", 16_500m, 11_900m, 28),
+        ("UPS-1K", "1kVA UPS", "EA", 52_000m, 38_500m, 7)
+    ];
+
+    private static async Task SeedInventoryAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var itemService = sp.GetRequiredService<IItemService>();
+        var stock = sp.GetRequiredService<IStockService>();
+        var existing = (await itemService.ListAsync(ct)).ToDictionary(x => x.Sku);
+        var received = 0m;
+
+        foreach (var (sku, name, uom, price, cost, qty) in Items)
+        {
+            if (!existing.TryGetValue(sku, out var item))
+            {
+                item = await itemService.CreateAsync(new CreateItemRequest(sku, name, uom, price, cost), ct);
+                existing[sku] = item;
+            }
+
+            if ((await stock.LedgerAsync(item.Id, 1, ct)).Count > 0) continue;
+            await stock.ReceiveAsync(new ReceiveStockRequest(
+                item.Id, qty, cost, new DateOnly(2026, 1, 1), "SEED-OPENING", null), ct);
+            received += qty * cost;
+        }
+
+        if (received > 0)
+        {
+            // Keep the GL in step with the stock ledger: opening stock value funded by owner's equity.
+            await sp.GetRequiredService<IFinancePosting>().PostJournalAsync(new PostJournalCommand(
+                "Seed", "SEED-OPENING-STOCK", new DateOnly(2026, 1, 1), "Opening stock valuation",
+                [
+                    new PostJournalLine("1200", received, 0, "Opening inventory"),
+                    new PostJournalLine("3000", 0, received, "Owner's capital - stock")
+                ]), ct);
+            log.LogInformation("Seeded opening stock worth {Value:N0}.", received);
+        }
+
+        log.LogInformation("Inventory ready ({Count} items).", Items.Length);
     }
 }

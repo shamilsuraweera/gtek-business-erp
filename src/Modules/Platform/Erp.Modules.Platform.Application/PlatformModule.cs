@@ -314,6 +314,14 @@ public static class Permissions
         public const string ReportsRead = "finance.reports.read";
     }
 
+    public static class Inventory
+    {
+        public const string ItemsRead = "inventory.items.read";
+        public const string ItemsManage = "inventory.items.manage";
+        public const string StockRead = "inventory.stock.read";
+        public const string StockManage = "inventory.stock.manage";
+    }
+
     public static readonly IReadOnlyList<(string Code, string Name, string Module, string Description)> Catalogue =
     [
         (Platform.CompaniesRead, "Read companies", "platform", "View companies."),
@@ -334,7 +342,11 @@ public static class Permissions
         (Finance.AccountsManage, "Manage finance accounts", "finance", "Create and manage the chart of accounts."),
         (Finance.JournalsRead, "Read journals", "finance", "View general journals."),
         (Finance.JournalsPost, "Post journals", "finance", "Post and reverse general journals."),
-        (Finance.ReportsRead, "Read finance reports", "finance", "View the trial balance and finance reports.")
+        (Finance.ReportsRead, "Read finance reports", "finance", "View the trial balance and finance reports."),
+        (Inventory.ItemsRead, "Read items", "inventory", "View items and locations."),
+        (Inventory.ItemsManage, "Manage items", "inventory", "Create and manage items and locations."),
+        (Inventory.StockRead, "Read stock", "inventory", "View on-hand stock and the stock ledger."),
+        (Inventory.StockManage, "Manage stock", "inventory", "Receive stock and post stock adjustments.")
     ];
 }
 
