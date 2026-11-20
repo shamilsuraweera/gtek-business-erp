@@ -74,9 +74,9 @@ public sealed class StockStore(InventoryDbContext db) : IStockStore
         var rows = await db.LedgerEntries.AsNoTracking()
             .Where(x => x.CompanyId == companyId)
             .GroupBy(x => x.ItemId)
-            .Select(g => new { ItemId = g.Key, Quantity = g.Sum(x => x.Quantity) })
+            .Select(g => new { ItemId = g.Key, Quantity = g.Sum(x => x.Quantity), Value = g.Sum(x => x.Quantity * x.UnitCost) })
             .ToListAsync(cancellationToken);
-        return rows.Select(x => new ItemQuantity(x.ItemId, x.Quantity)).ToArray();
+        return rows.Select(x => new ItemQuantity(x.ItemId, x.Quantity, decimal.Round(x.Value, 2))).ToArray();
     }
 
     public async Task<IReadOnlyList<ItemLedgerEntry>> LedgerAsync(CompanyId companyId, ItemId? itemId, int take, CancellationToken cancellationToken)

@@ -1,9 +1,11 @@
 # GTEK Business ERP
 
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform with a React web
-client. The local MVP demonstrates a complete **order-to-cash** workflow:
+client. The local MVP demonstrates two complete workflows:
 
-> customer → sales order → invoice (stock issue + ledger posting) → payment → trial balance
+> **Order-to-cash:** customer → sales order → invoice (stock issue + ledger posting) → payment
+>
+> **Procure-to-pay:** vendor → purchase order → goods receipt (stock in, GRNI accrual) → vendor bill → payment
 
 | Module | What works today |
 |---|---|
@@ -11,9 +13,8 @@ client. The local MVP demonstrates a complete **order-to-cash** workflow:
 | Finance | Chart of accounts, balanced journals, reversals, trial balance (append-only ledger) |
 | Inventory | Items, locations, append-only stock ledger, receipts/adjustments, oversell protection |
 | Sales | Customers, orders (draft → confirmed → released → invoiced), invoices, payments |
-| Web (`web/`) | Dashboard, sales, inventory, ledger and administration screens |
-
-Purchasing is still a scaffold (not part of the MVP).
+| Purchasing | Vendors, purchase orders, goods receipt (stock at PO cost), vendor bills, payments |
+| Web (`web/`) | Dashboard, sales, purchasing, inventory, ledger and administration screens |
 
 ## Run the MVP locally
 
@@ -37,8 +38,8 @@ cd web && npm install && npm run dev
 ```
 
 Sign in as **`admin` / `Admin#123456`** and pick the **GTEK Demo (Pvt) Ltd** company.
-The demo data contains 15 items with opening stock, 8 customers, and 9 sales
-orders in every state (draft through paid and overdue invoices).
+The demo data contains 15 items with opening stock, 8 customers, 5 vendors, and
+sales and purchase orders in every state (drafts through paid and overdue documents).
 
 Notes:
 
@@ -46,9 +47,11 @@ Notes:
   `scripts/dev-setup.sh`.
 - Re-running `--seed` is safe. To start over, drop and recreate the `gtek_erp` database.
 - Integration tests need a disposable database: `ERP_TEST_DATABASE_CONNECTION="Host=localhost;Database=gtek_erp_test;Username=gtek;Password=gtek_dev"`.
-- MVP limitations: sales postings use a fixed account mapping (1000/1010 cash and bank,
-  1100 receivable, 1200 inventory, 4000 revenue, 5000 COGS); stock receipts do not post to the
-  ledger; there is no tax, multi-currency, credit notes or returns yet.
+- MVP limitations: sales and purchasing postings use a fixed account mapping (1000/1010 cash and
+  bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received not invoiced,
+  4000 revenue, 5000 COGS); manual stock receipts do not post to the ledger; orders are received
+  and billed in full (no partial receipts, three-way match or price variance); there is no tax,
+  multi-currency, credit notes or returns yet.
 
 ## Quick start
 

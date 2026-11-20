@@ -4,8 +4,10 @@ using Erp.Modules.Finance.Contracts;
 using Erp.Modules.Finance.Domain;
 using Erp.Modules.Inventory.Application;
 using Erp.Modules.Platform.Application;
+using Erp.Modules.Purchasing.Application;
 using Erp.Modules.Sales.Application;
 using Erp.Modules.Sales.Domain;
+using PurchasingDomain = Erp.Modules.Purchasing.Domain;
 using Erp.SharedKernel;
 
 namespace Erp.Api.Seeding;
@@ -35,6 +37,7 @@ public static class DevSeeder
         await SeedOpeningBalancesAsync(sp, log, ct);
         await SeedInventoryAsync(sp, log, ct);
         await SeedSalesAsync(sp, log, ct);
+        await SeedPurchasingAsync(sp, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
     }
@@ -102,6 +105,7 @@ public static class DevSeeder
         ("1100", "Accounts Receivable", AccountType.Asset),
         ("1200", "Inventory", AccountType.Asset),
         ("2000", "Accounts Payable", AccountType.Liability),
+        ("2100", "Goods Received Not Invoiced", AccountType.Liability),
         ("3000", "Owner's Equity", AccountType.Equity),
         ("3100", "Retained Earnings", AccountType.Equity),
         ("4000", "Sales Revenue", AccountType.Revenue),
@@ -264,5 +268,78 @@ public static class DevSeeder
         }
 
         log.LogInformation("Sales ready ({Customers} customers, {Created} new orders).", Customers.Length, created);
+    }
+
+    private static readonly (string Code, string Name, string Email, int Terms)[] Vendors =
+    [
+        ("VEN-001", "Asia Pacific Computers", "sales@apcomputers.example", 30),
+        ("VEN-002", "Colombo Peripherals Ltd", "orders@cpl.example", 21),
+        ("VEN-003", "NetWorks Distribution", "accounts@networks.example", 45),
+        ("VEN-004", "Global Storage Imports", "supply@globalstorage.example", 30),
+        ("VEN-005", "PowerGuard Lanka", "info@powerguard.example", 14)
+    ];
+
+    private enum PurchaseState { Draft, Open, Released, Cancelled, Received, Billed, Partial, Paid }
+
+    // Line cost may differ from the item's standard cost: receipts are valued at the PO price.
+    private static readonly (int N, string Vendor, PurchaseState State, DateOnly Date, (string Sku, decimal Qty, decimal? Cost)[] Lines)[] PurchaseOrders =
+    [
+        (1, "VEN-002", PurchaseState.Draft, new DateOnly(2026, 11, 18), [("MOU-001", 40, null), ("KEY-001", 20, null)]),
+        (2, "VEN-003", PurchaseState.Open, new DateOnly(2026, 11, 17), [("NET-008", 10, null)]),
+        (3, "VEN-001", PurchaseState.Released, new DateOnly(2026, 11, 16), [("LAP-001", 5, 140_000m), ("MON-024", 6, null)]),
+        (4, "VEN-004", PurchaseState.Received, new DateOnly(2026, 11, 10), [("SSD-512", 20, 17_500m), ("RAM-16", 12, null)]),
+        (5, "VEN-005", PurchaseState.Billed, new DateOnly(2026, 9, 20), [("UPS-1K", 6, 38_000m)]),
+        (6, "VEN-001", PurchaseState.Partial, new DateOnly(2026, 10, 15), [("LAP-002", 4, 193_000m), ("MON-027", 4, null)]),
+        (7, "VEN-002", PurchaseState.Paid, new DateOnly(2026, 10, 1), [("KEY-002", 30, null), ("PRN-100", 3, 51_000m)]),
+        (8, "VEN-003", PurchaseState.Cancelled, new DateOnly(2026, 11, 3), [("CBL-CAT6", 5, null)])
+    ];
+
+    private static async Task SeedPurchasingAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var vendorService = sp.GetRequiredService<IVendorService>();
+        var orderService = sp.GetRequiredService<IPurchaseOrderService>();
+        var billService = sp.GetRequiredService<IBillService>();
+        var itemIds = (await sp.GetRequiredService<IItemService>().ListAsync(ct)).ToDictionary(x => x.Sku, x => x.Id);
+
+        var vendors = (await vendorService.ListAsync(ct)).ToDictionary(x => x.Code);
+        foreach (var (code, name, email, terms) in Vendors.Where(x => !vendors.ContainsKey(x.Code)))
+            vendors[code] = await vendorService.CreateAsync(new CreateVendorRequest(code, name, email, null, terms), ct);
+
+        var existing = (await orderService.ListAsync(500, ct)).Select(x => x.Notes).ToHashSet();
+        var created = 0;
+        foreach (var (n, vendorCode, state, date, lines) in PurchaseOrders)
+        {
+            var marker = $"SEED-PO-{n}";
+            if (existing.Contains(marker)) continue;
+
+            var order = await orderService.CreateAsync(new CreatePurchaseOrderRequest(
+                vendors[vendorCode].Id, date, marker,
+                lines.Select(l => new PurchaseLineRequest(itemIds[l.Sku], l.Qty, l.Cost)).ToArray()), ct);
+            var id = new PurchasingDomain.PurchaseOrderId(order.Id);
+            created++;
+            if (state == PurchaseState.Draft) continue;
+            if (state == PurchaseState.Cancelled)
+            {
+                await orderService.TransitionAsync(id, PurchaseOrderAction.Cancel, ct);
+                continue;
+            }
+
+            await orderService.TransitionAsync(id, PurchaseOrderAction.Open, ct);
+            if (state == PurchaseState.Open) continue;
+            await orderService.TransitionAsync(id, PurchaseOrderAction.Release, ct);
+            if (state == PurchaseState.Released) continue;
+
+            await orderService.ReceiveAsync(id, new ReceiveGoodsRequest(date.AddDays(5)), ct);
+            if (state == PurchaseState.Received) continue;
+
+            var bill = (await billService.CreateFromOrderAsync(id, new CreateBillRequest(date.AddDays(8), $"INV/{vendorCode}/{n:000}"), ct))!;
+            var billId = new PurchasingDomain.VendorBillId(bill.Id);
+            if (state == PurchaseState.Paid)
+                await billService.PayAsync(billId, new PayBillRequest(bill.Total, PurchasingDomain.PaymentMethod.Bank, date.AddDays(25), $"SEED-VPAY-{n}"), ct);
+            else if (state == PurchaseState.Partial)
+                await billService.PayAsync(billId, new PayBillRequest(decimal.Round(bill.Total / 2, 2), PurchasingDomain.PaymentMethod.Bank, date.AddDays(20), $"SEED-VPAY-{n}"), ct);
+        }
+
+        log.LogInformation("Purchasing ready ({Vendors} vendors, {Created} new orders).", Vendors.Length, created);
     }
 }

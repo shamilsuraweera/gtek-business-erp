@@ -334,6 +334,18 @@ public static class Permissions
         public const string PaymentsRecord = "sales.payments.record";
     }
 
+    public static class Purchasing
+    {
+        public const string VendorsRead = "purchasing.vendors.read";
+        public const string VendorsManage = "purchasing.vendors.manage";
+        public const string OrdersRead = "purchasing.orders.read";
+        public const string OrdersManage = "purchasing.orders.manage";
+        public const string OrdersReceive = "purchasing.orders.receive";
+        public const string BillsRead = "purchasing.bills.read";
+        public const string BillsPost = "purchasing.bills.post";
+        public const string PaymentsRecord = "purchasing.payments.record";
+    }
+
     public static readonly IReadOnlyList<(string Code, string Name, string Module, string Description)> Catalogue =
     [
         (Platform.CompaniesRead, "Read companies", "platform", "View companies."),
@@ -365,7 +377,15 @@ public static class Permissions
         (Sales.OrdersManage, "Manage sales orders", "sales", "Create, confirm, release and cancel sales orders."),
         (Sales.InvoicesRead, "Read sales invoices", "sales", "View sales invoices and payments."),
         (Sales.InvoicesPost, "Post sales invoices", "sales", "Invoice released sales orders (issues stock and posts to the ledger)."),
-        (Sales.PaymentsRecord, "Record customer payments", "sales", "Record payments against sales invoices.")
+        (Sales.PaymentsRecord, "Record customer payments", "sales", "Record payments against sales invoices."),
+        (Purchasing.VendorsRead, "Read vendors", "purchasing", "View vendors."),
+        (Purchasing.VendorsManage, "Manage vendors", "purchasing", "Create and manage vendors."),
+        (Purchasing.OrdersRead, "Read purchase orders", "purchasing", "View purchase orders."),
+        (Purchasing.OrdersManage, "Manage purchase orders", "purchasing", "Create, confirm, release and cancel purchase orders."),
+        (Purchasing.OrdersReceive, "Receive goods", "purchasing", "Receive goods against purchase orders (adds stock and accrues the liability)."),
+        (Purchasing.BillsRead, "Read vendor bills", "purchasing", "View vendor bills and payments."),
+        (Purchasing.BillsPost, "Post vendor bills", "purchasing", "Enter vendor bills for received purchase orders."),
+        (Purchasing.PaymentsRecord, "Pay vendor bills", "purchasing", "Record payments against vendor bills.")
     ];
 }
 

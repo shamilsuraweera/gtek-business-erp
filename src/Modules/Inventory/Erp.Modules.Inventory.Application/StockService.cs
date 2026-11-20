@@ -49,7 +49,7 @@ public sealed class StockService(
     {
         if (command.Quantity <= 0) throw new DomainException("Received quantity must be positive.");
         var entry = await MoveAsync(
-            new ItemId(command.ItemId), command.Quantity, null, command.Date, command.SourceType, command.SourceReference,
+            new ItemId(command.ItemId), command.Quantity, command.UnitCost, command.Date, command.SourceType, command.SourceReference,
             command.LocationId is { } l ? new LocationId(l) : null, cancellationToken);
         return new StockMovementResult(command.ItemId, command.Quantity, entry.UnitCost, entry.UnitCost * command.Quantity);
     }
@@ -57,12 +57,13 @@ public sealed class StockService(
     public async Task<IReadOnlyList<StockLevelResponse>> OnHandAsync(CancellationToken cancellationToken)
     {
         var companyId = ItemService.RequireCompany(companyContext);
-        var quantities = (await stock.OnHandByItemAsync(companyId, cancellationToken)).ToDictionary(x => x.ItemId, x => x.Quantity);
+        var quantities = (await stock.OnHandByItemAsync(companyId, cancellationToken)).ToDictionary(x => x.ItemId);
         return (await items.ListAsync(companyId, cancellationToken))
             .Select(i =>
             {
-                var onHand = quantities.GetValueOrDefault(i.Id);
-                return new StockLevelResponse(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, onHand, i.UnitCost, onHand * i.UnitCost);
+                var level = quantities.GetValueOrDefault(i.Id);
+                // Value comes from the ledger (receipts at their own cost, issues at standard cost) so it matches the GL.
+                return new StockLevelResponse(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, level?.Quantity ?? 0m, i.UnitCost, level?.Value ?? 0m);
             })
             .ToArray();
     }
