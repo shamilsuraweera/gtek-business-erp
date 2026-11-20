@@ -29,6 +29,12 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.True(response.IsSuccessStatusCode);
     }
 
+    // The API serializes enums as strings; mirror that when reading responses.
+    private static readonly JsonSerializerOptions ApiJson = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
+
     [Collection("Functional API")]
     public sealed class CompanyEndpointTests : IClassFixture<WebApplicationFactory<Program>>
     {
@@ -65,7 +71,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             await AuthenticateAsync();
             using var create = await _client.PostAsJsonAsync("/api/v1/companies", new { code = $"DEMO{Guid.NewGuid():N}"[..12], name = "Demo Company" });
             Assert.True(create.StatusCode == HttpStatusCode.Created, await create.Content.ReadAsStringAsync());
-            var response = await create.Content.ReadFromJsonAsync<CompanyResponse>();
+            var response = await create.Content.ReadFromJsonAsync<CompanyResponse>(ApiJson);
             Assert.NotNull(response);
 
             using var get = await _client.GetAsync($"/api/v1/companies/{response!.Id}");

@@ -4,6 +4,8 @@ using Erp.Modules.Finance.Contracts;
 using Erp.Modules.Finance.Domain;
 using Erp.Modules.Inventory.Application;
 using Erp.Modules.Platform.Application;
+using Erp.Modules.Sales.Application;
+using Erp.Modules.Sales.Domain;
 using Erp.SharedKernel;
 
 namespace Erp.Api.Seeding;
@@ -32,6 +34,7 @@ public static class DevSeeder
         await SeedAccountsAsync(sp, log, ct);
         await SeedOpeningBalancesAsync(sp, log, ct);
         await SeedInventoryAsync(sp, log, ct);
+        await SeedSalesAsync(sp, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
     }
@@ -186,5 +189,80 @@ public static class DevSeeder
         }
 
         log.LogInformation("Inventory ready ({Count} items).", Items.Length);
+    }
+
+    private static readonly (string Code, string Name, string Email, int Terms)[] Customers =
+    [
+        ("CUS-001", "Lanka Tech Solutions", "accounts@lankatech.example", 30),
+        ("CUS-002", "Ceylon Traders (Pvt) Ltd", "finance@ceylontraders.example", 30),
+        ("CUS-003", "Island Logistics", "ap@islandlogistics.example", 14),
+        ("CUS-004", "Hill Country Hotels", "purchasing@hillcountry.example", 45),
+        ("CUS-005", "Colombo Law Chambers", "office@colombolaw.example", 7),
+        ("CUS-006", "Green Valley School", "bursar@greenvalley.example", 30),
+        ("CUS-007", "Pearl Bay Resorts", "it@pearlbay.example", 30),
+        ("CUS-008", "Walk-in Customer", "walkin@gtek.local", 0)
+    ];
+
+    private enum SeedState { Draft, Open, Released, Cancelled, Invoiced, Partial, Paid }
+
+    private static readonly (int N, string Customer, SeedState State, DateOnly Date, (string Sku, decimal Qty)[] Lines)[] Orders =
+    [
+        (1, "CUS-001", SeedState.Draft, new DateOnly(2026, 11, 18), [("LAP-001", 2), ("MOU-001", 2)]),
+        (2, "CUS-002", SeedState.Open, new DateOnly(2026, 11, 17), [("MON-024", 4), ("KEY-001", 4)]),
+        (3, "CUS-004", SeedState.Released, new DateOnly(2026, 11, 16), [("NET-008", 3), ("NET-RTR", 2), ("CBL-CAT6", 1)]),
+        (4, "CUS-003", SeedState.Paid, new DateOnly(2026, 10, 5), [("LAP-002", 1), ("SSD-512", 2)]),
+        (5, "CUS-006", SeedState.Partial, new DateOnly(2026, 10, 20), [("MON-027", 3), ("KEY-002", 3)]),
+        (6, "CUS-007", SeedState.Invoiced, new DateOnly(2026, 9, 15), [("PRN-100", 2), ("TON-100", 4)]),
+        (7, "CUS-005", SeedState.Cancelled, new DateOnly(2026, 11, 2), [("RAM-16", 8)]),
+        (8, "CUS-001", SeedState.Invoiced, new DateOnly(2026, 11, 12), [("LAP-001", 3), ("RAM-16", 3), ("SSD-512", 3)]),
+        (9, "CUS-008", SeedState.Paid, new DateOnly(2026, 11, 14), [("MOU-001", 5), ("KEY-001", 2)])
+    ];
+
+    private static async Task SeedSalesAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var customerService = sp.GetRequiredService<ICustomerService>();
+        var orderService = sp.GetRequiredService<IOrderService>();
+        var invoiceService = sp.GetRequiredService<IInvoiceService>();
+        var itemIds = (await sp.GetRequiredService<IItemService>().ListAsync(ct)).ToDictionary(x => x.Sku, x => x.Id);
+
+        var customers = (await customerService.ListAsync(ct)).ToDictionary(x => x.Code);
+        foreach (var (code, name, email, terms) in Customers.Where(x => !customers.ContainsKey(x.Code)))
+            customers[code] = await customerService.CreateAsync(new CreateCustomerRequest(code, name, email, null, terms), ct);
+
+        var existing = (await orderService.ListAsync(500, ct)).Select(x => x.Notes).ToHashSet();
+        var created = 0;
+        foreach (var (n, customerCode, state, date, lines) in Orders)
+        {
+            var marker = $"SEED-{n}";
+            if (existing.Contains(marker)) continue;
+
+            var order = await orderService.CreateAsync(new CreateOrderRequest(
+                customers[customerCode].Id, date, marker,
+                lines.Select(l => new OrderLineRequest(itemIds[l.Sku], l.Qty, null)).ToArray()), ct);
+            var id = new SalesOrderId(order.Id);
+            created++;
+            if (state == SeedState.Draft) continue;
+            if (state == SeedState.Cancelled)
+            {
+                await orderService.TransitionAsync(id, OrderAction.Cancel, ct);
+                continue;
+            }
+
+            await orderService.TransitionAsync(id, OrderAction.Open, ct);
+            if (state == SeedState.Open) continue;
+            await orderService.TransitionAsync(id, OrderAction.Release, ct);
+            if (state == SeedState.Released) continue;
+
+            var invoice = (await invoiceService.CreateFromOrderAsync(id, new CreateInvoiceRequest(date), ct))!;
+            var invoiceId = new SalesInvoiceId(invoice.Id);
+            if (state == SeedState.Paid)
+                await invoiceService.RecordPaymentAsync(invoiceId,
+                    new RecordPaymentRequest(invoice.Total, PaymentMethod.Bank, date.AddDays(10), $"SEED-PAY-{n}"), ct);
+            else if (state == SeedState.Partial)
+                await invoiceService.RecordPaymentAsync(invoiceId,
+                    new RecordPaymentRequest(decimal.Round(invoice.Total / 2, 2), PaymentMethod.Bank, date.AddDays(7), $"SEED-PAY-{n}"), ct);
+        }
+
+        log.LogInformation("Sales ready ({Customers} customers, {Created} new orders).", Customers.Length, created);
     }
 }

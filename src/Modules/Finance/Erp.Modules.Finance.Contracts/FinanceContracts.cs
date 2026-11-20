@@ -16,4 +16,7 @@ public sealed record PostedJournal(Guid JournalId, string Number);
 public interface IFinancePosting
 {
     Task<PostedJournal> PostJournalAsync(PostJournalCommand command, CancellationToken cancellationToken);
+
+    /// <summary>Posts a mirror journal that reverses a previously posted one (used to compensate failed multi-module operations).</summary>
+    Task<PostedJournal> ReverseJournalAsync(Guid journalId, string reason, CancellationToken cancellationToken);
 }

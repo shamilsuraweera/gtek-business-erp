@@ -322,6 +322,17 @@ public static class Permissions
         public const string StockManage = "inventory.stock.manage";
     }
 
+    public static class Sales
+    {
+        public const string CustomersRead = "sales.customers.read";
+        public const string CustomersManage = "sales.customers.manage";
+        public const string OrdersRead = "sales.orders.read";
+        public const string OrdersManage = "sales.orders.manage";
+        public const string InvoicesRead = "sales.invoices.read";
+        public const string InvoicesPost = "sales.invoices.post";
+        public const string PaymentsRecord = "sales.payments.record";
+    }
+
     public static readonly IReadOnlyList<(string Code, string Name, string Module, string Description)> Catalogue =
     [
         (Platform.CompaniesRead, "Read companies", "platform", "View companies."),
@@ -346,7 +357,14 @@ public static class Permissions
         (Inventory.ItemsRead, "Read items", "inventory", "View items and locations."),
         (Inventory.ItemsManage, "Manage items", "inventory", "Create and manage items and locations."),
         (Inventory.StockRead, "Read stock", "inventory", "View on-hand stock and the stock ledger."),
-        (Inventory.StockManage, "Manage stock", "inventory", "Receive stock and post stock adjustments.")
+        (Inventory.StockManage, "Manage stock", "inventory", "Receive stock and post stock adjustments."),
+        (Sales.CustomersRead, "Read customers", "sales", "View customers."),
+        (Sales.CustomersManage, "Manage customers", "sales", "Create and manage customers."),
+        (Sales.OrdersRead, "Read sales orders", "sales", "View sales orders."),
+        (Sales.OrdersManage, "Manage sales orders", "sales", "Create, confirm, release and cancel sales orders."),
+        (Sales.InvoicesRead, "Read sales invoices", "sales", "View sales invoices and payments."),
+        (Sales.InvoicesPost, "Post sales invoices", "sales", "Invoice released sales orders (issues stock and posts to the ledger)."),
+        (Sales.PaymentsRecord, "Record customer payments", "sales", "Record payments against sales invoices.")
     ];
 }
 
