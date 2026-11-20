@@ -1,9 +1,54 @@
 # GTEK Business ERP
 
-GTEK Business ERP is a .NET 10 modular-monolith ERP platform. The repository
-currently contains the **Phase 1.6 platform foundation**. It is an executable API
-and domain foundation, not yet a complete ERP application with a user interface
-or full business workflows.
+GTEK Business ERP is a .NET 10 modular-monolith ERP platform with a React web
+client. The local MVP demonstrates a complete **order-to-cash** workflow:
+
+> customer → sales order → invoice (stock issue + ledger posting) → payment → trial balance
+
+| Module | What works today |
+|---|---|
+| Platform | Companies, users, JWT sign-in, roles/permissions, company access, audit trail, number sequences, accounting periods |
+| Finance | Chart of accounts, balanced journals, reversals, trial balance (append-only ledger) |
+| Inventory | Items, locations, append-only stock ledger, receipts/adjustments, oversell protection |
+| Sales | Customers, orders (draft → confirmed → released → invoiced), invoices, payments |
+| Web (`web/`) | Dashboard, sales, inventory, ledger and administration screens |
+
+Purchasing is still a scaffold (not part of the MVP).
+
+## Run the MVP locally
+
+Prerequisites: .NET SDK 10, Node 22+, and PostgreSQL on `localhost:5432`.
+
+```bash
+# 1. Create the role and database once (needs a Postgres superuser)
+sudo -u postgres psql -f scripts/dev-db.sql
+
+# 2. Create src/Host/Erp.Api/appsettings.Development.json (git-ignored)
+#    { "ConnectionStrings": { "Erp": "Host=localhost;Port=5432;Database=gtek_erp;Username=gtek;Password=gtek_dev" },
+#      "Authentication": { "BootstrapSecret": "dev-bootstrap-secret",
+#                          "Jwt": { "SigningKey": "<run: openssl rand -base64 32>" } } }
+
+# 3. Apply every module's migrations and load demo data (idempotent)
+scripts/dev-setup.sh --seed
+
+# 4. Start the API (http://localhost:5004) and the web app (http://localhost:5173)
+dotnet run --project src/Host/Erp.Api
+cd web && npm install && npm run dev
+```
+
+Sign in as **`admin` / `Admin#123456`** and pick the **GTEK Demo (Pvt) Ltd** company.
+The demo data contains 15 items with opening stock, 8 customers, and 9 sales
+orders in every state (draft through paid and overdue invoices).
+
+Notes:
+
+- Migrations are never applied automatically at API start (ADR 0012); use
+  `scripts/dev-setup.sh`.
+- Re-running `--seed` is safe. To start over, drop and recreate the `gtek_erp` database.
+- Integration tests need a disposable database: `ERP_TEST_DATABASE_CONNECTION="Host=localhost;Database=gtek_erp_test;Username=gtek;Password=gtek_dev"`.
+- MVP limitations: sales postings use a fixed account mapping (1000/1010 cash and bank,
+  1100 receivable, 1200 inventory, 4000 revenue, 5000 COGS); stock receipts do not post to the
+  ledger; there is no tax, multi-currency, credit notes or returns yet.
 
 ## Quick start
 
@@ -113,8 +158,8 @@ Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts -Headers @{ "X-C
 Invoke-RestMethod http://localhost:5004/openapi/v1.json
 ```
 
-There is currently no frontend, finance transaction workflow, or full ERP
-business workflow.
+The Sales, Inventory and Finance endpoints live under `/api/v1/sales`, `/api/v1/inventory`
+and `/api/v1/finance`; browse them in the OpenAPI document at `/openapi/v1.json`.
 
 ## Domain functionality available in Phase 1.6
 

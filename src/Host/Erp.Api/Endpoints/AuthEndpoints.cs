@@ -36,6 +36,15 @@ public static class AuthEndpoints
                 return TypedResults.Unauthorized();
             return TypedResults.Ok(await access.ListCompaniesForUserAsync(userId, ct));
         }).RequireAuthorization().WithSummary("List companies available to the authenticated user");
+        group.MapGet("/me/permissions", async Task<Results<Ok<IReadOnlyList<string>>, UnauthorizedHttpResult>>(
+            ICurrentUser currentUser,
+            IRolePermissionService roles,
+            CancellationToken ct) =>
+        {
+            if (currentUser.UserId is not { } userId)
+                return TypedResults.Unauthorized();
+            return TypedResults.Ok(await roles.ListEffectivePermissionsAsync(userId, ct));
+        }).RequireAuthorization().WithSummary("List the effective permission codes of the authenticated user");
         return endpoints;
     }
 

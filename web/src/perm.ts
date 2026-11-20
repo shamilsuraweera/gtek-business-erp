@@ -1,0 +1,11 @@
+/** Permission codes mirrored from the API's Permissions catalogue. */
+export const P = {
+  accountsRead: 'finance.accounts.read', accountsManage: 'finance.accounts.manage',
+  journalsRead: 'finance.journals.read', journalsPost: 'finance.journals.post', reportsRead: 'finance.reports.read',
+  itemsRead: 'inventory.items.read', itemsManage: 'inventory.items.manage', stockRead: 'inventory.stock.read', stockManage: 'inventory.stock.manage',
+  customersRead: 'sales.customers.read', customersManage: 'sales.customers.manage',
+  ordersRead: 'sales.orders.read', ordersManage: 'sales.orders.manage',
+  invoicesRead: 'sales.invoices.read', invoicesPost: 'sales.invoices.post', paymentsRecord: 'sales.payments.record',
+  periodsRead: 'platform.accounting-periods.read', periodsManage: 'platform.accounting-periods.manage',
+  sequencesRead: 'platform.number-sequences.read', usersRead: 'platform.users.read', auditRead: 'platform.audit.read',
+} as const

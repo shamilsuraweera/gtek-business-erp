@@ -87,6 +87,19 @@ public sealed class RolePermissionService(IRolePermissionStore store, IClock clo
         return true;
     }
 
+    public async Task<IReadOnlyList<string>> ListEffectivePermissionsAsync(UserId userId, CancellationToken cancellationToken)
+    {
+        var codes = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var role in await store.ListUserRolesAsync(userId, cancellationToken))
+        {
+            if (role.Status != RoleStatus.Active) continue;
+            foreach (var permission in await store.ListRolePermissionsAsync(role.Id, cancellationToken))
+                codes.Add(permission.Code);
+        }
+
+        return codes.ToArray();
+    }
+
     public async Task<IReadOnlyList<RoleResponse>?> ListUserRolesAsync(UserId userId, CancellationToken cancellationToken)
     {
         var roles = await store.ListUserRolesAsync(userId, cancellationToken);
