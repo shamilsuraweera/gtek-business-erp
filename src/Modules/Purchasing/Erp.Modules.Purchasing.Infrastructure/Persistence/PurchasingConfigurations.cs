@@ -47,9 +47,14 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
             l.Property(x => x.UnitCost).HasPrecision(19, 4);
             l.Property(x => x.QuantityReceived).HasPrecision(19, 4);
             l.Property(x => x.QuantityBilled).HasPrecision(19, 4);
+            l.Property(x => x.QuantityReturned).HasPrecision(19, 4);
+            l.Property(x => x.QuantityDebited).HasPrecision(19, 4);
             l.Ignore(x => x.LineTotal);
             l.Ignore(x => x.OutstandingToReceive);
             l.Ignore(x => x.ReceivedNotBilled);
+            l.Ignore(x => x.NetReceived);
+            l.Ignore(x => x.NetBilled);
+            l.Ignore(x => x.DebitableQuantity);
         });
         b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         b.Ignore(x => x.Total);
@@ -106,6 +111,7 @@ internal sealed class VendorBillConfiguration : IEntityTypeConfiguration<VendorB
         b.Property(x => x.VendorReference).HasMaxLength(100);
         b.Property(x => x.JournalNumber).HasMaxLength(50).IsRequired();
         b.Property(x => x.AmountPaid).HasPrecision(19, 4);
+        b.Property(x => x.AmountDebited).HasPrecision(19, 4);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.OwnsMany(x => x.Lines, l =>
         {
@@ -153,5 +159,104 @@ internal sealed class VendorPaymentConfiguration : IEntityTypeConfiguration<Vend
         b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
         b.HasIndex(x => x.BillId);
+    }
+}
+
+internal sealed class VendorReturnConfiguration : IEntityTypeConfiguration<VendorReturn>
+{
+    public void Configure(EntityTypeBuilder<VendorReturn> b)
+    {
+        b.ToTable("VendorReturns", "purchasing");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new VendorReturnId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.PurchaseOrderId).HasConversion(x => x.Value, x => new PurchaseOrderId(x)).IsRequired();
+        b.Property(x => x.VendorId).HasConversion(x => x.Value, x => new VendorId(x)).IsRequired();
+        b.Property(x => x.Number).HasMaxLength(50).IsRequired();
+        b.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+        b.Property(x => x.Reference).HasMaxLength(100).IsRequired();
+        b.Property(x => x.JournalNumber).HasMaxLength(50).IsRequired();
+        b.OwnsMany(x => x.Lines, l =>
+        {
+            l.ToTable("VendorReturnLines", "purchasing");
+            l.WithOwner().HasForeignKey("VendorReturnId");
+            l.Property<int>("LineNo");
+            l.HasKey("VendorReturnId", "LineNo");
+            l.Property(x => x.ItemId).IsRequired();
+            l.Property(x => x.Sku).HasMaxLength(60).IsRequired();
+            l.Property(x => x.Description).HasMaxLength(200).IsRequired();
+            l.Property(x => x.Quantity).HasPrecision(19, 4);
+            l.Property(x => x.UnitCost).HasPrecision(19, 4);
+            l.Ignore(x => x.LineTotal);
+        });
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        b.Ignore(x => x.Total);
+        b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
+        b.HasIndex(x => x.PurchaseOrderId);
+    }
+}
+
+internal sealed class DebitNoteConfiguration : IEntityTypeConfiguration<DebitNote>
+{
+    public void Configure(EntityTypeBuilder<DebitNote> b)
+    {
+        b.ToTable("DebitNotes", "purchasing");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new DebitNoteId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.PurchaseOrderId).HasConversion(x => x.Value, x => new PurchaseOrderId(x)).IsRequired();
+        b.Property(x => x.VendorBillId).HasConversion(x => x.Value, x => new VendorBillId(x)).IsRequired();
+        b.Property(x => x.VendorId).HasConversion(x => x.Value, x => new VendorId(x)).IsRequired();
+        b.Property(x => x.Number).HasMaxLength(50).IsRequired();
+        b.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+        b.Property(x => x.JournalNumber).HasMaxLength(50).IsRequired();
+        b.Property(x => x.AmountApplied).HasPrecision(19, 4);
+        b.Property(x => x.AmountRefunded).HasPrecision(19, 4);
+        b.OwnsMany(x => x.Lines, l =>
+        {
+            l.ToTable("DebitNoteLines", "purchasing");
+            l.WithOwner().HasForeignKey("DebitNoteId");
+            l.Property<int>("LineNo");
+            l.HasKey("DebitNoteId", "LineNo");
+            l.Property(x => x.ItemId).IsRequired();
+            l.Property(x => x.Sku).HasMaxLength(60).IsRequired();
+            l.Property(x => x.Description).HasMaxLength(200).IsRequired();
+            l.Property(x => x.Quantity).HasPrecision(19, 4);
+            l.Property(x => x.OrderUnitCost).HasPrecision(19, 4);
+            l.Property(x => x.UnitCost).HasPrecision(19, 4);
+            l.Ignore(x => x.LineTotal);
+            l.Ignore(x => x.AccruedTotal);
+            l.Ignore(x => x.PriceVariance);
+        });
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        b.Ignore(x => x.Total);
+        b.Ignore(x => x.AccruedTotal);
+        b.Ignore(x => x.PriceVariance);
+        b.Ignore(x => x.RefundDue);
+        b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
+        b.HasIndex(x => x.VendorBillId);
+    }
+}
+
+internal sealed class VendorRefundConfiguration : IEntityTypeConfiguration<VendorRefund>
+{
+    public void Configure(EntityTypeBuilder<VendorRefund> b)
+    {
+        b.ToTable("VendorRefunds", "purchasing");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new VendorRefundId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.DebitNoteId).HasConversion(x => x.Value, x => new DebitNoteId(x)).IsRequired();
+        b.Property(x => x.VendorId).HasConversion(x => x.Value, x => new VendorId(x)).IsRequired();
+        b.Property(x => x.Number).HasMaxLength(50).IsRequired();
+        b.Property(x => x.Amount).HasPrecision(19, 4);
+        b.Property(x => x.Method).HasConversion<string>().HasMaxLength(20).IsRequired();
+        b.Property(x => x.Reference).HasMaxLength(200).IsRequired();
+        b.Property(x => x.JournalNumber).HasMaxLength(50).IsRequired();
+        b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
+        b.HasIndex(x => x.DebitNoteId);
     }
 }

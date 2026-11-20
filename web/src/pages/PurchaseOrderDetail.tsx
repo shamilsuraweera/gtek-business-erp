@@ -9,6 +9,8 @@ import type { Bill, PurchaseOrder } from '../api/types'
 
 /** Mirrors ThreeWayMatch.PriceTolerancePercent on the server. */
 const TOLERANCE = 2
+/** Goods still billable: held (received less returned) not yet covered by a bill (billed less debited). Mirrors the server. */
+const billable = (l: PurchaseOrder['lines'][number]) => Math.max(0, l.quantityReceived - l.quantityReturned - (l.quantityBilled - l.quantityDebited))
 const variancePercent = (order: number, billed: number) => (order === 0 ? (billed === 0 ? 0 : 100) : ((billed - order) / order) * 100)
 
 function ReceiveDialog({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
@@ -51,16 +53,70 @@ function ReceiveDialog({ order, onClose }: { order: PurchaseOrder; onClose: () =
   )
 }
 
+function ReturnDialog({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
+  const held = order.lines.filter((l) => l.quantityReceived - l.quantityReturned > 0)
+  const [qty, setQty] = useState<Record<string, string>>({})
+  const [date, setDate] = useState(today())
+  const [reason, setReason] = useState('')
+  const [reference, setReference] = useState('')
+  const rows = held.map((l) => ({ l, quantity: Number(qty[l.itemId] || 0) })).filter((r) => r.quantity > 0)
+  const total = rows.reduce((s, r) => s + Math.round(r.quantity * r.l.unitCost * 100) / 100, 0)
+  // Goods that were billed need a vendor debit note afterwards; goods not yet billed simply reduce what will be billed.
+  const billedReturns = rows.filter((r) => (r.l.quantityReceived - r.l.quantityReturned - r.quantity) < (r.l.quantityBilled - r.l.quantityDebited))
+  const save = useApiMutation<void>(
+    () => ({ path: `/purchasing/orders/${order.id}/return`, body: { date, reason, reference: reference || null, lines: rows.map((r) => ({ itemId: r.l.itemId, quantity: r.quantity })) } }),
+    onClose,
+  )
+
+  return (
+    <Modal title={`Return to vendor — ${order.number}`} onClose={onClose} wide>
+      <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }}>
+        <div className="form-grid">
+          <Field label="Reason"><input value={reason} onChange={(e) => setReason(e.target.value)} required autoFocus placeholder="e.g. Failed acceptance test" /></Field>
+          <Field label="Return date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
+          <Field label="Return authorisation no."><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Vendor RMA / dispatch note" /></Field>
+        </div>
+        <div className="scroll-x"><table className="data">
+          <thead><tr><th>Item</th><th className="num">Held</th><th className="num">Billed</th><th style={{ width: 130 }}>Return qty</th><th className="num">Value</th></tr></thead>
+          <tbody>{held.map((l) => {
+            const heldQty = l.quantityReceived - l.quantityReturned
+            const q = Number(qty[l.itemId] || 0)
+            return (
+              <tr key={l.itemId}>
+                <td>{l.sku}<div className="muted">{formatMoney(l.unitCost)} each</div></td>
+                <td className="num">{formatNumber(heldQty)}</td><td className="num">{formatNumber(l.quantityBilled - l.quantityDebited)}</td>
+                <td><input type="number" min="0" max={heldQty} step="any" value={qty[l.itemId] ?? ''} placeholder="0" aria-label={`Quantity to return for ${l.sku}`}
+                  onChange={(e) => setQty({ ...qty, [l.itemId]: e.target.value })} /></td>
+                <td className="num">{q > 0 ? formatMoney(q * l.unitCost) : '—'}</td>
+              </tr>
+            )
+          })}</tbody>
+          <tfoot><tr><td colSpan={4}>Return value (at order cost)</td><td className="num">{formatMoney(total)}</td></tr></tfoot>
+        </table></div>
+        {billedReturns.length > 0 && (
+          <div className="note error">{billedReturns.map((r) => r.l.sku).join(', ')} {billedReturns.length > 1 ? 'have' : 'has'} already been billed: after returning, enter the vendor's debit note from the bill to reduce what you owe.</div>
+        )}
+        <p className="hint">Stock leaves at the cost it came in at and the receipt accrual is reversed: Dr Goods Received Not Invoiced / Cr Inventory. Goods that are no longer in stock cannot be returned.</p>
+        <ErrorNote error={save.error} />
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={rows.length === 0 || !reason.trim() || save.isPending}>{save.isPending ? 'Posting…' : 'Return goods'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 function BillDialog({ order, onClose, onCreated }: { order: PurchaseOrder; onClose: () => void; onCreated: (bill: Bill) => void }) {
   const { can } = useAuth()
-  const billable = order.lines.filter((l) => l.quantityReceived - l.quantityBilled > 0)
-  const [qty, setQty] = useState<Record<string, string>>(Object.fromEntries(billable.map((l) => [l.itemId, String(l.quantityReceived - l.quantityBilled)])))
-  const [cost, setCost] = useState<Record<string, string>>(Object.fromEntries(billable.map((l) => [l.itemId, String(l.unitCost)])))
+  const billableLines = order.lines.filter((l) => billable(l) > 0)
+  const [qty, setQty] = useState<Record<string, string>>(Object.fromEntries(billableLines.map((l) => [l.itemId, String(billable(l))])))
+  const [cost, setCost] = useState<Record<string, string>>(Object.fromEntries(billableLines.map((l) => [l.itemId, String(l.unitCost)])))
   const [date, setDate] = useState(today())
   const [vendorReference, setVendorReference] = useState('')
   const [override, setOverride] = useState(false)
 
-  const rows = billable.map((l) => {
+  const rows = billableLines.map((l) => {
     const quantity = Number(qty[l.itemId] || 0)
     const unitCost = Number(cost[l.itemId] || 0)
     const pct = variancePercent(l.unitCost, unitCost)
@@ -89,9 +145,9 @@ function BillDialog({ order, onClose, onCreated }: { order: PurchaseOrder; onClo
           <Field label="Bill date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
         </div>
         <div className="scroll-x"><table className="data">
-          <thead><tr><th>Item</th><th className="num">Received, not billed</th><th style={{ width: 120 }}>Bill qty</th><th className="num">Order cost</th><th style={{ width: 130 }}>Billed cost</th><th>Match</th></tr></thead>
-          <tbody>{billable.map((l) => {
-            const unbilled = l.quantityReceived - l.quantityBilled
+          <thead><tr><th>Item</th><th className="num">Held, not billed</th><th style={{ width: 120 }}>Bill qty</th><th className="num">Order cost</th><th style={{ width: 130 }}>Billed cost</th><th>Match</th></tr></thead>
+          <tbody>{billableLines.map((l) => {
+            const unbilled = billable(l)
             const pct = variancePercent(l.unitCost, Number(cost[l.itemId] || 0))
             return (
               <tr key={l.itemId}>
@@ -130,7 +186,7 @@ export function PurchaseOrderDetail() {
   const navigate = useNavigate()
   const { can } = useAuth()
   const order = useApiQuery<PurchaseOrder>(`/purchasing/orders/${id}`)
-  const [dialog, setDialog] = useState<'receive' | 'bill' | null>(null)
+  const [dialog, setDialog] = useState<'receive' | 'bill' | 'return' | null>(null)
   const act = useApiMutation<'open' | 'release' | 'cancel' | 'close-short'>((action) => ({ path: `/purchasing/orders/${id}/${action}` }))
 
   if (order.isLoading) return <Loading />
@@ -138,9 +194,11 @@ export function PurchaseOrderDetail() {
   if (!o) return <ErrorNote error={order.error ?? new Error('Purchase order not found.')} />
   const manage = can(P.poManage)
   const canReceive = (o.status === 'Released' || o.status === 'PartiallyReceived') && can(P.poReceive)
-  const canBill = (o.status === 'PartiallyReceived' || o.status === 'Received') && can(P.billsPost) && o.lines.some((l) => l.quantityReceived > l.quantityBilled)
+  const canBill = (o.status === 'PartiallyReceived' || o.status === 'Received') && can(P.billsPost) && o.lines.some((l) => billable(l) > 0)
   const outstanding = o.lines.some((l) => l.quantity > l.quantityReceived)
   const hasReceipts = o.receipts.length > 0
+  const canReturn = can(P.returnsPost) && o.lines.some((l) => l.quantityReceived - l.quantityReturned > 0)
+  const awaitingDebit = o.lines.filter((l) => l.debitableQuantity > 0)
 
   return (
     <>
@@ -149,16 +207,17 @@ export function PurchaseOrderDetail() {
       <ErrorNote error={act.error} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Billed</th><th className="num">Unit cost</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Billed</th><th className="num">Returned</th><th className="num">Unit cost</th><th className="num">Total</th></tr></thead>
           <tbody>{o.lines.map((l) => (
             <tr key={l.itemId}>
               <td>{l.sku}</td><td>{l.description}</td><td className="num">{formatNumber(l.quantity)}</td>
               <td className="num">{l.quantityReceived >= l.quantity ? <Badge value={formatNumber(l.quantityReceived)} tone="ok" /> : l.quantityReceived > 0 ? <Badge value={`${formatNumber(l.quantityReceived)} of ${formatNumber(l.quantity)}`} tone="warn" /> : '—'}</td>
               <td className="num">{l.quantityBilled > 0 ? formatNumber(l.quantityBilled) : '—'}</td>
+              <td className="num">{l.quantityReturned > 0 ? <Badge value={formatNumber(l.quantityReturned)} tone="warn" /> : '—'}</td>
               <td className="num">{formatMoney(l.unitCost)}</td><td className="num">{formatMoney(l.lineTotal)}</td>
             </tr>
           ))}</tbody>
-          <tfoot><tr><td colSpan={6}>Total</td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={7}>Total</td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
         </table>
       </section>
       {o.notes && <p className="muted" style={{ marginTop: 12 }}>Notes: {o.notes}</p>}
@@ -171,10 +230,16 @@ export function PurchaseOrderDetail() {
         {can(P.poReceive) && o.status === 'PartiallyReceived' && outstanding && (
           <button className="btn" disabled={act.isPending} onClick={() => { if (confirm('Accept the delivery as complete? The outstanding quantities will no longer be expected.')) act.mutate('close-short') }}>Close short</button>
         )}
+        {canReturn && <button className="btn" onClick={() => setDialog('return')}>Return to vendor</button>}
         {manage && ['Draft', 'Open', 'Released'].includes(o.status) && !hasReceipts && (
           <button className="btn danger" disabled={act.isPending} onClick={() => { if (confirm('Cancel this purchase order?')) act.mutate('cancel') }}>Cancel order</button>
         )}
       </div>
+      {awaitingDebit.length > 0 && (
+        <div className="note error" style={{ marginTop: 12 }}>
+          Billed goods were returned ({awaitingDebit.map((l) => `${l.sku} × ${formatNumber(l.debitableQuantity)}`).join(', ')}): enter the vendor's debit note from {o.bills.length === 1 ? <Link to={`/bills/${o.bills[0].id}`}>{o.bills[0].number}</Link> : 'the relevant bill'}.
+        </div>
+      )}
       {o.status === 'PartiallyReceived' && <p className="hint" style={{ marginTop: 12 }}>Part of the order is still outstanding. Receive the rest when it arrives, or close short to accept what was delivered.</p>}
 
       <div className="grid two" style={{ marginTop: 20 }}>
@@ -207,7 +272,22 @@ export function PurchaseOrderDetail() {
         </section>
       </div>
 
+      {o.returns.length > 0 && (
+        <section style={{ marginTop: 20 }}>
+          <h3>Returns to vendor</h3>
+          <div className="card flush scroll-x">
+            <table className="data">
+              <thead><tr><th>Return</th><th>Date</th><th>Reason</th><th>Reference</th><th className="num">Value</th></tr></thead>
+              <tbody>{o.returns.map((r) => (
+                <tr key={r.id}><td>{r.number}<div className="muted">{r.journalNumber}</div></td><td>{formatDate(r.returnDate)}</td><td>{r.reason}</td><td>{r.reference || '—'}</td><td className="num">{formatMoney(r.total)}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {dialog === 'receive' && <ReceiveDialog order={o} onClose={() => setDialog(null)} />}
+      {dialog === 'return' && <ReturnDialog order={o} onClose={() => setDialog(null)} />}
       {dialog === 'bill' && <BillDialog order={o} onClose={() => setDialog(null)} onCreated={(bill) => navigate(`/bills/${bill.id}`)} />}
     </>
   )

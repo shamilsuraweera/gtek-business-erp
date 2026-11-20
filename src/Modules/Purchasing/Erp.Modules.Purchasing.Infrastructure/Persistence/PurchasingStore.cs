@@ -57,6 +57,48 @@ public sealed class PurchasingStore(PurchasingDbContext db) : IPurchasingStore
                  x.VendorReference.ToLower() == vendorReference.ToLower(),
             cancellationToken);
 
+    public Task AddReturnAsync(VendorReturn vendorReturn, CancellationToken cancellationToken)
+    {
+        db.Returns.Add(vendorReturn);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<VendorReturn>> ListReturnsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken) =>
+        await db.Returns.AsNoTracking().Where(x => x.CompanyId == companyId && x.PurchaseOrderId == orderId).ToListAsync(cancellationToken);
+
+    public async Task<PurchaseOrderId?> GetBillOrderIdAsync(CompanyId companyId, VendorBillId billId, CancellationToken cancellationToken)
+    {
+        var ids = await db.Bills.AsNoTracking().Where(x => x.CompanyId == companyId && x.Id == billId)
+            .Select(x => x.PurchaseOrderId).ToListAsync(cancellationToken);
+        return ids.Count == 0 ? null : ids[0];
+    }
+
+    public Task AddDebitNoteAsync(DebitNote note, CancellationToken cancellationToken)
+    {
+        db.DebitNotes.Add(note);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<DebitNote>> ListDebitNotesAsync(CompanyId companyId, int take, CancellationToken cancellationToken) =>
+        await db.DebitNotes.AsNoTracking().Where(x => x.CompanyId == companyId)
+            .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
+
+    public Task<DebitNote?> GetDebitNoteAsync(CompanyId companyId, DebitNoteId id, CancellationToken cancellationToken) =>
+        db.DebitNotes.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<DebitNote>> ListDebitNotesForBillAsync(CompanyId companyId, VendorBillId billId, CancellationToken cancellationToken) =>
+        await db.DebitNotes.AsNoTracking().Where(x => x.CompanyId == companyId && x.VendorBillId == billId).ToListAsync(cancellationToken);
+
+    public Task AddVendorRefundAsync(VendorRefund refund, CancellationToken cancellationToken)
+    {
+        db.VendorRefunds.Add(refund);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<VendorRefund>> ListVendorRefundsAsync(CompanyId companyId, int take, CancellationToken cancellationToken) =>
+        await db.VendorRefunds.AsNoTracking().Where(x => x.CompanyId == companyId)
+            .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
+
     public Task AddBillAsync(VendorBill bill, CancellationToken cancellationToken)
     {
         db.Bills.Add(bill);
@@ -80,12 +122,20 @@ public sealed class PurchasingStore(PurchasingDbContext db) : IPurchasingStore
         await db.Payments.AsNoTracking().Where(x => x.CompanyId == companyId)
             .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
 
+    public Task<T> InLockedTransactionAsync<T>(
+        CompanyId companyId, string lockKey, Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken) =>
+        InLockedTransactionAsync(companyId, [lockKey], work, cancellationToken);
+
     public async Task<T> InLockedTransactionAsync<T>(
-        CompanyId companyId, string lockKey, Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken)
+        CompanyId companyId, IReadOnlyCollection<string> lockKeys, Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var key = $"purchasing:{companyId.Value}:{lockKey}";
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", cancellationToken);
+        foreach (var lockKey in lockKeys.Distinct().Order(StringComparer.Ordinal))
+        {
+            var key = $"purchasing:{companyId.Value}:{lockKey}";
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", cancellationToken);
+        }
+
         var result = await work(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;

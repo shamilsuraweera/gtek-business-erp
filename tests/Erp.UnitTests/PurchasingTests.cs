@@ -259,4 +259,209 @@ public class PurchasingTests
         Assert.Throws<DomainException>(() => Vendor.Create(Company, "", "x", null, null, 30, DateTimeOffset.UtcNow));
         Assert.Throws<DomainException>(() => Vendor.Create(Company, "v", "x", null, null, -1, DateTimeOffset.UtcNow));
     }
+
+    // ---- returns to vendor and debit notes ---------------------------------------------------------------------
+
+    /// <summary>10 x A received and billed in full (order cost 25.255, billed at 26) so returns have something to reverse.</summary>
+    private static PurchaseOrder ReceivedAndBilled()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(10m, 4m));
+        order.RecordBilling(Qty(10m, 4m));
+        return order;
+    }
+
+    [Fact]
+    public void Returning_unbilled_goods_reduces_what_can_be_billed_and_needs_no_debit_note()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(10m, 4m));
+        order.RecordBilling([(ItemA, 4m)]);                       // 6 of A still unbilled
+
+        order.RecordReturn([(ItemA, 3m)]);                        // taken from the unbilled 6
+
+        var a = order.LineFor(ItemA);
+        Assert.Equal(7m, a.NetReceived);
+        Assert.Equal(3m, a.ReceivedNotBilled);                    // 7 held - 4 billed
+        Assert.Equal(0m, a.DebitableQuantity);                    // nothing billed was returned
+        Assert.Throws<DomainException>(() => order.RecordDebit([(ItemA, 1m)]));
+    }
+
+    [Fact]
+    public void Returning_billed_goods_makes_them_debitable_and_a_debit_note_clears_it()
+    {
+        var order = ReceivedAndBilled();
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);
+
+        order.RecordReturn([(ItemA, 3m)]);
+
+        var a = order.LineFor(ItemA);
+        Assert.Equal(3m, a.DebitableQuantity);                    // billed 10, now hold 7
+        Assert.Equal(0m, a.ReceivedNotBilled);
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);
+
+        order.RecordDebit([(ItemA, 3m)]);
+        Assert.Equal(0m, a.DebitableQuantity);
+        Assert.Equal(7m, a.NetBilled);
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);
+    }
+
+    [Fact]
+    public void Debit_is_limited_to_returned_billed_goods_and_is_atomic()
+    {
+        var order = ReceivedAndBilled();
+        order.RecordReturn([(ItemA, 2m)]);
+
+        Assert.Throws<DomainException>(() => order.RecordDebit([(ItemA, 3m)]));              // only 2 were returned
+        Assert.Throws<DomainException>(() => order.RecordDebit([(ItemB, 1m)]));              // B was never returned
+        Assert.Throws<DomainException>(() => order.RecordDebit([(ItemA, 1m), (ItemB, 1m)])); // second line invalid
+        Assert.Equal(0m, order.LineFor(ItemA).QuantityDebited);                              // nothing applied
+        Assert.Throws<DomainException>(() => order.RecordDebit([]));
+    }
+
+    [Fact]
+    public void Returns_are_limited_to_the_goods_still_held_and_validated_atomically()
+    {
+        var order = Released();
+        order.RecordReceipt([(ItemA, 6m)]);
+
+        Assert.Throws<DomainException>(() => order.RecordReturn([(ItemA, 7m)]));             // only 6 received
+        Assert.Throws<DomainException>(() => order.RecordReturn([(ItemB, 1m)]));             // B not received
+        Assert.Throws<DomainException>(() => order.RecordReturn([(ItemA, 0m)]));
+        Assert.Throws<DomainException>(() => order.RecordReturn([(ItemA, 1m), (ItemA, 1m)]));
+
+        order.RecordReturn([(ItemA, 4m)]);
+        Assert.Throws<DomainException>(() => order.RecordReturn([(ItemA, 3m)]));             // only 2 still held
+        Assert.Equal(2m, order.LineFor(ItemA).NetReceived);
+    }
+
+    [Fact]
+    public void Nothing_can_be_returned_before_receipt_and_a_return_does_not_reopen_the_order()
+    {
+        var order = Released();
+        Assert.Throws<DomainException>(() => order.RecordReturn([(ItemA, 1m)]));
+
+        order.RecordReceipt([(ItemA, 10m)]);
+        order.RecordReturn([(ItemA, 4m)]);
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status);                   // B still outstanding
+        Assert.Equal(0m, order.LineFor(ItemA).OutstandingToReceive);                         // returned goods are not re-expected
+        Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemA, 1m)]));
+    }
+
+    [Fact]
+    public void Returning_unbilled_goods_can_complete_an_otherwise_fully_billed_order()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(10m, 4m));
+        order.RecordBilling(Qty(7m, 4m));                                                    // 3 of A not billed yet
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);
+
+        order.RecordReturn([(ItemA, 3m)]);                                                   // held 7 == billed 7
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);
+    }
+
+    [Fact]
+    public void Billing_after_a_return_covers_only_the_goods_still_held()
+    {
+        var order = Released();
+        order.RecordReceipt([(ItemA, 10m)]);
+        order.RecordReturn([(ItemA, 4m)]);
+
+        Assert.Throws<DomainException>(() => order.RecordBilling([(ItemA, 7m)]));            // 6 held
+        order.RecordBilling([(ItemA, 6m)]);
+        Assert.Equal(0m, order.LineFor(ItemA).ReceivedNotBilled);
+    }
+
+    // ---- documents ----------------------------------------------------------------------------------------------
+
+    private static DebitNote Note(VendorBill bill, decimal quantity, decimal orderCost, decimal billedCost, decimal applied, string reason = "Faulty goods returned") =>
+        DebitNote.Create(Company, "DN-1", bill, new DateOnly(2026, 11, 20), reason,
+            [new DebitNoteLine(ItemA, "A", "Item A", quantity, orderCost, billedCost)], Guid.NewGuid(), "JE-5", applied, DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void Debit_note_splits_into_accrual_and_price_variance_at_the_billed_price()
+    {
+        var bill = Bill(10m, 25m, 26m);                          // total 260
+        var note = Note(bill, 2m, 25m, 26m, applied: 52m);
+
+        Assert.Equal(52m, note.Total);                           // the vendor credits what it billed
+        Assert.Equal(50m, note.AccruedTotal);                    // GRNI is cleared at the order price
+        Assert.Equal(2m, note.PriceVariance);
+        Assert.Equal(0m, note.RefundDue);
+    }
+
+    [Fact]
+    public void Debit_note_requires_a_reason_lines_and_a_valid_applied_amount()
+    {
+        var bill = Bill();
+        var line = new DebitNoteLine(ItemA, "A", "Item A", 1m, 25m, 26m);
+
+        Assert.Throws<DomainException>(() => DebitNote.Create(Company, "DN-1", bill, new DateOnly(2026, 11, 20), " ", [line], Guid.NewGuid(), "JE", 26m, DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => DebitNote.Create(Company, "DN-1", bill, new DateOnly(2026, 11, 20), "x", [], Guid.NewGuid(), "JE", 0m, DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => DebitNote.Create(Company, "DN-1", bill, new DateOnly(2026, 11, 20), "x", [line], Guid.NewGuid(), "JE", 26.01m, DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => new DebitNoteLine(ItemA, "A", "Item A", 0m, 25m, 26m));
+    }
+
+    [Fact]
+    public void Debit_reduces_the_bill_balance_and_a_fully_debited_unpaid_bill_becomes_debited()
+    {
+        var bill = Bill(10m, 25m, 26m);                          // 260
+        bill.ApplyDebit(60m);
+        Assert.Equal(200m, bill.Balance);
+        Assert.Equal(BillStatus.Open, bill.Status);
+
+        bill.ApplyDebit(200m);
+        Assert.Equal(0m, bill.Balance);
+        Assert.Equal(BillStatus.Debited, bill.Status);
+    }
+
+    [Fact]
+    public void Debit_that_settles_a_part_paid_bill_marks_it_paid_and_payments_respect_debits()
+    {
+        var bill = Bill(10m, 25m, 26m);
+        bill.ApplyPayment(200m);
+        bill.ApplyDebit(60m);                                                                 // 260 - 200 paid = 60 open
+        Assert.Equal(BillStatus.Paid, bill.Status);
+
+        var open = Bill(10m, 25m, 26m);
+        open.ApplyDebit(60m);
+        Assert.Throws<DomainException>(() => open.ApplyPayment(200.01m));                    // only 200 is still open
+        Assert.Throws<DomainException>(() => open.ApplyDebit(200.01m));
+        Assert.Throws<DomainException>(() => open.ApplyDebit(-1m));
+    }
+
+    [Fact]
+    public void Debit_on_an_already_paid_bill_applies_nothing_and_is_fully_refundable_by_the_vendor()
+    {
+        var bill = Bill(10m, 25m, 26m);
+        bill.ApplyPayment(260m);
+        var note = Note(bill, 2m, 25m, 26m, applied: 0m);
+
+        Assert.Equal(52m, note.RefundDue);
+        note.ApplyRefund(20m);
+        note.ApplyRefund(32m);
+        Assert.Equal(0m, note.RefundDue);
+        Assert.Throws<DomainException>(() => note.ApplyRefund(0.01m));
+        Assert.Throws<DomainException>(() => Note(bill, 2m, 25m, 26m, 0m).ApplyRefund(0m));
+    }
+
+    [Fact]
+    public void Vendor_return_requires_a_reason_and_lines_and_totals_at_the_order_cost()
+    {
+        var order = Released();
+        Assert.Throws<DomainException>(() => VendorReturn.Create(Company, "RTV-1", order.Id, order.VendorId, new DateOnly(2026, 11, 20), "", null, [new VendorReturnLine(ItemA, "A", "A", 1m, 25m)], Guid.NewGuid(), "JE", DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => VendorReturn.Create(Company, "RTV-1", order.Id, order.VendorId, new DateOnly(2026, 11, 20), "damaged", null, [], Guid.NewGuid(), "JE", DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => new VendorReturnLine(ItemA, "A", "A", 0m, 25m));
+
+        var ret = VendorReturn.Create(Company, "RTV-1", order.Id, order.VendorId, new DateOnly(2026, 11, 20), " damaged ", " RMA-9 ",
+            [new VendorReturnLine(ItemA, "A", "A", 4m, 25.255m)], Guid.NewGuid(), "JE-6", DateTimeOffset.UtcNow);
+        Assert.Equal(101.02m, ret.Total);
+        Assert.Equal("damaged", ret.Reason);
+        Assert.Equal("RMA-9", ret.Reference);
+    }
+
+    [Fact]
+    public void Vendor_refund_requires_a_positive_amount() =>
+        Assert.Throws<DomainException>(() => VendorRefund.Create(
+            Company, "VRFD-1", new DebitNoteId(Guid.NewGuid()), VendorRef, new DateOnly(2026, 11, 20), 0m, PaymentMethod.Bank, null, "JE-7", DateTimeOffset.UtcNow));
 }

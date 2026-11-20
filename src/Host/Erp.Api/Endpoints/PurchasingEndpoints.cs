@@ -55,6 +55,12 @@ public static class PurchasingEndpoints
             var result = await service.ReceiveAsync(new PurchaseOrderId(id), request ?? new ReceiveGoodsRequest(null, null, null), ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
         }).RequirePermission(Permissions.Purchasing.OrdersReceive);
+        orders.MapPost("/{id:guid}/return", async Task<Results<Ok<PurchaseOrderResponse>, NotFound>>(
+            Guid id, ReturnGoodsRequest request, IPurchaseOrderService service, CancellationToken ct) =>
+        {
+            var result = await service.ReturnAsync(new PurchaseOrderId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Purchasing.ReturnsPost);
         orders.MapPost("/{id:guid}/close-short", Transition(PurchaseOrderAction.CloseShort)).RequirePermission(Permissions.Purchasing.OrdersReceive);
         orders.MapPost("/{id:guid}/bill", async Task<Results<Created<BillResponse>, NotFound>>(
             Guid id, CreateBillRequest? request, IBillService service, ICurrentUser currentUser, IRolePermissionStore permissions, CancellationToken ct) =>
@@ -81,6 +87,28 @@ public static class PurchasingEndpoints
             var result = await service.PayAsync(new VendorBillId(id), request, ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/purchasing/bills/{id}", result);
         }).RequirePermission(Permissions.Purchasing.PaymentsRecord);
+
+        bills.MapPost("/{id:guid}/debit-notes", async Task<Results<Created<DebitNoteResponse>, NotFound>>(
+            Guid id, CreateDebitNoteRequest request, IDebitNoteService service, CancellationToken ct) =>
+        {
+            var result = await service.CreateAsync(new VendorBillId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/purchasing/debit-notes/{result.Id}", result);
+        }).RequirePermission(Permissions.Purchasing.DebitNotesPost);
+
+        var debitNotes = endpoints.MapGroup("/api/v1/purchasing/debit-notes").WithTags("Purchasing").RequireCompanyContext();
+        debitNotes.MapGet("/", async (int? take, IDebitNoteService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(take ?? 100, ct))).RequirePermission(Permissions.Purchasing.BillsRead);
+        debitNotes.MapGet("/{id:guid}", async Task<Results<Ok<DebitNoteResponse>, NotFound>>(Guid id, IDebitNoteService service, CancellationToken ct) =>
+        {
+            var result = await service.GetAsync(new DebitNoteId(id), ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Purchasing.BillsRead);
+        debitNotes.MapPost("/{id:guid}/refunds", async Task<Results<Created<VendorRefundResponse>, NotFound>>(
+            Guid id, VendorRefundRequest request, IDebitNoteService service, CancellationToken ct) =>
+        {
+            var result = await service.RefundAsync(new DebitNoteId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/purchasing/debit-notes/{id}", result);
+        }).RequirePermission(Permissions.Purchasing.VendorRefundsRecord);
 
         endpoints.MapGet("/api/v1/purchasing/payments", async (int? take, IBillService service, CancellationToken ct) =>
                 TypedResults.Ok(await service.ListPaymentsAsync(take ?? 100, ct)))
