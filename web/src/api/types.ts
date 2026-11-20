@@ -26,8 +26,11 @@ export interface AuditEntry { id: string; occurredAt: string; actorUserName: str
 export interface AuditPage { items: AuditEntry[]; page: number; pageSize: number; totalCount: number }
 
 export interface Vendor { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean }
-export type PurchaseOrderStatus = 'Draft' | 'Open' | 'Released' | 'Received' | 'Billed' | 'Cancelled'
-export interface PurchaseLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number }
-export interface PurchaseOrder { id: string; number: string; vendorId: string; vendorName: string; orderDate: string; notes: string | null; status: PurchaseOrderStatus; total: number; receivedDate: string | null; receiptJournalNumber: string | null; billId: string | null; lines: PurchaseLine[] }
-export interface Bill { id: string; number: string; vendorReference: string | null; purchaseOrderId: string; vendorId: string; vendorName: string; billDate: string; dueDate: string; total: number; amountPaid: number; balance: number; status: 'Open' | 'Paid'; isOverdue: boolean; journalNumber: string; lines: PurchaseLine[] }
+export type PurchaseOrderStatus = 'Draft' | 'Open' | 'Released' | 'PartiallyReceived' | 'Received' | 'Billed' | 'Cancelled'
+export interface PurchaseOrderLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number; quantityReceived: number; quantityBilled: number }
+export interface ReceiptSummary { id: string; number: string; receiptDate: string; reference: string; total: number; journalNumber: string }
+export interface BillSummary { id: string; number: string; billDate: string; total: number; priceVariance: number; status: 'Open' | 'Paid' }
+export interface PurchaseOrder { id: string; number: string; vendorId: string; vendorName: string; orderDate: string; notes: string | null; status: PurchaseOrderStatus; total: number; lines: PurchaseOrderLine[]; receipts: ReceiptSummary[]; bills: BillSummary[] }
+export interface BillLine { itemId: string; sku: string; description: string; quantity: number; orderUnitCost: number; unitCost: number; lineTotal: number; priceVariance: number; matchStatus: 'Matched' | 'Within tolerance' | 'Variance approved' }
+export interface Bill { id: string; number: string; vendorReference: string | null; purchaseOrderId: string; vendorId: string; vendorName: string; billDate: string; dueDate: string; total: number; amountPaid: number; balance: number; status: 'Open' | 'Paid'; isOverdue: boolean; journalNumber: string; priceVariance: number; varianceOverridden: boolean; lines: BillLine[] }
 export interface VendorPayment { id: string; number: string; billId: string; billNumber: string; vendorId: string; vendorName: string; paymentDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }

@@ -16,12 +16,12 @@ export function PurchaseOrders() {
   const [filter, setFilter] = useState<Filter>('All')
   const all = orders.data ?? []
   const rows = filter === 'All' ? all : all.filter((o) => o.status === filter)
-  const tabs = (['All', 'Draft', 'Open', 'Released', 'Received', 'Billed', 'Cancelled'] as const)
-    .map((id) => ({ id, label: `${id} (${id === 'All' ? all.length : all.filter((o) => o.status === id).length})` }))
+  const tabs = (['All', 'Draft', 'Open', 'Released', 'PartiallyReceived', 'Received', 'Billed', 'Cancelled'] as const)
+    .map((id) => ({ id, label: `${id === 'PartiallyReceived' ? 'Part-received' : id} (${id === 'All' ? all.length : all.filter((o) => o.status === id).length})` }))
 
   return (
     <>
-      <PageHeader title="Purchase orders" subtitle="Draft → Confirmed → Sent → Goods received → Billed"
+      <PageHeader title="Purchase orders" subtitle="Draft → Confirmed → Sent → Received (in one or more deliveries) → Billed"
         actions={can(P.poManage) && <Link className="btn primary" to="/purchase-orders/new">New purchase order</Link>} />
       <Tabs value={filter} onChange={setFilter} tabs={tabs} />
       <ErrorNote error={orders.error} />

@@ -59,7 +59,7 @@ export function NewPurchaseOrder() {
                   <td>
                     <select value={l.itemId} onChange={(e) => pickItem(l.key, e.target.value)} required aria-label="Item">
                       <option value="">Select an item…</option>
-                      {activeItems.map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
+                      {activeItems.filter((i) => i.id === l.itemId || !lines.some((x) => x.itemId === i.id)).map((i) => <option key={i.id} value={i.id}>{i.sku} — {i.name}</option>)}
                     </select>
                   </td>
                   <td className="num">{onHand(l.itemId) ?? '—'}</td>

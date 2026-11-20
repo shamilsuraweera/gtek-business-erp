@@ -343,6 +343,7 @@ public static class Permissions
         public const string OrdersReceive = "purchasing.orders.receive";
         public const string BillsRead = "purchasing.bills.read";
         public const string BillsPost = "purchasing.bills.post";
+        public const string BillsOverride = "purchasing.bills.override-variance";
         public const string PaymentsRecord = "purchasing.payments.record";
     }
 
@@ -385,6 +386,7 @@ public static class Permissions
         (Purchasing.OrdersReceive, "Receive goods", "purchasing", "Receive goods against purchase orders (adds stock and accrues the liability)."),
         (Purchasing.BillsRead, "Read vendor bills", "purchasing", "View vendor bills and payments."),
         (Purchasing.BillsPost, "Post vendor bills", "purchasing", "Enter vendor bills for received purchase orders."),
+        (Purchasing.BillsOverride, "Override bill price variance", "purchasing", "Approve vendor bills whose price differs from the purchase order by more than the tolerance."),
         (Purchasing.PaymentsRecord, "Pay vendor bills", "purchasing", "Record payments against vendor bills.")
     ];
 }

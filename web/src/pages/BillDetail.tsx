@@ -63,18 +63,18 @@ export function BillDetail() {
         </>} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Unit cost</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Order cost</th><th className="num">Billed cost</th><th>Match</th><th className="num">Total</th></tr></thead>
           <tbody>{i.lines.map((l, index) => (
-            <tr key={index}><td>{l.sku}</td><td>{l.description}</td><td className="num">{l.quantity}</td><td className="num">{formatMoney(l.unitCost)}</td><td className="num">{formatMoney(l.lineTotal)}</td></tr>
+            <tr key={index}><td>{l.sku}</td><td>{l.description}</td><td className="num">{l.quantity}</td><td className="num">{formatMoney(l.orderUnitCost)}</td><td className="num">{formatMoney(l.unitCost)}</td><td><Badge value={l.matchStatus} tone={l.matchStatus === 'Matched' ? 'ok' : l.matchStatus === 'Variance approved' ? 'bad' : 'warn'} /></td><td className="num">{formatMoney(l.lineTotal)}</td></tr>
           ))}</tbody>
           <tfoot>
-            <tr><td colSpan={4}>Total</td><td className="num">{formatMoney(i.total)}</td></tr>
-            <tr><td colSpan={4}>Paid</td><td className="num">{formatMoney(i.amountPaid)}</td></tr>
-            <tr><td colSpan={4}>Balance payable</td><td className="num">{formatMoney(i.balance)}</td></tr>
+            <tr><td colSpan={6}>Total</td><td className="num">{formatMoney(i.total)}</td></tr>
+            <tr><td colSpan={6}>Paid</td><td className="num">{formatMoney(i.amountPaid)}</td></tr>
+            <tr><td colSpan={6}>Balance payable</td><td className="num">{formatMoney(i.balance)}</td></tr>
           </tfoot>
         </table>
       </section>
-      <p className="muted" style={{ margin: '12px 0' }}>Posted to the ledger as journal {i.journalNumber}.{i.vendorReference ? ` Vendor invoice ${i.vendorReference}.` : ''} <Link to={`/purchase-orders/${i.purchaseOrderId}`}>View order</Link></p>
+      <p className="muted" style={{ margin: '12px 0' }}>Posted to the ledger as journal {i.journalNumber}.{i.priceVariance ? ` Includes a price variance of ${formatMoney(i.priceVariance)}${i.varianceOverridden ? ' (approved override)' : ''}.` : ''}{i.vendorReference ? ` Vendor invoice ${i.vendorReference}.` : ''} <Link to={`/purchase-orders/${i.purchaseOrderId}`}>View purchase order</Link></p>
 
       <h3>Payments</h3>
       <div className="card flush scroll-x">

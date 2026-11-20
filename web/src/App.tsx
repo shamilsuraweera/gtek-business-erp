@@ -22,29 +22,39 @@ import { Admin } from './pages/Admin'
 
 function Layout() {
   const { user, company, companies, can, logout, selectCompany } = useAuth()
-  const link = (to: string, label: string, allowed: boolean) =>
-    allowed ? <NavLink to={to} end={to === '/'}>{label}</NavLink> : null
+  // A group heading is only shown when the user may open at least one of its pages.
+  const groups: { title?: string; links: { to: string; label: string; allowed: boolean }[] }[] = [
+    { links: [{ to: '/', label: 'Dashboard', allowed: true }] },
+    { title: 'Sales', links: [
+      { to: '/orders', label: 'Sales orders', allowed: can(P.ordersRead) },
+      { to: '/invoices', label: 'Invoices & payments', allowed: can(P.invoicesRead) },
+      { to: '/customers', label: 'Customers', allowed: can(P.customersRead) },
+    ] },
+    { title: 'Purchasing', links: [
+      { to: '/purchase-orders', label: 'Purchase orders', allowed: can(P.poRead) },
+      { to: '/bills', label: 'Bills & payments', allowed: can(P.billsRead) },
+      { to: '/vendors', label: 'Vendors', allowed: can(P.vendorsRead) },
+    ] },
+    { title: 'Inventory', links: [{ to: '/items', label: 'Items & stock', allowed: can(P.itemsRead) }] },
+    { title: 'Finance', links: [{ to: '/finance', label: 'Ledger & reports', allowed: can(P.reportsRead) || can(P.journalsRead) || can(P.accountsRead) }] },
+    { title: 'System', links: [{ to: '/admin', label: 'Administration', allowed: can(P.periodsRead) || can(P.usersRead) || can(P.auditRead) }] },
+  ]
 
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">GTEK <span>ERP</span></div>
         <nav className="nav" aria-label="Main">
-          {link('/', 'Dashboard', true)}
-          <div className="nav-group">Sales</div>
-          {link('/orders', 'Sales orders', can(P.ordersRead))}
-          {link('/invoices', 'Invoices & payments', can(P.invoicesRead))}
-          {link('/customers', 'Customers', can(P.customersRead))}
-          <div className="nav-group">Purchasing</div>
-          {link('/purchase-orders', 'Purchase orders', can(P.poRead))}
-          {link('/bills', 'Bills & payments', can(P.billsRead))}
-          {link('/vendors', 'Vendors', can(P.vendorsRead))}
-          <div className="nav-group">Inventory</div>
-          {link('/items', 'Items & stock', can(P.itemsRead))}
-          <div className="nav-group">Finance</div>
-          {link('/finance', 'Ledger & reports', can(P.reportsRead) || can(P.journalsRead) || can(P.accountsRead))}
-          <div className="nav-group">System</div>
-          {link('/admin', 'Administration', can(P.periodsRead) || can(P.usersRead) || can(P.auditRead))}
+          {groups.map((group) => {
+            const visible = group.links.filter((l) => l.allowed)
+            if (visible.length === 0) return null
+            return (
+              <div key={group.title ?? 'top'}>
+                {group.title && <div className="nav-group">{group.title}</div>}
+                {visible.map((l) => <NavLink key={l.to} to={l.to} end={l.to === '/'}>{l.label}</NavLink>)}
+              </div>
+            )
+          })}
         </nav>
       </aside>
       <div className="main">

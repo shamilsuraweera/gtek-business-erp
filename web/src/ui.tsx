@@ -14,13 +14,13 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 }
 
 const TONES: Record<string, string> = {
-  Draft: 'neutral', Open: 'info', Released: 'warn', Invoiced: 'ok', Received: 'warn', Billed: 'ok', Cancelled: 'bad', Paid: 'ok',
+  Draft: 'neutral', Open: 'info', Released: 'warn', Invoiced: 'ok', Received: 'warn', PartiallyReceived: 'warn', Billed: 'ok', Cancelled: 'bad', Paid: 'ok',
   Closed: 'warn', Locked: 'bad', Active: 'ok', Inactive: 'neutral', Succeeded: 'ok', Failed: 'bad',
   Overdue: 'bad', Asset: 'info', Liability: 'warn', Equity: 'neutral', Revenue: 'ok', Expense: 'bad',
 }
 
 export function Badge({ value, tone }: { value: string; tone?: string }) {
-  return <span className={`badge ${tone ?? TONES[value] ?? 'neutral'}`}>{value}</span>
+  return <span className={`badge ${tone ?? TONES[value] ?? 'neutral'}`}>{value === 'PartiallyReceived' ? 'Part-received' : value}</span>
 }
 
 export function ErrorNote({ error }: { error: unknown }) {

@@ -1,4 +1,5 @@
 using Erp.Api.Authentication;
+using Erp.Application.Abstractions;
 using Erp.Modules.Platform.Application;
 using Erp.Modules.Purchasing.Application;
 using Erp.Modules.Purchasing.Domain;
@@ -51,13 +52,18 @@ public static class PurchasingEndpoints
         orders.MapPost("/{id:guid}/receive", async Task<Results<Ok<PurchaseOrderResponse>, NotFound>>(
             Guid id, ReceiveGoodsRequest? request, IPurchaseOrderService service, CancellationToken ct) =>
         {
-            var result = await service.ReceiveAsync(new PurchaseOrderId(id), request ?? new ReceiveGoodsRequest(null), ct);
+            var result = await service.ReceiveAsync(new PurchaseOrderId(id), request ?? new ReceiveGoodsRequest(null, null, null), ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
         }).RequirePermission(Permissions.Purchasing.OrdersReceive);
+        orders.MapPost("/{id:guid}/close-short", Transition(PurchaseOrderAction.CloseShort)).RequirePermission(Permissions.Purchasing.OrdersReceive);
         orders.MapPost("/{id:guid}/bill", async Task<Results<Created<BillResponse>, NotFound>>(
-            Guid id, CreateBillRequest? request, IBillService service, CancellationToken ct) =>
+            Guid id, CreateBillRequest? request, IBillService service, ICurrentUser currentUser, IRolePermissionStore permissions, CancellationToken ct) =>
         {
-            var result = await service.CreateFromOrderAsync(new PurchaseOrderId(id), request ?? new CreateBillRequest(null, null), ct);
+            // Matching blocks price variances beyond tolerance; only users with the override permission may approve them.
+            var canOverride = currentUser.UserId is { } userId &&
+                await permissions.UserHasPermissionAsync(userId, Permissions.Purchasing.BillsOverride, ct);
+            var result = await service.CreateFromOrderAsync(
+                new PurchaseOrderId(id), request ?? new CreateBillRequest(null, null, null), canOverride, ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/purchasing/bills/{result.Id}", result);
         }).RequirePermission(Permissions.Purchasing.BillsPost);
 
