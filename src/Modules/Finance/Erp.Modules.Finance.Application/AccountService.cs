@@ -5,7 +5,7 @@ using Erp.SharedKernel;
 namespace Erp.Modules.Finance.Application;
 
 public sealed class AccountService(
-    IAccountStore store, ICompanyContext companyContext, IClock clock, IAuditRecorder audit) : IAccountService
+    IAccountStore store, IAccountMappingStore mappings, ICompanyContext companyContext, IClock clock, IAuditRecorder audit) : IAccountService
 {
     public async Task<AccountResponse> CreateAsync(CreateAccountRequest request, CancellationToken cancellationToken)
     {
@@ -39,6 +39,15 @@ public sealed class AccountService(
     {
         var account = await store.GetAsync(RequireCompany(), id, cancellationToken);
         if (account is null) return null;
+        if (!active)
+        {
+            // An account that posting roles are mapped to must stay usable, or every sale/purchase posting would fail.
+            var roles = AccountRoleUsage.RolesUsing(account, await mappings.ListAsync(account.CompanyId, cancellationToken));
+            if (roles.Count > 0)
+                throw new InvalidOperationException(
+                    $"Account '{account.Code}' is used for posting as: {string.Join(", ", roles)}. Map those roles to another account first.");
+        }
+
         if (active) account.Activate(); else account.Deactivate();
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Finance", active ? "account.activated" : "account.deactivated", "Account",

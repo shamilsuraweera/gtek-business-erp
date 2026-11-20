@@ -49,11 +49,13 @@ Notes:
   `scripts/dev-setup.sh`.
 - Re-running `--seed` is safe. To start over, drop and recreate the `gtek_erp` database.
 - Integration tests need a disposable database: `ERP_TEST_DATABASE_CONNECTION="Host=localhost;Database=gtek_erp_test;Username=gtek;Password=gtek_dev"`.
-- MVP limitations: sales and purchasing postings use a fixed account mapping (1000/1010 cash and
-  bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received not invoiced, 5100 purchase price variance, 5100 purchase price variance,
-  4000 revenue, 4100 sales returns, 5000 COGS); manual stock receipts do not post to the ledger; the three-way
-  match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; credit notes are at the invoiced price (no partial price adjustments); there is no tax or
-  multi-currency yet.
+- Posting accounts are configurable: sales, purchasing and inventory post to *roles* (receivable, revenue, inventory, payable, GRNI, …)
+  that you map to your own ledger accounts under **Finance → Account mapping**; unmapped roles use the default codes below (ADR 0016).
+  The API also grants newly introduced permissions to the system administrator role at startup.
+- MVP limitations: default account codes are 1000/1010 cash and bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received
+  not invoiced, 4000 revenue, 4100 sales returns, 5000 COGS, 5100 purchase price variance; manual stock receipts do not post to the ledger;
+  the three-way match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; credit notes are at the invoiced
+  price (no partial price adjustments); there is no tax or multi-currency yet.
 
 ## Quick start
 

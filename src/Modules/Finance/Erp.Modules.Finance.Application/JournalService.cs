@@ -8,6 +8,7 @@ namespace Erp.Modules.Finance.Application;
 public sealed class JournalService(
     IJournalStore journals,
     IAccountStore accounts,
+    IAccountMappingStore mappings,
     ICompanyContext companyContext,
     ICurrentUser currentUser,
     IClock clock,
@@ -81,17 +82,27 @@ public sealed class JournalService(
         var companyId = RequireCompany();
         await periodGuard.EnsurePostingAllowedAsync(date, cancellationToken);
 
-        var byCode = (await accounts.ListAsync(companyId, cancellationToken))
-            .ToDictionary(x => x.Code, StringComparer.OrdinalIgnoreCase);
+        var allAccounts = await accounts.ListAsync(companyId, cancellationToken);
+        var byCode = allAccounts.ToDictionary(x => x.Code, StringComparer.OrdinalIgnoreCase);
+        var byId = allAccounts.ToDictionary(x => x.Id);
+        var mapped = (await mappings.ListAsync(companyId, cancellationToken)).ToDictionary(x => x.Role, x => x.AccountId);
         var number = await numbers.NextAsync(JournalSequence, "JE-", cancellationToken);
         var journal = GeneralJournal.Create(
             companyId, new Currency(currencyCode.Trim().ToUpperInvariant(), 2), number, date, description, source, sourceReference);
         foreach (var line in lines)
         {
-            if (!byCode.TryGetValue(line.AccountCode.Trim(), out var account))
-                throw new DomainException($"Account '{line.AccountCode}' was not found.");
-            if (!account.IsActive)
-                throw new DomainException($"Account '{account.Code}' is inactive.");
+            // Business modules post by role (resolved through the company's account mapping); manual journals use explicit codes.
+            Account account;
+            if (line.Role is { } role)
+                account = AccountRoleResolver.Resolve(role, mapped, byId, byCode);
+            else
+            {
+                if (!byCode.TryGetValue(line.AccountCode.Trim(), out var found))
+                    throw new DomainException($"Account '{line.AccountCode}' was not found.");
+                account = found;
+                if (!account.IsActive)
+                    throw new DomainException($"Account '{account.Code}' is inactive.");
+            }
             if (line.Debit > 0) journal.AddDebit(account.Id, line.Debit, line.Description ?? string.Empty);
             else journal.AddCredit(account.Id, line.Credit, line.Description ?? string.Empty);
         }
@@ -104,7 +115,7 @@ public sealed class JournalService(
             {
                 ["Source"] = journal.Source, ["Total"] = journal.TotalDebit, ["Date"] = journal.JournalDate
             }, cancellationToken);
-        return Map(journal, byCode.Values.ToDictionary(x => x.Id, x => x));
+        return Map(journal, byId);
     }
 
     private async Task<Dictionary<AccountId, Account>> AccountLookupAsync(CompanyId companyId, CancellationToken ct) =>

@@ -56,13 +56,13 @@ public sealed class InvoiceService(
                 var cost = decimal.Round(issued.Sum(x => x.Result.TotalCost), 2);
                 var lines = new List<PostJournalLine>
                 {
-                    new(SalesAccounts.Receivable, revenue, 0, $"Invoice {number}"),
-                    new(SalesAccounts.Revenue, 0, revenue, $"Invoice {number}")
+                    PostJournalLine.ForRole(AccountRole.AccountsReceivable, revenue, 0, $"Invoice {number}"),
+                    PostJournalLine.ForRole(AccountRole.SalesRevenue, 0, revenue, $"Invoice {number}")
                 };
                 if (cost > 0)
                 {
-                    lines.Add(new(SalesAccounts.CostOfGoodsSold, cost, 0, $"COGS {number}"));
-                    lines.Add(new(SalesAccounts.Inventory, 0, cost, $"COGS {number}"));
+                    lines.Add(PostJournalLine.ForRole(AccountRole.CostOfGoodsSold, cost, 0, $"COGS {number}"));
+                    lines.Add(PostJournalLine.ForRole(AccountRole.Inventory, 0, cost, $"COGS {number}"));
                 }
 
                 journal = await finance.PostJournalAsync(new PostJournalCommand(
@@ -105,12 +105,12 @@ public sealed class InvoiceService(
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
             var number = await numbers.NextAsync(PaymentSequence, "PAY-", ct);
 
-            var account = request.Method == PaymentMethod.Cash ? SalesAccounts.Cash : SalesAccounts.Bank;
+            var account = request.Method == PaymentMethod.Cash ? AccountRole.Cash : AccountRole.Bank;
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
                 "Sales", number, date, $"Payment {number} for invoice {invoice.Number}",
                 [
-                    new PostJournalLine(account, request.Amount, 0, $"Payment {number}"),
-                    new PostJournalLine(SalesAccounts.Receivable, 0, request.Amount, $"Invoice {invoice.Number}")
+                    PostJournalLine.ForRole(account, request.Amount, 0, $"Payment {number}"),
+                    PostJournalLine.ForRole(AccountRole.AccountsReceivable, 0, request.Amount, $"Invoice {invoice.Number}")
                 ]), ct);
             Payment payment;
             try

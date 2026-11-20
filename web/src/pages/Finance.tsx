@@ -5,9 +5,9 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader, Tabs } from '../ui'
-import type { Account, AccountType, Journal, TrialBalance } from '../api/types'
+import type { Account, AccountMapping, AccountType, Journal, TrialBalance } from '../api/types'
 
-type Tab = 'tb' | 'accounts' | 'journals'
+type Tab = 'tb' | 'accounts' | 'journals' | 'mapping'
 const TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']
 
 function TrialBalanceTab() {
@@ -79,6 +79,68 @@ function AccountsTab() {
         </div>
       )}
       {adding && <AccountForm onClose={() => setAdding(false)} />}
+    </>
+  )
+}
+
+function MappingRow({ row, accounts, canManage }: { row: AccountMapping; accounts: Account[]; canManage: boolean }) {
+  const options = accounts.filter((a) => a.isActive && row.allowedTypes.includes(a.type))
+  const [selected, setSelected] = useState(row.accountId ?? '')
+  const save = useApiMutation<void>(() => ({ path: `/finance/account-mappings/${row.role}`, method: 'PUT', body: { accountId: selected } }))
+  const reset = useApiMutation<void>(() => ({ path: `/finance/account-mappings/${row.role}`, method: 'DELETE' }))
+  const changed = !!selected && selected !== row.accountId
+  const current = accounts.find((a) => a.id === row.accountId)
+
+  return (
+    <tr>
+      <td>{row.label}<div className="muted">{row.description}</div></td>
+      <td style={{ minWidth: 260 }}>
+        {canManage ? (
+          <select value={selected} onChange={(e) => setSelected(e.target.value)} aria-label={`Account for ${row.label}`}>
+            {!row.accountId && <option value="">— not set —</option>}
+            {options.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+            {current && !options.some((a) => a.id === current.id) && <option value={current.id}>{current.code} — {current.name}</option>}
+          </select>
+        ) : <span>{row.accountCode ? `${row.accountCode} — ${row.accountName}` : '—'}</span>}
+        <div className="muted">Accepts {row.allowedTypes.map((t) => t.toLowerCase()).join(' or ')} accounts</div>
+        {changed && row.hasPostings && <div className="muted" style={{ color: 'var(--warn)' }}>Existing postings stay on {row.accountCode}; only new postings use the new account.</div>}
+        <ErrorNote error={save.error ?? reset.error} />
+      </td>
+      <td>{row.isMissing ? <Badge value={`Missing (${row.defaultCode})`} tone="bad" /> : row.isDefault ? <Badge value={`Default ${row.defaultCode}`} /> : <Badge value="Custom" tone="info" />}</td>
+      <td className="right">{canManage && (
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button className="btn small primary" disabled={!changed || save.isPending} onClick={() => save.mutate()}>Save</button>
+          {!row.isDefault && <button className="btn small" disabled={reset.isPending} onClick={() => { if (confirm(`Use the default account (${row.defaultCode}) for ${row.label} again?`)) reset.mutate() }}>Reset</button>}
+        </div>
+      )}</td>
+    </tr>
+  )
+}
+
+function MappingTab() {
+  const { can } = useAuth()
+  const mappings = useApiQuery<AccountMapping[]>('/finance/account-mappings')
+  const accounts = useApiQuery<Account[]>('/finance/accounts')
+  const missing = (mappings.data ?? []).filter((m) => m.isMissing)
+  return (
+    <>
+      <p className="hint" style={{ marginBottom: 12 }}>
+        Sales, purchasing and inventory post to these roles. Choose the ledger account each one uses; until you do, the default account is used.
+        Changes affect new postings only: documents already posted stay on the account they were posted to.
+      </p>
+      {missing.length > 0 && <div className="note error">No account exists for: {missing.map((m) => m.label).join(', ')}. Postings that need them will be rejected until you map them or create the default account.</div>}
+      <ErrorNote error={mappings.error ?? accounts.error} />
+      {mappings.isLoading || accounts.isLoading ? <Loading /> : (
+        <div className="card flush scroll-x">
+          <table className="data">
+            <thead><tr><th>Posting role</th><th>Ledger account</th><th>Status</th><th /></tr></thead>
+            <tbody>{(mappings.data ?? []).map((m) => (
+              // keyed by the effective account so the selector resets after a save or reset
+              <MappingRow key={`${m.role}:${m.accountId ?? 'none'}`} row={m} accounts={accounts.data ?? []} canManage={can(P.mappingManage)} />
+            ))}</tbody>
+          </table>
+        </div>
+      )}
     </>
   )
 }
@@ -200,6 +262,7 @@ export function Finance() {
     ...(can(P.reportsRead) ? [{ id: 'tb' as Tab, label: 'Trial balance' }] : []),
     ...(can(P.journalsRead) ? [{ id: 'journals' as Tab, label: 'Journals' }] : []),
     ...(can(P.accountsRead) ? [{ id: 'accounts' as Tab, label: 'Chart of accounts' }] : []),
+    ...(can(P.accountsRead) ? [{ id: 'mapping' as Tab, label: 'Account mapping' }] : []),
   ]
   const requested = params.get('tab') as Tab | null
   const tab = tabs.find((t) => t.id === requested)?.id ?? tabs[0]?.id
@@ -210,6 +273,7 @@ export function Finance() {
       {tab === 'tb' && <TrialBalanceTab />}
       {tab === 'journals' && <JournalsTab />}
       {tab === 'accounts' && <AccountsTab />}
+      {tab === 'mapping' && <MappingTab />}
     </>
   )
 }

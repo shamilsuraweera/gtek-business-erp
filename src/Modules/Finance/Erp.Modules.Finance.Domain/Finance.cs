@@ -5,6 +5,7 @@ namespace Erp.Modules.Finance.Domain;
 public readonly record struct AccountId(Guid Value);
 public readonly record struct JournalId(Guid Value);
 public readonly record struct LedgerEntryId(Guid Value);
+public readonly record struct AccountMappingId(Guid Value);
 
 public enum AccountType { Asset, Liability, Equity, Revenue, Expense }
 
@@ -176,5 +177,39 @@ public sealed class GeneralJournal : AggregateRoot<JournalId>
     {
         if (IsPosted) throw new DomainException("Posted journals cannot be changed.");
         _lines.Add(line);
+    }
+}
+
+/// <summary>Maps a posting role (e.g. "AccountsReceivable") to a ledger account for one company. No row means the role's default code applies.</summary>
+public sealed class AccountMapping : AggregateRoot<AccountMappingId>
+{
+    private AccountMapping()
+    {
+        Role = string.Empty;
+    }
+
+    private AccountMapping(AccountMappingId id, CompanyId companyId, string role, AccountId accountId, DateTimeOffset at, UserId? by) : base(id)
+    {
+        CompanyId = companyId;
+        Role = string.IsNullOrWhiteSpace(role) ? throw new DomainException("A role is required.") : role.Trim();
+        AccountId = accountId;
+        ModifiedAt = at;
+        ModifiedBy = by;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    public string Role { get; private set; }
+    public AccountId AccountId { get; private set; }
+    public DateTimeOffset ModifiedAt { get; private set; }
+    public UserId? ModifiedBy { get; private set; }
+
+    public static AccountMapping Create(CompanyId companyId, string role, AccountId accountId, DateTimeOffset at, UserId? by) =>
+        new(new AccountMappingId(Guid.NewGuid()), companyId, role, accountId, at, by);
+
+    public void Reassign(AccountId accountId, DateTimeOffset at, UserId? by)
+    {
+        AccountId = accountId;
+        ModifiedAt = at;
+        ModifiedBy = by;
     }
 }

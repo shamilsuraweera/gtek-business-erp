@@ -83,3 +83,22 @@ internal sealed class GeneralLedgerEntryConfiguration : IEntityTypeConfiguration
         b.HasIndex(x => x.SourceJournalId);
     }
 }
+
+internal sealed class AccountMappingConfiguration : IEntityTypeConfiguration<AccountMapping>
+{
+    public void Configure(EntityTypeBuilder<AccountMapping> b)
+    {
+        b.ToTable("AccountMappings", "finance");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new AccountMappingId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.AccountId).HasConversion(x => x.Value, x => new AccountId(x)).IsRequired();
+        b.Property(x => x.Role).HasMaxLength(50).IsRequired();
+        b.Property(x => x.ModifiedBy).HasConversion(
+            x => x.HasValue ? x.Value.Value : (Guid?)null,
+            x => x.HasValue ? new UserId(x.Value) : null);
+        b.Ignore(x => x.DomainEvents);
+        b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
+        b.HasIndex(x => new { x.CompanyId, x.Role }).IsUnique();
+    }
+}

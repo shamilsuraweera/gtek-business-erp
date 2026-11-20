@@ -1,6 +1,31 @@
 namespace Erp.Modules.Finance.Contracts;
 
-public sealed record PostJournalLine(string AccountCode, decimal Debit, decimal Credit, string? Description);
+/// <summary>
+/// What a posting line is *for*. Business modules post to roles; Finance maps each role to a ledger account per company
+/// (configurable, with a default code when nothing is mapped).
+/// </summary>
+public enum AccountRole
+{
+    Cash,
+    Bank,
+    AccountsReceivable,
+    Inventory,
+    AccountsPayable,
+    /// <summary>Goods received not invoiced: accrued at receipt, cleared by the vendor bill.</summary>
+    GoodsReceivedNotInvoiced,
+    SalesRevenue,
+    /// <summary>Contra-revenue: credit notes debit this so gross sales stay visible.</summary>
+    SalesReturns,
+    CostOfGoodsSold,
+    PurchasePriceVariance
+}
+
+/// <summary>A posting line: either an explicit account code (manual journals) or a role resolved through the account mapping.</summary>
+public sealed record PostJournalLine(string AccountCode, decimal Debit, decimal Credit, string? Description, AccountRole? Role = null)
+{
+    public static PostJournalLine ForRole(AccountRole role, decimal debit, decimal credit, string? description) =>
+        new(string.Empty, debit, credit, description, role);
+}
 
 public sealed record PostJournalCommand(
     string Source,
