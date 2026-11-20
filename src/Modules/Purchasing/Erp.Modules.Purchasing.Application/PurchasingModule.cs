@@ -11,6 +11,8 @@ public static class PurchasingAccounts
     public const string Bank = "1010";
     public const string Inventory = "1200";
     public const string Payable = "2000";
+    /// <summary>Purchase price variance: the difference between the billed price and the order price (set when a bill is matched).</summary>
+    public const string PurchasePriceVariance = "5100";
     /// <summary>Goods received not invoiced: accrued at receipt, cleared when the vendor bill is entered.</summary>
     public const string GoodsReceivedNotInvoiced = "2100";
 }
@@ -21,24 +23,36 @@ public sealed record UpdateVendorRequest(string Name, string? Email, string? Pho
 
 public sealed record PurchaseLineRequest(Guid ItemId, decimal Quantity, decimal? UnitCost);
 public sealed record CreatePurchaseOrderRequest(Guid VendorId, DateOnly? OrderDate, string? Notes, IReadOnlyList<PurchaseLineRequest> Lines);
-public sealed record PurchaseLineResponse(Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitCost, decimal LineTotal);
+public sealed record PurchaseOrderLineResponse(
+    Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitCost, decimal LineTotal,
+    decimal QuantityReceived, decimal QuantityBilled);
+public sealed record ReceiptSummary(Guid Id, string Number, DateOnly ReceiptDate, string Reference, decimal Total, string JournalNumber);
+public sealed record BillSummary(Guid Id, string Number, DateOnly BillDate, decimal Total, decimal PriceVariance, BillStatus Status);
 public sealed record PurchaseOrderResponse(
     Guid Id, string Number, Guid VendorId, string VendorName, DateOnly OrderDate, string? Notes, PurchaseOrderStatus Status,
-    decimal Total, DateOnly? ReceivedDate, string? ReceiptJournalNumber, Guid? BillId, IReadOnlyList<PurchaseLineResponse> Lines);
+    decimal Total, IReadOnlyList<PurchaseOrderLineResponse> Lines, IReadOnlyList<ReceiptSummary> Receipts, IReadOnlyList<BillSummary> Bills);
 
-public sealed record ReceiveGoodsRequest(DateOnly? Date);
-public sealed record CreateBillRequest(DateOnly? Date, string? VendorReference);
+/// <param name="Lines">Quantities to receive per item; omit to receive everything outstanding.</param>
+public sealed record ReceiveLineRequest(Guid ItemId, decimal Quantity);
+public sealed record ReceiveGoodsRequest(DateOnly? Date, string? Reference, IReadOnlyList<ReceiveLineRequest>? Lines);
+
+/// <param name="Lines">Quantity (default: received and not yet billed) and billed unit cost (default: the order price) per item; omit to bill everything received.</param>
+public sealed record BillLineRequest(Guid ItemId, decimal? Quantity, decimal? UnitCost);
+public sealed record CreateBillRequest(DateOnly? Date, string? VendorReference, IReadOnlyList<BillLineRequest>? Lines, bool OverrideVariance = false);
+public sealed record BillLineResponse(
+    Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost,
+    decimal LineTotal, decimal PriceVariance, string MatchStatus);
 public sealed record BillResponse(
     Guid Id, string Number, string? VendorReference, Guid PurchaseOrderId, Guid VendorId, string VendorName,
     DateOnly BillDate, DateOnly DueDate, decimal Total, decimal AmountPaid, decimal Balance, BillStatus Status,
-    bool IsOverdue, string JournalNumber, IReadOnlyList<PurchaseLineResponse> Lines);
+    bool IsOverdue, string JournalNumber, decimal PriceVariance, bool VarianceOverridden, IReadOnlyList<BillLineResponse> Lines);
 
 public sealed record PayBillRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);
 public sealed record VendorPaymentResponse(
     Guid Id, string Number, Guid BillId, string BillNumber, Guid VendorId, string VendorName,
     DateOnly PaymentDate, decimal Amount, PaymentMethod Method, string Reference, string JournalNumber);
 
-public enum PurchaseOrderAction { Open, Release, Cancel }
+public enum PurchaseOrderAction { Open, Release, Cancel, CloseShort }
 
 public interface IPurchasingStore
 {
@@ -50,6 +64,11 @@ public interface IPurchasingStore
     Task AddOrderAsync(PurchaseOrder order, CancellationToken cancellationToken);
     Task<IReadOnlyList<PurchaseOrder>> ListOrdersAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
     Task<PurchaseOrder?> GetOrderAsync(CompanyId companyId, PurchaseOrderId id, CancellationToken cancellationToken);
+
+    Task AddReceiptAsync(GoodsReceipt receipt, CancellationToken cancellationToken);
+    Task<IReadOnlyList<GoodsReceipt>> ListReceiptsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<VendorBill>> ListBillsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken);
+    Task<bool> BillExistsForVendorReferenceAsync(CompanyId companyId, VendorId vendorId, string vendorReference, CancellationToken cancellationToken);
 
     Task AddBillAsync(VendorBill bill, CancellationToken cancellationToken);
     Task<IReadOnlyList<VendorBill>> ListBillsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
@@ -82,7 +101,8 @@ public interface IPurchaseOrderService
 
 public interface IBillService
 {
-    Task<BillResponse?> CreateFromOrderAsync(PurchaseOrderId orderId, CreateBillRequest request, CancellationToken cancellationToken);
+    /// <param name="canOverrideVariance">Whether the caller may approve a price variance beyond tolerance.</param>
+    Task<BillResponse?> CreateFromOrderAsync(PurchaseOrderId orderId, CreateBillRequest request, bool canOverrideVariance, CancellationToken cancellationToken);
     Task<IReadOnlyList<BillResponse>> ListAsync(int take, CancellationToken cancellationToken);
     Task<BillResponse?> GetAsync(VendorBillId id, CancellationToken cancellationToken);
     Task<VendorPaymentResponse?> PayAsync(VendorBillId id, PayBillRequest request, CancellationToken cancellationToken);

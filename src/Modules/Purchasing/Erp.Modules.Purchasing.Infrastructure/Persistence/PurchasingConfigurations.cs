@@ -31,12 +31,8 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
         b.Property(x => x.Id).HasConversion(x => x.Value, x => new PurchaseOrderId(x));
         b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
         b.Property(x => x.VendorId).HasConversion(x => x.Value, x => new VendorId(x)).IsRequired();
-        b.Property(x => x.BillId).HasConversion(
-            x => x.HasValue ? x.Value.Value : (Guid?)null,
-            x => x.HasValue ? new VendorBillId(x.Value) : null);
         b.Property(x => x.Number).HasMaxLength(50).IsRequired();
         b.Property(x => x.Notes).HasMaxLength(500);
-        b.Property(x => x.ReceiptJournalNumber).HasMaxLength(50);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
         b.OwnsMany(x => x.Lines, l =>
         {
@@ -49,12 +45,50 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
             l.Property(x => x.Description).HasMaxLength(200).IsRequired();
             l.Property(x => x.Quantity).HasPrecision(19, 4);
             l.Property(x => x.UnitCost).HasPrecision(19, 4);
+            l.Property(x => x.QuantityReceived).HasPrecision(19, 4);
+            l.Property(x => x.QuantityBilled).HasPrecision(19, 4);
+            l.Ignore(x => x.LineTotal);
+            l.Ignore(x => x.OutstandingToReceive);
+            l.Ignore(x => x.ReceivedNotBilled);
+        });
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        b.Ignore(x => x.Total);
+        b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
+    }
+}
+
+internal sealed class GoodsReceiptConfiguration : IEntityTypeConfiguration<GoodsReceipt>
+{
+    public void Configure(EntityTypeBuilder<GoodsReceipt> b)
+    {
+        b.ToTable("GoodsReceipts", "purchasing");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new GoodsReceiptId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.PurchaseOrderId).HasConversion(x => x.Value, x => new PurchaseOrderId(x)).IsRequired();
+        b.Property(x => x.VendorId).HasConversion(x => x.Value, x => new VendorId(x)).IsRequired();
+        b.Property(x => x.Number).HasMaxLength(50).IsRequired();
+        b.Property(x => x.Reference).HasMaxLength(100).IsRequired();
+        b.Property(x => x.JournalNumber).HasMaxLength(50).IsRequired();
+        b.OwnsMany(x => x.Lines, l =>
+        {
+            l.ToTable("GoodsReceiptLines", "purchasing");
+            l.WithOwner().HasForeignKey("GoodsReceiptId");
+            l.Property<int>("LineNo");
+            l.HasKey("GoodsReceiptId", "LineNo");
+            l.Property(x => x.ItemId).IsRequired();
+            l.Property(x => x.Sku).HasMaxLength(60).IsRequired();
+            l.Property(x => x.Description).HasMaxLength(200).IsRequired();
+            l.Property(x => x.Quantity).HasPrecision(19, 4);
+            l.Property(x => x.UnitCost).HasPrecision(19, 4);
             l.Ignore(x => x.LineTotal);
         });
         b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         b.Ignore(x => x.Total);
         b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
+        b.HasIndex(x => x.PurchaseOrderId);
     }
 }
 
@@ -83,15 +117,21 @@ internal sealed class VendorBillConfiguration : IEntityTypeConfiguration<VendorB
             l.Property(x => x.Sku).HasMaxLength(60).IsRequired();
             l.Property(x => x.Description).HasMaxLength(200).IsRequired();
             l.Property(x => x.Quantity).HasPrecision(19, 4);
+            l.Property(x => x.OrderUnitCost).HasPrecision(19, 4);
             l.Property(x => x.UnitCost).HasPrecision(19, 4);
             l.Ignore(x => x.LineTotal);
+            l.Ignore(x => x.AccruedTotal);
+            l.Ignore(x => x.PriceVariance);
         });
         b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         b.Ignore(x => x.Total);
+        b.Ignore(x => x.AccruedTotal);
+        b.Ignore(x => x.PriceVariance);
         b.Ignore(x => x.Balance);
         b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
-        b.HasIndex(x => x.PurchaseOrderId).IsUnique();
+        b.HasIndex(x => x.PurchaseOrderId);
+        b.HasIndex(x => new { x.CompanyId, x.VendorId, x.VendorReference });
     }
 }
 

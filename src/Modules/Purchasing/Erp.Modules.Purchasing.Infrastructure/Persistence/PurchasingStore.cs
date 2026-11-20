@@ -38,6 +38,25 @@ public sealed class PurchasingStore(PurchasingDbContext db) : IPurchasingStore
     public Task<PurchaseOrder?> GetOrderAsync(CompanyId companyId, PurchaseOrderId id, CancellationToken cancellationToken) =>
         db.Orders.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
 
+    public Task AddReceiptAsync(GoodsReceipt receipt, CancellationToken cancellationToken)
+    {
+        db.Receipts.Add(receipt);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<GoodsReceipt>> ListReceiptsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken) =>
+        await db.Receipts.AsNoTracking().Where(x => x.CompanyId == companyId && x.PurchaseOrderId == orderId).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<VendorBill>> ListBillsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken) =>
+        await db.Bills.AsNoTracking().Where(x => x.CompanyId == companyId && x.PurchaseOrderId == orderId).ToListAsync(cancellationToken);
+
+    public Task<bool> BillExistsForVendorReferenceAsync(CompanyId companyId, VendorId vendorId, string vendorReference, CancellationToken cancellationToken) =>
+        // Vendor invoice numbers are compared case-insensitively: "inv-7" and "INV-7" are the same document.
+        db.Bills.AnyAsync(
+            x => x.CompanyId == companyId && x.VendorId == vendorId && x.VendorReference != null &&
+                 x.VendorReference.ToLower() == vendorReference.ToLower(),
+            cancellationToken);
+
     public Task AddBillAsync(VendorBill bill, CancellationToken cancellationToken)
     {
         db.Bills.Add(bill);

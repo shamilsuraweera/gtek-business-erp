@@ -21,6 +21,8 @@ public static class DevSeeder
     public const string AdminUserName = "admin";
     public const string AdminPassword = "Admin#123456";
     public const string CompanyCode = "GTEK-DEMO";
+    public const string ClerkUserName = "apclerk";
+    public const string ClerkPassword = "Clerk#1234567";
 
     public static async Task RunAsync(IServiceProvider root, CancellationToken ct = default)
     {
@@ -33,6 +35,7 @@ public static class DevSeeder
         sp.GetRequiredService<ActiveCompanyContext>().Set(new CompanyId(company.Id));
 
         await SeedPeriodsAsync(sp, log, ct);
+        await SeedClerkAsync(sp, company, log, ct);
         await SeedAccountsAsync(sp, log, ct);
         await SeedOpeningBalancesAsync(sp, log, ct);
         await SeedInventoryAsync(sp, log, ct);
@@ -110,6 +113,7 @@ public static class DevSeeder
         ("3100", "Retained Earnings", AccountType.Equity),
         ("4000", "Sales Revenue", AccountType.Revenue),
         ("5000", "Cost of Goods Sold", AccountType.Expense),
+        ("5100", "Purchase Price Variance", AccountType.Expense),
         ("6000", "Operating Expenses", AccountType.Expense),
         ("6100", "Rent Expense", AccountType.Expense),
         ("6200", "Salaries Expense", AccountType.Expense)
@@ -299,7 +303,8 @@ public static class DevSeeder
         var vendorService = sp.GetRequiredService<IVendorService>();
         var orderService = sp.GetRequiredService<IPurchaseOrderService>();
         var billService = sp.GetRequiredService<IBillService>();
-        var itemIds = (await sp.GetRequiredService<IItemService>().ListAsync(ct)).ToDictionary(x => x.Sku, x => x.Id);
+        var items = (await sp.GetRequiredService<IItemService>().ListAsync(ct)).ToDictionary(x => x.Sku);
+        var itemIds = items.ToDictionary(x => x.Key, x => x.Value.Id);
 
         var vendors = (await vendorService.ListAsync(ct)).ToDictionary(x => x.Code);
         foreach (var (code, name, email, terms) in Vendors.Where(x => !vendors.ContainsKey(x.Code)))
@@ -329,10 +334,10 @@ public static class DevSeeder
             await orderService.TransitionAsync(id, PurchaseOrderAction.Release, ct);
             if (state == PurchaseState.Released) continue;
 
-            await orderService.ReceiveAsync(id, new ReceiveGoodsRequest(date.AddDays(5)), ct);
+            await orderService.ReceiveAsync(id, new ReceiveGoodsRequest(date.AddDays(5), $"DN-{vendorCode}-{n:000}", null), ct);
             if (state == PurchaseState.Received) continue;
 
-            var bill = (await billService.CreateFromOrderAsync(id, new CreateBillRequest(date.AddDays(8), $"INV/{vendorCode}/{n:000}"), ct))!;
+            var bill = (await billService.CreateFromOrderAsync(id, new CreateBillRequest(date.AddDays(8), $"INV/{vendorCode}/{n:000}", null), false, ct))!;
             var billId = new PurchasingDomain.VendorBillId(bill.Id);
             if (state == PurchaseState.Paid)
                 await billService.PayAsync(billId, new PayBillRequest(bill.Total, PurchasingDomain.PaymentMethod.Bank, date.AddDays(25), $"SEED-VPAY-{n}"), ct);
@@ -340,6 +345,88 @@ public static class DevSeeder
                 await billService.PayAsync(billId, new PayBillRequest(decimal.Round(bill.Total / 2, 2), PurchasingDomain.PaymentMethod.Bank, date.AddDays(20), $"SEED-VPAY-{n}"), ct);
         }
 
+        created += await SeedPartialPurchaseOrdersAsync(orderService, billService, vendors, items, existing, ct);
         log.LogInformation("Purchasing ready ({Vendors} vendors, {Created} new orders).", Vendors.Length, created);
+    }
+
+    /// <summary>Partial deliveries and the three-way match: receipts in several parts, partial billing, closing short, small price variances.</summary>
+    private static async Task<int> SeedPartialPurchaseOrdersAsync(
+        IPurchaseOrderService orders, IBillService bills,
+        Dictionary<string, VendorResponse> vendors, Dictionary<string, ItemResponse> items, HashSet<string?> existing, CancellationToken ct)
+    {
+        var created = 0;
+        async Task<PurchaseOrderResponse> NewOrder(int n, string vendor, DateOnly date, params (string Sku, decimal Qty)[] lines)
+        {
+            var order = await orders.CreateAsync(new CreatePurchaseOrderRequest(
+                vendors[vendor].Id, date, $"SEED-PO-{n}",
+                lines.Select(l => new PurchaseLineRequest(items[l.Sku].Id, l.Qty, null)).ToArray()), ct);
+            var id = new PurchasingDomain.PurchaseOrderId(order.Id);
+            await orders.TransitionAsync(id, PurchaseOrderAction.Open, ct);
+            await orders.TransitionAsync(id, PurchaseOrderAction.Release, ct);
+            created++;
+            return order;
+        }
+
+        // 9: one of two deliveries has arrived (LAP-002: 4 of 6 outstanding 2).
+        if (!existing.Contains("SEED-PO-9"))
+        {
+            var po = await NewOrder(9, "VEN-001", new DateOnly(2026, 11, 9), ("LAP-002", 6), ("MON-024", 10));
+            await orders.ReceiveAsync(new PurchasingDomain.PurchaseOrderId(po.Id), new ReceiveGoodsRequest(
+                new DateOnly(2026, 11, 12), "DN-4471",
+                [new ReceiveLineRequest(items["LAP-002"].Id, 4), new ReceiveLineRequest(items["MON-024"].Id, 10)]), ct);
+        }
+
+        // 10: partly received (12 of 20) and partly billed, with a 1% price difference inside tolerance.
+        if (!existing.Contains("SEED-PO-10"))
+        {
+            var po = await NewOrder(10, "VEN-004", new DateOnly(2026, 11, 3), ("RAM-16", 20), ("SSD-512", 20));
+            var id = new PurchasingDomain.PurchaseOrderId(po.Id);
+            await orders.ReceiveAsync(id, new ReceiveGoodsRequest(new DateOnly(2026, 11, 5), "DN-2210",
+                [new ReceiveLineRequest(items["RAM-16"].Id, 12), new ReceiveLineRequest(items["SSD-512"].Id, 12)]), ct);
+            await bills.CreateFromOrderAsync(id, new CreateBillRequest(new DateOnly(2026, 11, 14), "GS-9921",
+                [new BillLineRequest(items["RAM-16"].Id, 12, decimal.Round(items["RAM-16"].UnitCost * 1.01m, 2))]), false, ct);
+        }
+
+        // 11: vendor short-shipped (8 of 10); the order is closed short and the 8 received are billed at +1.5%.
+        if (!existing.Contains("SEED-PO-11"))
+        {
+            var po = await NewOrder(11, "VEN-003", new DateOnly(2026, 11, 6), ("NET-RTR", 10));
+            var id = new PurchasingDomain.PurchaseOrderId(po.Id);
+            await orders.ReceiveAsync(id, new ReceiveGoodsRequest(new DateOnly(2026, 11, 8), "ND-5529",
+                [new ReceiveLineRequest(items["NET-RTR"].Id, 8)]), ct);
+            await orders.TransitionAsync(id, PurchaseOrderAction.CloseShort, ct);
+            await bills.CreateFromOrderAsync(id, new CreateBillRequest(new DateOnly(2026, 11, 12), "ND-5530",
+                [new BillLineRequest(items["NET-RTR"].Id, 8, decimal.Round(items["NET-RTR"].UnitCost * 1.015m, 2))]), false, ct);
+        }
+
+        return created;
+    }
+
+    /// <summary>A restricted demo user: enters and pays bills but cannot approve price variances beyond tolerance.</summary>
+    private static async Task SeedClerkAsync(IServiceProvider sp, CompanyResponse company, ILogger log, CancellationToken ct)
+    {
+        var roles = sp.GetRequiredService<IRolePermissionService>();
+        var role = (await roles.ListRolesAsync(ct)).FirstOrDefault(x => x.Code == "AP_CLERK")
+            ?? await roles.CreateRoleAsync(new CreateRoleRequest("AP_CLERK", "Accounts Payable Clerk",
+                "Receives goods and enters/pays vendor bills; cannot override price variances."), ct);
+        var held = ((await roles.ListRolePermissionsAsync(new RoleId(role.Id), ct)) ?? []).Select(x => x.Code).ToHashSet();
+        foreach (var code in new[]
+        {
+            Permissions.Purchasing.VendorsRead, Permissions.Purchasing.OrdersRead, Permissions.Purchasing.OrdersManage,
+            Permissions.Purchasing.OrdersReceive, Permissions.Purchasing.BillsRead, Permissions.Purchasing.BillsPost,
+            Permissions.Purchasing.PaymentsRecord, Permissions.Inventory.ItemsRead, Permissions.Inventory.StockRead,
+        }.Where(code => !held.Contains(code)))
+            await roles.AssignPermissionAsync(new RoleId(role.Id), code, ct);
+
+        var users = sp.GetRequiredService<IUserService>();
+        var clerk = await users.GetByUserNameAsync(ClerkUserName, ct)
+            ?? await users.CreateAsync(new CreateUserRequest(ClerkUserName, "apclerk@gtek.local", ClerkPassword), false, ct);
+        await roles.AssignRoleAsync(new UserId(clerk.Id), new RoleId(role.Id), ct);
+
+        var access = sp.GetRequiredService<IUserCompanyAccessService>();
+        var admin = await users.GetByUserNameAsync(AdminUserName, ct);
+        if (!(await access.ListCompaniesForUserAsync(new UserId(clerk.Id), ct)).Any(x => x.Id == company.Id))
+            await access.GrantAsync(new UserId(admin!.Id), new UserId(clerk.Id), new CompanyId(company.Id), ct);
+        log.LogInformation("Demo clerk ready ('{User}' / '{Password}').", ClerkUserName, ClerkPassword);
     }
 }

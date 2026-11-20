@@ -18,36 +18,74 @@ public sealed class BillService(
     public const string BillSequence = "BILL";
     public const string PaymentSequence = "VPAY";
 
-    public async Task<BillResponse?> CreateFromOrderAsync(PurchaseOrderId orderId, CreateBillRequest request, CancellationToken cancellationToken)
+    public async Task<BillResponse?> CreateFromOrderAsync(
+        PurchaseOrderId orderId, CreateBillRequest request, bool canOverrideVariance, CancellationToken cancellationToken)
     {
         var companyId = PurchasingCompany.Require(companyContext);
         return await store.InLockedTransactionAsync<BillResponse?>(companyId, $"order:{orderId.Value}", async ct =>
         {
             var order = await store.GetOrderAsync(companyId, orderId, ct);
             if (order is null) return null;
-            if (order.Status != PurchaseOrderStatus.Received)
-                throw new DomainException("Only received purchase orders can be billed.");
+            if (order.Status is not (PurchaseOrderStatus.PartiallyReceived or PurchaseOrderStatus.Received))
+                throw new DomainException("Bills can only be entered for purchase orders with received goods.");
             var vendor = await store.GetVendorAsync(companyId, order.VendorId, ct)
                 ?? throw new DomainException("The vendor was not found.");
+            if (!string.IsNullOrWhiteSpace(request.VendorReference) &&
+                await store.BillExistsForVendorReferenceAsync(companyId, order.VendorId, request.VendorReference.Trim(), ct))
+                throw new DomainException($"Vendor invoice '{request.VendorReference.Trim()}' has already been entered for {vendor.Name}.");
+
+            // Quantity leg: bill what was received and not yet billed unless told otherwise. Price leg: default to the order price.
+            var requested = request.Lines is { Count: > 0 }
+                ? request.Lines.ToList()
+                : order.ReceivedNotBilled().Select(x => new BillLineRequest(x.Key, x.Value, null)).ToList();
+            var billLines = new List<VendorBillLine>();
+            var overTolerance = new List<string>();
+            foreach (var r in requested)
+            {
+                var line = order.LineFor(r.ItemId);
+                var quantity = r.Quantity ?? line.ReceivedNotBilled;
+                var unitCost = r.UnitCost ?? line.UnitCost;
+                billLines.Add(new VendorBillLine(line.ItemId, line.Sku, line.Description, quantity, line.UnitCost, unitCost));
+                if (!ThreeWayMatch.WithinTolerance(line.UnitCost, unitCost))
+                    overTolerance.Add($"{line.Sku}: billed {unitCost:N2} vs order {line.UnitCost:N2} ({ThreeWayMatch.VariancePercent(line.UnitCost, unitCost):+0.##;-0.##}%)");
+            }
+
+            var varianceApproved = false;
+            if (overTolerance.Count > 0)
+            {
+                if (!request.OverrideVariance)
+                    throw new DomainException(
+                        $"Price variance exceeds the {ThreeWayMatch.PriceTolerancePercent:0.##}% tolerance — {string.Join("; ", overTolerance)}. " +
+                        "Correct the billed price or have someone with approval rights override the variance.");
+                if (!canOverrideVariance)
+                    throw new DomainException("You do not have permission to override a price variance.");
+                varianceApproved = true;
+            }
 
             var date = request.Date ?? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
+            order.RecordBilling(billLines.Select(l => (l.ItemId, l.Quantity)).ToList()); // rejects billing more than was received
             var number = await numbers.NextAsync(BillSequence, "BILL-", ct);
 
-            var total = order.Total;
+            var accrued = billLines.Sum(l => l.AccruedTotal);
+            var total = billLines.Sum(l => l.LineTotal);
+            var variance = total - accrued;
+            var journalLines = new List<PostJournalLine>
+            {
+                new(PurchasingAccounts.GoodsReceivedNotInvoiced, accrued, 0, $"Bill {number}"),
+                new(PurchasingAccounts.Payable, 0, total, $"Bill {number}")
+            };
+            if (variance > 0) journalLines.Add(new(PurchasingAccounts.PurchasePriceVariance, variance, 0, $"Price variance {number}"));
+            else if (variance < 0) journalLines.Add(new(PurchasingAccounts.PurchasePriceVariance, 0, -variance, $"Price variance {number}"));
+
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
-                "Purchasing", number, date, $"Vendor bill {number} - {vendor.Name}",
-                [
-                    new PostJournalLine(PurchasingAccounts.GoodsReceivedNotInvoiced, total, 0, $"Bill {number}"),
-                    new PostJournalLine(PurchasingAccounts.Payable, 0, total, $"Bill {number}")
-                ]), ct);
+                "Purchasing", number, date, $"Vendor bill {number} ({order.Number}) - {vendor.Name}", journalLines), ct);
 
             VendorBill bill;
             try
             {
                 bill = VendorBill.Create(companyId, number, request.VendorReference, order, date, vendor.PaymentTermsDays,
-                    journal.JournalId, journal.Number, clock.UtcNow);
-                order.MarkBilled(bill.Id);
+                    billLines, journal.JournalId, journal.Number, varianceApproved, clock.UtcNow);
                 await store.AddBillAsync(bill, ct);
                 await store.SaveChangesAsync(ct);
             }
@@ -57,8 +95,9 @@ public sealed class BillService(
                 throw;
             }
 
-            await audit.RecordAsync("Purchasing", "bill.created", "VendorBill", bill.Id.Value.ToString(), bill.Number, true,
-                new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = bill.Total, ["Journal"] = journal.Number }, ct);
+            await audit.RecordAsync("Purchasing", varianceApproved ? "bill.created.variance-override" : "bill.created", "VendorBill",
+                bill.Id.Value.ToString(), bill.Number, true,
+                new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = bill.Total, ["PriceVariance"] = bill.PriceVariance, ["Journal"] = journal.Number }, ct);
             return Map(bill, vendor.Name);
         }, cancellationToken);
     }
@@ -144,8 +183,10 @@ public sealed class BillService(
         b.Id.Value, b.Number, b.VendorReference, b.PurchaseOrderId.Value, b.VendorId.Value, vendorName, b.BillDate, b.DueDate,
         b.Total, b.AmountPaid, b.Balance, b.Status,
         b.Status == BillStatus.Open && b.DueDate < DateOnly.FromDateTime(clock.UtcNow.UtcDateTime),
-        b.JournalNumber,
-        b.Lines.Select(l => new PurchaseLineResponse(l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost, l.LineTotal)).ToArray());
+        b.JournalNumber, b.PriceVariance, b.VarianceOverridden,
+        b.Lines.Select(l => new BillLineResponse(
+            l.ItemId, l.Sku, l.Description, l.Quantity, l.OrderUnitCost, l.UnitCost, l.LineTotal, l.PriceVariance,
+            l.PriceVariance == 0 ? "Matched" : ThreeWayMatch.WithinTolerance(l.OrderUnitCost, l.UnitCost) ? "Within tolerance" : "Variance approved")).ToArray());
 
     private static VendorPaymentResponse MapPayment(VendorPayment p, string billNumber, string vendorName) => new(
         p.Id.Value, p.Number, p.BillId.Value, billNumber, p.VendorId.Value, vendorName,

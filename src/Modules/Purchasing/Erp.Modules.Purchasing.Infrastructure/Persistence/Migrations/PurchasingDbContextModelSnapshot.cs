@@ -23,12 +23,57 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.PurchaseOrder", b =>
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.GoodsReceipt", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("BillId")
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("JournalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JournalNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("ReceiptDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("VendorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseOrderId");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("GoodsReceipts", "purchasing");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.PurchaseOrder", b =>
+                {
+                    b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("CompanyId")
@@ -47,13 +92,6 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(50)");
 
                     b.Property<DateOnly>("OrderDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("ReceiptJournalNumber")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateOnly?>("ReceivedDate")
                         .HasColumnType("date");
 
                     b.Property<string>("Status")
@@ -157,6 +195,9 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<bool>("VarianceOverridden")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uuid");
 
@@ -166,11 +207,12 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PurchaseOrderId")
-                        .IsUnique();
+                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("CompanyId", "Number")
                         .IsUnique();
+
+                    b.HasIndex("CompanyId", "VendorId", "VendorReference");
 
                     b.ToTable("VendorBills", "purchasing");
                 });
@@ -229,6 +271,51 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                     b.ToTable("VendorPayments", "purchasing");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.GoodsReceipt", b =>
+                {
+                    b.OwnsMany("Erp.Modules.Purchasing.Domain.GoodsReceiptLine", "Lines", b1 =>
+                        {
+                            b1.Property<Guid>("GoodsReceiptId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("LineNo")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("LineNo"));
+
+                            b1.Property<string>("Description")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)");
+
+                            b1.Property<Guid>("ItemId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal>("Quantity")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<string>("Sku")
+                                .IsRequired()
+                                .HasMaxLength(60)
+                                .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal>("UnitCost")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.HasKey("GoodsReceiptId", "LineNo");
+
+                            b1.ToTable("GoodsReceiptLines", "purchasing");
+
+                            b1.WithOwner()
+                                .HasForeignKey("GoodsReceiptId");
+                        });
+
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("Erp.Modules.Purchasing.Domain.PurchaseOrder", b =>
                 {
                     b.OwnsMany("Erp.Modules.Purchasing.Domain.PurchaseOrderLine", "Lines", b1 =>
@@ -251,6 +338,14 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                                 .HasColumnType("uuid");
 
                             b1.Property<decimal>("Quantity")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("QuantityBilled")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("QuantityReceived")
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
 
@@ -294,6 +389,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
 
                             b1.Property<Guid>("ItemId")
                                 .HasColumnType("uuid");
+
+                            b1.Property<decimal>("OrderUnitCost")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
 
                             b1.Property<decimal>("Quantity")
                                 .HasPrecision(19, 4)

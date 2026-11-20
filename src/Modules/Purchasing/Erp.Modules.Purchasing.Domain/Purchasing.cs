@@ -4,10 +4,11 @@ namespace Erp.Modules.Purchasing.Domain;
 
 public readonly record struct VendorId(Guid Value);
 public readonly record struct PurchaseOrderId(Guid Value);
+public readonly record struct GoodsReceiptId(Guid Value);
 public readonly record struct VendorBillId(Guid Value);
 public readonly record struct VendorPaymentId(Guid Value);
 
-public enum PurchaseOrderStatus { Draft, Open, Released, Received, Billed, Cancelled }
+public enum PurchaseOrderStatus { Draft, Open, Released, PartiallyReceived, Received, Billed, Cancelled }
 public enum BillStatus { Open, Paid }
 public enum PaymentMethod { Cash, Bank }
 
@@ -86,12 +87,20 @@ public sealed record PurchaseOrderLine
     public string Description { get; }
     public decimal Quantity { get; }
     public decimal UnitCost { get; }
+    public decimal QuantityReceived { get; private set; }
+    public decimal QuantityBilled { get; private set; }
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
+    public decimal OutstandingToReceive => Quantity - QuantityReceived;
+    public decimal ReceivedNotBilled => QuantityReceived - QuantityBilled;
+
+    internal void ApplyReceipt(decimal quantity) => QuantityReceived += quantity;
+    internal void ApplyBilling(decimal quantity) => QuantityBilled += quantity;
 }
 
 /// <summary>
-/// Draft → Open (confirmed) → Released (sent to vendor) → Received (goods in, GRNI accrued) → Billed.
-/// MVP: the whole order is received and billed at once.
+/// Draft → Open (confirmed) → Released (sent to vendor) → PartiallyReceived ⇄ Received → Billed.
+/// Goods can arrive in several receipts and be billed in several bills. The quantity received and billed per line
+/// drives the status; billing is limited to goods that were received (the quantity leg of the three-way match).
 /// </summary>
 public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
 {
@@ -119,9 +128,6 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
     public DateOnly OrderDate { get; private set; }
     public string? Notes { get; private set; }
     public PurchaseOrderStatus Status { get; private set; } = PurchaseOrderStatus.Draft;
-    public DateOnly? ReceivedDate { get; private set; }
-    public string? ReceiptJournalNumber { get; private set; }
-    public VendorBillId? BillId { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public IReadOnlyCollection<PurchaseOrderLine> Lines => _lines.AsReadOnly();
     public decimal Total => _lines.Sum(x => x.LineTotal);
@@ -133,6 +139,8 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
     public void AddLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost)
     {
         if (Status != PurchaseOrderStatus.Draft) throw new DomainException("Only draft purchase orders can be changed.");
+        if (_lines.Any(x => x.ItemId == itemId))
+            throw new DomainException($"Item '{sku}' is already on this order; combine the quantities into one line.");
         _lines.Add(new PurchaseOrderLine(itemId, sku, description, quantity, unitCost));
     }
 
@@ -149,26 +157,73 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
         Status = PurchaseOrderStatus.Released;
     }
 
-    public void MarkReceived(DateOnly receivedDate, string journalNumber)
+    /// <summary>The outstanding (not yet received) quantity of every line, keyed by item.</summary>
+    public IReadOnlyDictionary<Guid, decimal> OutstandingToReceive() =>
+        _lines.Where(x => x.OutstandingToReceive > 0).ToDictionary(x => x.ItemId, x => x.OutstandingToReceive);
+
+    /// <summary>The received-but-not-yet-billed quantity of every line, keyed by item.</summary>
+    public IReadOnlyDictionary<Guid, decimal> ReceivedNotBilled() =>
+        _lines.Where(x => x.ReceivedNotBilled > 0).ToDictionary(x => x.ItemId, x => x.ReceivedNotBilled);
+
+    public PurchaseOrderLine LineFor(Guid itemId) =>
+        _lines.SingleOrDefault(x => x.ItemId == itemId) ?? throw new DomainException("The item is not on this purchase order.");
+
+    public void RecordReceipt(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items)
     {
-        EnsureStatus(PurchaseOrderStatus.Released);
-        ReceivedDate = receivedDate;
-        ReceiptJournalNumber = journalNumber;
-        Status = PurchaseOrderStatus.Received;
+        if (Status is not (PurchaseOrderStatus.Released or PurchaseOrderStatus.PartiallyReceived))
+            throw new DomainException("Goods can only be received against released purchase orders that are not fully received.");
+        var checkedItems = ValidateQuantities(items, l => l.OutstandingToReceive, "receive", "outstanding");
+        foreach (var (itemId, quantity) in checkedItems) LineFor(itemId).ApplyReceipt(quantity);
+        Status = _lines.All(x => x.QuantityReceived >= x.Quantity) ? PurchaseOrderStatus.Received : PurchaseOrderStatus.PartiallyReceived;
     }
 
-    public void MarkBilled(VendorBillId billId)
+    /// <summary>Accepts the vendor's short delivery: no further receipts are expected.</summary>
+    public void CloseShort()
     {
-        EnsureStatus(PurchaseOrderStatus.Received);
-        BillId = billId;
-        Status = PurchaseOrderStatus.Billed;
+        EnsureStatus(PurchaseOrderStatus.PartiallyReceived);
+        Status = PurchaseOrderStatus.Received;
+        CompleteIfFullyBilled();
+    }
+
+    public void RecordBilling(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items)
+    {
+        if (Status is not (PurchaseOrderStatus.PartiallyReceived or PurchaseOrderStatus.Received))
+            throw new DomainException("Bills can only be entered for purchase orders with received goods.");
+        var checkedItems = ValidateQuantities(items, l => l.ReceivedNotBilled, "bill", "received and not yet billed");
+        foreach (var (itemId, quantity) in checkedItems) LineFor(itemId).ApplyBilling(quantity);
+        CompleteIfFullyBilled();
     }
 
     public void Cancel()
     {
-        if (Status is PurchaseOrderStatus.Received or PurchaseOrderStatus.Billed or PurchaseOrderStatus.Cancelled)
-            throw new DomainException("This purchase order cannot be cancelled.");
+        if (Status is not (PurchaseOrderStatus.Draft or PurchaseOrderStatus.Open or PurchaseOrderStatus.Released))
+            throw new DomainException("This purchase order cannot be cancelled" +
+                (Status == PurchaseOrderStatus.Cancelled ? "." : " because goods have been received; close it short instead."));
         Status = PurchaseOrderStatus.Cancelled;
+    }
+
+    private void CompleteIfFullyBilled()
+    {
+        if (Status == PurchaseOrderStatus.Received && _lines.All(x => x.QuantityBilled >= x.QuantityReceived))
+            Status = PurchaseOrderStatus.Billed;
+    }
+
+    private List<(Guid ItemId, decimal Quantity)> ValidateQuantities(
+        IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items, Func<PurchaseOrderLine, decimal> available, string verb, string limitName)
+    {
+        if (items.Count == 0) throw new DomainException($"Specify at least one line to {verb}.");
+        if (items.Select(x => x.ItemId).Distinct().Count() != items.Count)
+            throw new DomainException("Each item can appear only once.");
+        foreach (var (itemId, quantity) in items)
+        {
+            var line = LineFor(itemId);
+            if (quantity <= 0) throw new DomainException($"The quantity to {verb} for '{line.Sku}' must be positive.");
+            var limit = available(line);
+            if (quantity > limit)
+                throw new DomainException($"Cannot {verb} {quantity:0.####} of '{line.Sku}': only {limit:0.####} {limitName}.");
+        }
+
+        return items.ToList();
     }
 
     private void EnsureStatus(PurchaseOrderStatus expected)
@@ -177,9 +232,9 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
     }
 }
 
-public sealed record VendorBillLine
+public sealed record GoodsReceiptLine
 {
-    public VendorBillLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost)
+    public GoodsReceiptLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost)
     {
         ItemId = itemId;
         Sku = sku;
@@ -196,6 +251,97 @@ public sealed record VendorBillLine
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
 }
 
+/// <summary>One delivery against a purchase order (the "receipt" leg of the three-way match).</summary>
+public sealed class GoodsReceipt : AggregateRoot<GoodsReceiptId>
+{
+    private readonly List<GoodsReceiptLine> _lines = [];
+
+    private GoodsReceipt()
+    {
+        Number = string.Empty;
+        Reference = string.Empty;
+        JournalNumber = string.Empty;
+    }
+
+    private GoodsReceipt(GoodsReceiptId id, CompanyId companyId, string number, PurchaseOrderId orderId, VendorId vendorId,
+        DateOnly receiptDate, string? reference, Guid journalId, string journalNumber, DateTimeOffset createdAt) : base(id)
+    {
+        CompanyId = companyId;
+        Number = number;
+        PurchaseOrderId = orderId;
+        VendorId = vendorId;
+        ReceiptDate = receiptDate;
+        Reference = reference?.Trim() ?? string.Empty;
+        JournalId = journalId;
+        JournalNumber = journalNumber;
+        CreatedAt = createdAt;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    public string Number { get; private set; }
+    public PurchaseOrderId PurchaseOrderId { get; private set; }
+    public VendorId VendorId { get; private set; }
+    public DateOnly ReceiptDate { get; private set; }
+    /// <summary>The vendor's delivery note number.</summary>
+    public string Reference { get; private set; }
+    public Guid JournalId { get; private set; }
+    public string JournalNumber { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public IReadOnlyCollection<GoodsReceiptLine> Lines => _lines.AsReadOnly();
+    public decimal Total => _lines.Sum(x => x.LineTotal);
+
+    public static GoodsReceipt Create(CompanyId companyId, string number, PurchaseOrderId orderId, VendorId vendorId,
+        DateOnly receiptDate, string? reference, IReadOnlyList<GoodsReceiptLine> lines, Guid journalId, string journalNumber,
+        DateTimeOffset createdAt)
+    {
+        if (lines.Count == 0) throw new DomainException("A goods receipt must contain at least one line.");
+        var receipt = new GoodsReceipt(new GoodsReceiptId(Guid.NewGuid()), companyId, number, orderId, vendorId, receiptDate,
+            reference, journalId, journalNumber, createdAt);
+        receipt._lines.AddRange(lines);
+        return receipt;
+    }
+}
+
+/// <summary>Price tolerance rules for matching a vendor bill to the purchase order.</summary>
+public static class ThreeWayMatch
+{
+    /// <summary>Billed prices may differ from the order price by this much before the bill needs an approved override.</summary>
+    public const decimal PriceTolerancePercent = 2m;
+
+    public static decimal VariancePercent(decimal orderUnitCost, decimal billedUnitCost) =>
+        orderUnitCost == 0 ? (billedUnitCost == 0 ? 0 : 100) : (billedUnitCost - orderUnitCost) / orderUnitCost * 100m;
+
+    public static bool WithinTolerance(decimal orderUnitCost, decimal billedUnitCost) =>
+        Math.Abs(VariancePercent(orderUnitCost, billedUnitCost)) <= PriceTolerancePercent;
+}
+
+public sealed record VendorBillLine
+{
+    public VendorBillLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost)
+    {
+        if (quantity <= 0) throw new DomainException("Billed quantity must be positive.");
+        if (unitCost < 0) throw new DomainException("Billed unit cost cannot be negative.");
+        ItemId = itemId;
+        Sku = sku;
+        Description = description;
+        Quantity = quantity;
+        OrderUnitCost = orderUnitCost;
+        UnitCost = unitCost;
+    }
+
+    public Guid ItemId { get; }
+    public string Sku { get; }
+    public string Description { get; }
+    public decimal Quantity { get; }
+    /// <summary>The price on the purchase order (what the goods receipt accrued at).</summary>
+    public decimal OrderUnitCost { get; }
+    /// <summary>The price the vendor billed.</summary>
+    public decimal UnitCost { get; }
+    public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
+    public decimal AccruedTotal => decimal.Round(Quantity * OrderUnitCost, 2);
+    public decimal PriceVariance => LineTotal - AccruedTotal;
+}
+
 public sealed class VendorBill : AggregateRoot<VendorBillId>
 {
     private readonly List<VendorBillLine> _lines = [];
@@ -207,7 +353,8 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
     }
 
     private VendorBill(VendorBillId id, CompanyId companyId, string number, string? vendorReference, PurchaseOrderId orderId,
-        VendorId vendorId, DateOnly billDate, DateOnly dueDate, Guid journalId, string journalNumber, DateTimeOffset createdAt) : base(id)
+        VendorId vendorId, DateOnly billDate, DateOnly dueDate, Guid journalId, string journalNumber, bool varianceOverridden,
+        DateTimeOffset createdAt) : base(id)
     {
         CompanyId = companyId;
         Number = number;
@@ -218,6 +365,7 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
         DueDate = dueDate;
         JournalId = journalId;
         JournalNumber = journalNumber;
+        VarianceOverridden = varianceOverridden;
         CreatedAt = createdAt;
     }
 
@@ -232,18 +380,24 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
     public string JournalNumber { get; private set; }
     public decimal AmountPaid { get; private set; }
     public BillStatus Status { get; private set; } = BillStatus.Open;
+    /// <summary>True when a price variance beyond tolerance was approved by someone with the override permission.</summary>
+    public bool VarianceOverridden { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public IReadOnlyCollection<VendorBillLine> Lines => _lines.AsReadOnly();
     public decimal Total => _lines.Sum(x => x.LineTotal);
+    /// <summary>The part of the bill that clears the goods-received accrual.</summary>
+    public decimal AccruedTotal => _lines.Sum(x => x.AccruedTotal);
+    public decimal PriceVariance => Total - AccruedTotal;
     public decimal Balance => Total - AmountPaid;
 
     public static VendorBill Create(CompanyId companyId, string number, string? vendorReference, PurchaseOrder order,
-        DateOnly billDate, int paymentTermsDays, Guid journalId, string journalNumber, DateTimeOffset createdAt)
+        DateOnly billDate, int paymentTermsDays, IReadOnlyList<VendorBillLine> lines, Guid journalId, string journalNumber,
+        bool varianceOverridden, DateTimeOffset createdAt)
     {
+        if (lines.Count == 0) throw new DomainException("A bill must contain at least one line.");
         var bill = new VendorBill(new VendorBillId(Guid.NewGuid()), companyId, number, vendorReference, order.Id, order.VendorId,
-            billDate, billDate.AddDays(paymentTermsDays), journalId, journalNumber, createdAt);
-        bill._lines.AddRange(order.Lines.Select(l => new VendorBillLine(l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost)));
-        if (bill._lines.Count == 0) throw new DomainException("A bill must contain at least one line.");
+            billDate, billDate.AddDays(paymentTermsDays), journalId, journalNumber, varianceOverridden, createdAt);
+        bill._lines.AddRange(lines);
         return bill;
     }
 
