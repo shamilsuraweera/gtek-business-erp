@@ -40,7 +40,7 @@ public sealed class StockService(
     {
         if (command.Quantity <= 0) throw new DomainException("Issued quantity must be positive.");
         var entry = await MoveAsync(
-            new ItemId(command.ItemId), -command.Quantity, null, command.Date, command.SourceType, command.SourceReference,
+            new ItemId(command.ItemId), -command.Quantity, command.UnitCost, command.Date, command.SourceType, command.SourceReference,
             command.LocationId is { } l ? new LocationId(l) : null, cancellationToken);
         return new StockMovementResult(command.ItemId, command.Quantity, entry.UnitCost, entry.UnitCost * command.Quantity);
     }

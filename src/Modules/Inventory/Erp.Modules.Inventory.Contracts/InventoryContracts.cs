@@ -22,7 +22,7 @@ public interface IInventoryCatalog
 /// <summary>Cross-module stock movements. Issues are rejected when they would make stock negative.</summary>
 public interface IInventoryStock
 {
-    /// <summary>Removes <c>Quantity</c> (positive) from stock, valued at the item's standard cost.</summary>
+    /// <summary>Removes <c>Quantity</c> (positive) from stock, valued at <c>UnitCost</c> when given, otherwise the item's standard cost.</summary>
     Task<StockMovementResult> IssueAsync(StockMovementCommand command, CancellationToken cancellationToken);
 
     /// <summary>Adds <c>Quantity</c> (positive) to stock, valued at <c>UnitCost</c> when given, otherwise the item's standard cost.</summary>

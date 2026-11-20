@@ -23,6 +23,65 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.DebitNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AmountApplied")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<decimal>("AmountRefunded")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("DebitDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("JournalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JournalNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("VendorBillId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("VendorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VendorBillId");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("DebitNotes", "purchasing");
+                });
+
             modelBuilder.Entity("Erp.Modules.Purchasing.Domain.GoodsReceipt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -158,6 +217,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("AmountDebited")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
                     b.Property<decimal>("AmountPaid")
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
@@ -271,6 +334,162 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                     b.ToTable("VendorPayments", "purchasing");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.VendorRefund", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DebitNoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JournalNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateOnly>("RefundDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("VendorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DebitNoteId");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("VendorRefunds", "purchasing");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.VendorReturn", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("JournalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JournalNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly>("ReturnDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("VendorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseOrderId");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("VendorReturns", "purchasing");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.DebitNote", b =>
+                {
+                    b.OwnsMany("Erp.Modules.Purchasing.Domain.DebitNoteLine", "Lines", b1 =>
+                        {
+                            b1.Property<Guid>("DebitNoteId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("LineNo")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("LineNo"));
+
+                            b1.Property<string>("Description")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)");
+
+                            b1.Property<Guid>("ItemId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal>("OrderUnitCost")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("Quantity")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<string>("Sku")
+                                .IsRequired()
+                                .HasMaxLength(60)
+                                .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal>("UnitCost")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.HasKey("DebitNoteId", "LineNo");
+
+                            b1.ToTable("DebitNoteLines", "purchasing");
+
+                            b1.WithOwner()
+                                .HasForeignKey("DebitNoteId");
+                        });
+
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("Erp.Modules.Purchasing.Domain.GoodsReceipt", b =>
                 {
                     b.OwnsMany("Erp.Modules.Purchasing.Domain.GoodsReceiptLine", "Lines", b1 =>
@@ -345,7 +564,15 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
 
+                            b1.Property<decimal>("QuantityDebited")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
                             b1.Property<decimal>("QuantityReceived")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("QuantityReturned")
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
 
@@ -413,6 +640,51 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
 
                             b1.WithOwner()
                                 .HasForeignKey("VendorBillId");
+                        });
+
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.VendorReturn", b =>
+                {
+                    b.OwnsMany("Erp.Modules.Purchasing.Domain.VendorReturnLine", "Lines", b1 =>
+                        {
+                            b1.Property<Guid>("VendorReturnId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("LineNo")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("LineNo"));
+
+                            b1.Property<string>("Description")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)");
+
+                            b1.Property<Guid>("ItemId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal>("Quantity")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<string>("Sku")
+                                .IsRequired()
+                                .HasMaxLength(60)
+                                .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal>("UnitCost")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.HasKey("VendorReturnId", "LineNo");
+
+                            b1.ToTable("VendorReturnLines", "purchasing");
+
+                            b1.WithOwner()
+                                .HasForeignKey("VendorReturnId");
                         });
 
                     b.Navigation("Lines");

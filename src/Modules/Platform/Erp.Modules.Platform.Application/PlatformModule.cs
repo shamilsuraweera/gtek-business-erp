@@ -346,6 +346,9 @@ public static class Permissions
         public const string BillsRead = "purchasing.bills.read";
         public const string BillsPost = "purchasing.bills.post";
         public const string BillsOverride = "purchasing.bills.override-variance";
+        public const string ReturnsPost = "purchasing.returns.post";
+        public const string DebitNotesPost = "purchasing.debit-notes.post";
+        public const string VendorRefundsRecord = "purchasing.vendor-refunds.record";
         public const string PaymentsRecord = "purchasing.payments.record";
     }
 
@@ -391,6 +394,9 @@ public static class Permissions
         (Purchasing.BillsRead, "Read vendor bills", "purchasing", "View vendor bills and payments."),
         (Purchasing.BillsPost, "Post vendor bills", "purchasing", "Enter vendor bills for received purchase orders."),
         (Purchasing.BillsOverride, "Override bill price variance", "purchasing", "Approve vendor bills whose price differs from the purchase order by more than the tolerance."),
+        (Purchasing.ReturnsPost, "Return goods to vendors", "purchasing", "Send received goods back to a vendor (reverses stock and the goods-received accrual)."),
+        (Purchasing.DebitNotesPost, "Enter vendor debit notes", "purchasing", "Record the vendor's credit for billed goods that were returned."),
+        (Purchasing.VendorRefundsRecord, "Record vendor refunds", "purchasing", "Record money received back from vendors against debit notes."),
         (Purchasing.PaymentsRecord, "Pay vendor bills", "purchasing", "Record payments against vendor bills.")
     ];
 }

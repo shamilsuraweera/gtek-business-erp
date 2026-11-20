@@ -5,7 +5,7 @@ client. The local MVP demonstrates two complete workflows:
 
 > **Order-to-cash:** customer → sales order → invoice (stock issue + ledger posting) → payment, with credit notes, returns to stock and refunds
 >
-> **Procure-to-pay:** vendor → purchase order → goods receipts (partial deliveries, stock in, GRNI accrual) → vendor bills matched to the order and receipts → payment
+> **Procure-to-pay:** vendor → purchase order → goods receipts (partial deliveries, stock in, GRNI accrual) → vendor bills matched to the order and receipts → payment, with returns to vendor, debit notes and vendor refunds
 
 | Module | What works today |
 |---|---|
@@ -13,7 +13,7 @@ client. The local MVP demonstrates two complete workflows:
 | Finance | Chart of accounts, balanced journals, reversals, trial balance (append-only ledger) |
 | Inventory | Items, locations, append-only stock ledger, receipts/adjustments, oversell protection |
 | Sales | Customers, orders (draft → confirmed → released → invoiced), invoices, payments, credit notes and returns (stock and COGS reversed at original cost), refunds |
-| Purchasing | Vendors, purchase orders, partial goods receipts (stock at PO cost), close short, three-way matched vendor bills, price-variance approval, payments |
+| Purchasing | Vendors, purchase orders, partial goods receipts (stock at PO cost), close short, three-way matched vendor bills, price-variance approval, payments, returns to vendor, debit notes, vendor refunds |
 | Web (`web/`) | Dashboard, sales, purchasing, inventory, ledger and administration screens |
 
 ## Run the MVP locally
@@ -52,8 +52,8 @@ Notes:
 - MVP limitations: sales and purchasing postings use a fixed account mapping (1000/1010 cash and
   bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received not invoiced, 5100 purchase price variance, 5100 purchase price variance,
   4000 revenue, 4100 sales returns, 5000 COGS); manual stock receipts do not post to the ledger; the three-way
-  match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; credit notes are at the invoiced price (no partial price adjustments); there is no tax,
-  multi-currency or vendor returns yet.
+  match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; credit notes are at the invoiced price (no partial price adjustments); there is no tax or
+  multi-currency yet.
 
 ## Quick start
 

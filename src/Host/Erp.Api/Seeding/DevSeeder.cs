@@ -42,6 +42,7 @@ public static class DevSeeder
         await SeedSalesAsync(sp, log, ct);
         await SeedCreditNotesAsync(sp, log, ct);
         await SeedPurchasingAsync(sp, log, ct);
+        await SeedVendorReturnsAsync(sp, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
     }
@@ -465,5 +466,48 @@ public static class DevSeeder
         }
 
         log.LogInformation("Credit notes ready ({Created} new).", created);
+    }
+
+    private static readonly (string OrderMarker, string Tag, string Reason, string Sku, decimal Qty, DateOnly Date, bool DebitNote, bool Refund)[] ReturnScenarios =
+    [
+        // Goods received but not yet billed: sending them back just reverses the accrual; the vendor's bill will cover what we keep.
+        ("SEED-PO-4", "SEED-RTV-1", "Wrong memory speed delivered", "RAM-16", 2, new DateOnly(2026, 11, 16), false, false),
+        // Billed and unpaid: the vendor's debit note reduces what we still owe.
+        ("SEED-PO-5", "SEED-RTV-2", "UPS units failed acceptance test", "UPS-1K", 2, new DateOnly(2026, 11, 17), true, false),
+        // Billed and already paid: the vendor owes us the money back, and refunds it.
+        ("SEED-PO-7", "SEED-RTV-3", "Printer arrived with a cracked panel", "PRN-100", 1, new DateOnly(2026, 11, 18), true, true),
+    ];
+
+    private static async Task SeedVendorReturnsAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var orders = sp.GetRequiredService<IPurchaseOrderService>();
+        var debitNotes = sp.GetRequiredService<IDebitNoteService>();
+        var itemIds = (await sp.GetRequiredService<IItemService>().ListAsync(ct)).ToDictionary(x => x.Sku, x => x.Id);
+        var byMarker = (await orders.ListAsync(500, ct)).Where(o => o.Notes is not null).ToDictionary(o => o.Notes!);
+        var existingNotes = (await debitNotes.ListAsync(500, ct)).Select(n => n.Reason).ToList();
+
+        var created = 0;
+        foreach (var (marker, tag, reason, sku, qty, date, debit, refund) in ReturnScenarios)
+        {
+            if (!byMarker.TryGetValue(marker, out var summary)) continue;
+            var id = new PurchasingDomain.PurchaseOrderId(summary.Id);
+            var order = (await orders.GetAsync(id, ct))!;
+
+            if (!order.Returns.Any(r => r.Reason.StartsWith(tag, StringComparison.Ordinal)))
+            {
+                order = (await orders.ReturnAsync(id, new ReturnGoodsRequest(
+                    date, $"{tag}: {reason}", $"RMA-{tag[^1]}", [new ReturnLineRequest(itemIds[sku], qty)]), ct))!;
+                created++;
+            }
+
+            if (!debit || existingNotes.Any(r => r.StartsWith(tag.Replace("RTV", "DN"), StringComparison.Ordinal)) || order.Bills.Count == 0) continue;
+            var note = await debitNotes.CreateAsync(new PurchasingDomain.VendorBillId(order.Bills[0].Id), new CreateDebitNoteRequest(
+                date.AddDays(1), $"{tag.Replace("RTV", "DN")}: {reason}", [new DebitNoteLineRequest(itemIds[sku], qty)]), ct);
+            if (refund && note is { RefundDue: > 0 })
+                await debitNotes.RefundAsync(new PurchasingDomain.DebitNoteId(note.Id),
+                    new VendorRefundRequest(note.RefundDue, PurchasingDomain.PaymentMethod.Bank, date.AddDays(3), $"{tag}-REFUND"), ct);
+        }
+
+        log.LogInformation("Vendor returns ready ({Created} new).", created);
     }
 }

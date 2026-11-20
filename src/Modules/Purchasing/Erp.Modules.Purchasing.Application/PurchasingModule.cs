@@ -25,12 +25,17 @@ public sealed record PurchaseLineRequest(Guid ItemId, decimal Quantity, decimal?
 public sealed record CreatePurchaseOrderRequest(Guid VendorId, DateOnly? OrderDate, string? Notes, IReadOnlyList<PurchaseLineRequest> Lines);
 public sealed record PurchaseOrderLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitCost, decimal LineTotal,
-    decimal QuantityReceived, decimal QuantityBilled);
+    decimal QuantityReceived, decimal QuantityBilled, decimal QuantityReturned, decimal QuantityDebited, decimal DebitableQuantity);
 public sealed record ReceiptSummary(Guid Id, string Number, DateOnly ReceiptDate, string Reference, decimal Total, string JournalNumber);
+public sealed record ReturnSummary(Guid Id, string Number, DateOnly ReturnDate, string Reason, string Reference, decimal Total, string JournalNumber);
 public sealed record BillSummary(Guid Id, string Number, DateOnly BillDate, decimal Total, decimal PriceVariance, BillStatus Status);
 public sealed record PurchaseOrderResponse(
     Guid Id, string Number, Guid VendorId, string VendorName, DateOnly OrderDate, string? Notes, PurchaseOrderStatus Status,
-    decimal Total, IReadOnlyList<PurchaseOrderLineResponse> Lines, IReadOnlyList<ReceiptSummary> Receipts, IReadOnlyList<BillSummary> Bills);
+    decimal Total, IReadOnlyList<PurchaseOrderLineResponse> Lines, IReadOnlyList<ReceiptSummary> Receipts, IReadOnlyList<BillSummary> Bills,
+    IReadOnlyList<ReturnSummary> Returns);
+
+public sealed record ReturnLineRequest(Guid ItemId, decimal Quantity);
+public sealed record ReturnGoodsRequest(DateOnly? Date, string Reason, string? Reference, IReadOnlyList<ReturnLineRequest> Lines);
 
 /// <param name="Lines">Quantities to receive per item; omit to receive everything outstanding.</param>
 public sealed record ReceiveLineRequest(Guid ItemId, decimal Quantity);
@@ -41,11 +46,24 @@ public sealed record BillLineRequest(Guid ItemId, decimal? Quantity, decimal? Un
 public sealed record CreateBillRequest(DateOnly? Date, string? VendorReference, IReadOnlyList<BillLineRequest>? Lines, bool OverrideVariance = false);
 public sealed record BillLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost,
-    decimal LineTotal, decimal PriceVariance, string MatchStatus);
+    decimal LineTotal, decimal PriceVariance, string MatchStatus, decimal QuantityDebited);
 public sealed record BillResponse(
     Guid Id, string Number, string? VendorReference, Guid PurchaseOrderId, Guid VendorId, string VendorName,
-    DateOnly BillDate, DateOnly DueDate, decimal Total, decimal AmountPaid, decimal Balance, BillStatus Status,
+    DateOnly BillDate, DateOnly DueDate, decimal Total, decimal AmountPaid, decimal AmountDebited, decimal Balance, BillStatus Status,
     bool IsOverdue, string JournalNumber, decimal PriceVariance, bool VarianceOverridden, IReadOnlyList<BillLineResponse> Lines);
+
+public sealed record DebitNoteLineRequest(Guid ItemId, decimal Quantity);
+public sealed record CreateDebitNoteRequest(DateOnly? Date, string Reason, IReadOnlyList<DebitNoteLineRequest> Lines);
+public sealed record DebitNoteLineResponse(
+    Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost, decimal LineTotal, decimal PriceVariance);
+public sealed record VendorRefundRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);
+public sealed record VendorRefundResponse(
+    Guid Id, string Number, Guid DebitNoteId, string DebitNoteNumber, Guid VendorId, string VendorName,
+    DateOnly RefundDate, decimal Amount, PaymentMethod Method, string Reference, string JournalNumber);
+public sealed record DebitNoteResponse(
+    Guid Id, string Number, Guid PurchaseOrderId, Guid BillId, string BillNumber, Guid VendorId, string VendorName, DateOnly DebitDate,
+    string Reason, decimal Total, decimal AmountApplied, decimal AmountRefunded, decimal RefundDue, decimal PriceVariance,
+    string JournalNumber, IReadOnlyList<DebitNoteLineResponse> Lines, IReadOnlyList<VendorRefundResponse> Refunds);
 
 public sealed record PayBillRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);
 public sealed record VendorPaymentResponse(
@@ -70,7 +88,19 @@ public interface IPurchasingStore
     Task<IReadOnlyList<VendorBill>> ListBillsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken);
     Task<bool> BillExistsForVendorReferenceAsync(CompanyId companyId, VendorId vendorId, string vendorReference, CancellationToken cancellationToken);
 
+    Task AddReturnAsync(VendorReturn vendorReturn, CancellationToken cancellationToken);
+    Task<IReadOnlyList<VendorReturn>> ListReturnsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken);
+
     Task AddBillAsync(VendorBill bill, CancellationToken cancellationToken);
+    /// <summary>The order a bill belongs to, read without tracking (needed to take the right locks before loading the bill).</summary>
+    Task<PurchaseOrderId?> GetBillOrderIdAsync(CompanyId companyId, VendorBillId billId, CancellationToken cancellationToken);
+
+    Task AddDebitNoteAsync(DebitNote note, CancellationToken cancellationToken);
+    Task<IReadOnlyList<DebitNote>> ListDebitNotesAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
+    Task<DebitNote?> GetDebitNoteAsync(CompanyId companyId, DebitNoteId id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<DebitNote>> ListDebitNotesForBillAsync(CompanyId companyId, VendorBillId billId, CancellationToken cancellationToken);
+    Task AddVendorRefundAsync(VendorRefund refund, CancellationToken cancellationToken);
+    Task<IReadOnlyList<VendorRefund>> ListVendorRefundsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
     Task<IReadOnlyList<VendorBill>> ListBillsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
     Task<VendorBill?> GetBillAsync(CompanyId companyId, VendorBillId id, CancellationToken cancellationToken);
 
@@ -78,6 +108,9 @@ public interface IPurchasingStore
     Task<IReadOnlyList<VendorPayment>> ListPaymentsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
 
     Task<T> InLockedTransactionAsync<T>(CompanyId companyId, string lockKey, Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken);
+
+    /// <summary>Holds several locks at once (e.g. an order and one of its bills). Keys are taken in sorted order to avoid deadlocks.</summary>
+    Task<T> InLockedTransactionAsync<T>(CompanyId companyId, IReadOnlyCollection<string> lockKeys, Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken);
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
@@ -97,6 +130,7 @@ public interface IPurchaseOrderService
     Task<PurchaseOrderResponse?> GetAsync(PurchaseOrderId id, CancellationToken cancellationToken);
     Task<PurchaseOrderResponse?> TransitionAsync(PurchaseOrderId id, PurchaseOrderAction action, CancellationToken cancellationToken);
     Task<PurchaseOrderResponse?> ReceiveAsync(PurchaseOrderId id, ReceiveGoodsRequest request, CancellationToken cancellationToken);
+    Task<PurchaseOrderResponse?> ReturnAsync(PurchaseOrderId id, ReturnGoodsRequest request, CancellationToken cancellationToken);
 }
 
 public interface IBillService
@@ -109,6 +143,14 @@ public interface IBillService
     Task<IReadOnlyList<VendorPaymentResponse>> ListPaymentsAsync(int take, CancellationToken cancellationToken);
 }
 
+public interface IDebitNoteService
+{
+    Task<DebitNoteResponse?> CreateAsync(VendorBillId billId, CreateDebitNoteRequest request, CancellationToken cancellationToken);
+    Task<IReadOnlyList<DebitNoteResponse>> ListAsync(int take, CancellationToken cancellationToken);
+    Task<DebitNoteResponse?> GetAsync(DebitNoteId id, CancellationToken cancellationToken);
+    Task<VendorRefundResponse?> RefundAsync(DebitNoteId id, VendorRefundRequest request, CancellationToken cancellationToken);
+}
+
 public static class PurchasingModule
 {
     public static IServiceCollection AddPurchasingModule(this IServiceCollection services)
@@ -116,6 +158,7 @@ public static class PurchasingModule
         services.AddScoped<IVendorService, VendorService>();
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IBillService, BillService>();
+        services.AddScoped<IDebitNoteService, DebitNoteService>();
         return services;
     }
 }

@@ -7,9 +7,12 @@ public readonly record struct PurchaseOrderId(Guid Value);
 public readonly record struct GoodsReceiptId(Guid Value);
 public readonly record struct VendorBillId(Guid Value);
 public readonly record struct VendorPaymentId(Guid Value);
+public readonly record struct VendorReturnId(Guid Value);
+public readonly record struct DebitNoteId(Guid Value);
+public readonly record struct VendorRefundId(Guid Value);
 
 public enum PurchaseOrderStatus { Draft, Open, Released, PartiallyReceived, Received, Billed, Cancelled }
-public enum BillStatus { Open, Paid }
+public enum BillStatus { Open, Paid, Debited }
 public enum PaymentMethod { Cash, Bank }
 
 public sealed class Vendor : AggregateRoot<VendorId>
@@ -89,12 +92,25 @@ public sealed record PurchaseOrderLine
     public decimal UnitCost { get; }
     public decimal QuantityReceived { get; private set; }
     public decimal QuantityBilled { get; private set; }
+    /// <summary>Goods sent back to the vendor.</summary>
+    public decimal QuantityReturned { get; private set; }
+    /// <summary>Billed quantity cancelled by debit notes.</summary>
+    public decimal QuantityDebited { get; private set; }
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
     public decimal OutstandingToReceive => Quantity - QuantityReceived;
-    public decimal ReceivedNotBilled => QuantityReceived - QuantityBilled;
+    /// <summary>Goods we still hold (received less returned).</summary>
+    public decimal NetReceived => QuantityReceived - QuantityReturned;
+    /// <summary>Quantity we owe the vendor for (billed less debited).</summary>
+    public decimal NetBilled => QuantityBilled - QuantityDebited;
+    /// <summary>What can still be billed: goods held that are not yet covered by a bill.</summary>
+    public decimal ReceivedNotBilled => Math.Max(0m, NetReceived - NetBilled);
+    /// <summary>Billed goods that were sent back: a debit note from the vendor is due for these.</summary>
+    public decimal DebitableQuantity => Math.Max(0m, NetBilled - NetReceived);
 
     internal void ApplyReceipt(decimal quantity) => QuantityReceived += quantity;
     internal void ApplyBilling(decimal quantity) => QuantityBilled += quantity;
+    internal void ApplyReturn(decimal quantity) => QuantityReturned += quantity;
+    internal void ApplyDebit(decimal quantity) => QuantityDebited += quantity;
 }
 
 /// <summary>
@@ -185,6 +201,32 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
         CompleteIfFullyBilled();
     }
 
+    /// <summary>The goods we still hold per item (received less returned): the most that can be sent back.</summary>
+    public IReadOnlyDictionary<Guid, decimal> ReturnableQuantities() =>
+        _lines.Where(x => x.NetReceived > 0).ToDictionary(x => x.ItemId, x => x.NetReceived);
+
+    /// <summary>Billed goods that have been returned and are awaiting a debit note, per item.</summary>
+    public IReadOnlyDictionary<Guid, decimal> DebitableQuantities() =>
+        _lines.Where(x => x.DebitableQuantity > 0).ToDictionary(x => x.ItemId, x => x.DebitableQuantity);
+
+    /// <summary>Sends goods back to the vendor. Returns do not re-open the order: replacements need a new order.</summary>
+    public void RecordReturn(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items)
+    {
+        if (Status is not (PurchaseOrderStatus.PartiallyReceived or PurchaseOrderStatus.Received or PurchaseOrderStatus.Billed))
+            throw new DomainException("Goods can only be returned for purchase orders with received goods.");
+        var checkedItems = ValidateQuantities(items, l => l.NetReceived, "return", "held (received and not yet returned)");
+        foreach (var (itemId, quantity) in checkedItems) LineFor(itemId).ApplyReturn(quantity);
+        CompleteIfFullyBilled();
+    }
+
+    /// <summary>Records a vendor debit note: only billed goods that were returned can be debited.</summary>
+    public void RecordDebit(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items)
+    {
+        var checkedItems = ValidateQuantities(items, l => l.DebitableQuantity, "debit", "returned after being billed");
+        foreach (var (itemId, quantity) in checkedItems) LineFor(itemId).ApplyDebit(quantity);
+        CompleteIfFullyBilled();
+    }
+
     public void RecordBilling(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items)
     {
         if (Status is not (PurchaseOrderStatus.PartiallyReceived or PurchaseOrderStatus.Received))
@@ -204,7 +246,7 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
 
     private void CompleteIfFullyBilled()
     {
-        if (Status == PurchaseOrderStatus.Received && _lines.All(x => x.QuantityBilled >= x.QuantityReceived))
+        if (Status == PurchaseOrderStatus.Received && _lines.All(x => x.NetBilled >= x.NetReceived))
             Status = PurchaseOrderStatus.Billed;
     }
 
@@ -379,6 +421,8 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
     public Guid JournalId { get; private set; }
     public string JournalNumber { get; private set; }
     public decimal AmountPaid { get; private set; }
+    /// <summary>The part of the bill cancelled by debit notes (never more than the balance at the time).</summary>
+    public decimal AmountDebited { get; private set; }
     public BillStatus Status { get; private set; } = BillStatus.Open;
     /// <summary>True when a price variance beyond tolerance was approved by someone with the override permission.</summary>
     public bool VarianceOverridden { get; private set; }
@@ -388,7 +432,7 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
     /// <summary>The part of the bill that clears the goods-received accrual.</summary>
     public decimal AccruedTotal => _lines.Sum(x => x.AccruedTotal);
     public decimal PriceVariance => Total - AccruedTotal;
-    public decimal Balance => Total - AmountPaid;
+    public decimal Balance => Total - AmountPaid - AmountDebited;
 
     public static VendorBill Create(CompanyId companyId, string number, string? vendorReference, PurchaseOrder order,
         DateOnly billDate, int paymentTermsDays, IReadOnlyList<VendorBillLine> lines, Guid journalId, string journalNumber,
@@ -406,7 +450,23 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
         if (amount <= 0) throw new DomainException("Payment amount must be positive.");
         if (amount > Balance) throw new DomainException($"Payment exceeds the bill balance of {Balance:N2}.");
         AmountPaid += amount;
-        if (Balance == 0) Status = BillStatus.Paid;
+        UpdateStatus();
+    }
+
+    /// <summary>Reduces the balance by a debit note. Only the open balance can be debited here; any excess is refunded by the vendor.</summary>
+    public void ApplyDebit(decimal amount)
+    {
+        if (amount < 0) throw new DomainException("Debit amount cannot be negative.");
+        if (amount > Balance) throw new DomainException($"Debit exceeds the bill balance of {Balance:N2}.");
+        AmountDebited += amount;
+        UpdateStatus();
+    }
+
+    private void UpdateStatus()
+    {
+        if (Balance != 0) return;
+        // Settled by debit notes alone is "Debited"; anything that involved a payment is "Paid".
+        Status = AmountPaid == 0 && AmountDebited > 0 ? BillStatus.Debited : BillStatus.Paid;
     }
 }
 
@@ -452,6 +512,225 @@ public sealed class VendorPayment : AggregateRoot<VendorPaymentId>
     {
         if (amount <= 0) throw new DomainException("Payment amount must be positive.");
         return new VendorPayment(new VendorPaymentId(Guid.NewGuid()), companyId, number, billId, vendorId, paymentDate,
+            amount, method, reference, journalNumber, createdAt);
+    }
+}
+
+public sealed record VendorReturnLine
+{
+    public VendorReturnLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost)
+    {
+        if (quantity <= 0) throw new DomainException("Returned quantity must be positive.");
+        ItemId = itemId;
+        Sku = sku;
+        Description = description;
+        Quantity = quantity;
+        UnitCost = unitCost;
+    }
+
+    public Guid ItemId { get; }
+    public string Sku { get; }
+    public string Description { get; }
+    public decimal Quantity { get; }
+    /// <summary>The order price the goods came in at; they leave stock at the same cost.</summary>
+    public decimal UnitCost { get; }
+    public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
+}
+
+/// <summary>Goods sent back to a vendor (return to vendor). Reverses the receipt: Dr GRNI / Cr Inventory.</summary>
+public sealed class VendorReturn : AggregateRoot<VendorReturnId>
+{
+    private readonly List<VendorReturnLine> _lines = [];
+
+    private VendorReturn()
+    {
+        Number = string.Empty;
+        Reason = string.Empty;
+        Reference = string.Empty;
+        JournalNumber = string.Empty;
+    }
+
+    private VendorReturn(VendorReturnId id, CompanyId companyId, string number, PurchaseOrderId orderId, VendorId vendorId,
+        DateOnly returnDate, string reason, string? reference, Guid journalId, string journalNumber, DateTimeOffset createdAt) : base(id)
+    {
+        CompanyId = companyId;
+        Number = number;
+        PurchaseOrderId = orderId;
+        VendorId = vendorId;
+        ReturnDate = returnDate;
+        Reason = reason;
+        Reference = reference?.Trim() ?? string.Empty;
+        JournalId = journalId;
+        JournalNumber = journalNumber;
+        CreatedAt = createdAt;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    public string Number { get; private set; }
+    public PurchaseOrderId PurchaseOrderId { get; private set; }
+    public VendorId VendorId { get; private set; }
+    public DateOnly ReturnDate { get; private set; }
+    public string Reason { get; private set; }
+    /// <summary>The vendor's return authorisation or our dispatch note number.</summary>
+    public string Reference { get; private set; }
+    public Guid JournalId { get; private set; }
+    public string JournalNumber { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public IReadOnlyCollection<VendorReturnLine> Lines => _lines.AsReadOnly();
+    public decimal Total => _lines.Sum(x => x.LineTotal);
+
+    public static VendorReturn Create(CompanyId companyId, string number, PurchaseOrderId orderId, VendorId vendorId,
+        DateOnly returnDate, string reason, string? reference, IReadOnlyList<VendorReturnLine> lines, Guid journalId,
+        string journalNumber, DateTimeOffset createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("A reason is required for a return to vendor.");
+        if (lines.Count == 0) throw new DomainException("A return must contain at least one line.");
+        var ret = new VendorReturn(new VendorReturnId(Guid.NewGuid()), companyId, number, orderId, vendorId, returnDate,
+            reason.Trim(), reference, journalId, journalNumber, createdAt);
+        ret._lines.AddRange(lines);
+        return ret;
+    }
+}
+
+public sealed record DebitNoteLine
+{
+    public DebitNoteLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost)
+    {
+        if (quantity <= 0) throw new DomainException("Debited quantity must be positive.");
+        ItemId = itemId;
+        Sku = sku;
+        Description = description;
+        Quantity = quantity;
+        OrderUnitCost = orderUnitCost;
+        UnitCost = unitCost;
+    }
+
+    public Guid ItemId { get; }
+    public string Sku { get; }
+    public string Description { get; }
+    public decimal Quantity { get; }
+    /// <summary>The order price: what the goods receipt accrued (and the return reversed).</summary>
+    public decimal OrderUnitCost { get; }
+    /// <summary>The price the vendor billed, which is what the vendor now credits.</summary>
+    public decimal UnitCost { get; }
+    public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
+    public decimal AccruedTotal => decimal.Round(Quantity * OrderUnitCost, 2);
+    public decimal PriceVariance => LineTotal - AccruedTotal;
+}
+
+/// <summary>
+/// The vendor's credit for billed goods that were returned. Dr Payables (billed price) / Cr GRNI (order price) with the
+/// difference to Purchase Price Variance. The credit first reduces the bill balance; the rest is refundable by the vendor.
+/// </summary>
+public sealed class DebitNote : AggregateRoot<DebitNoteId>
+{
+    private readonly List<DebitNoteLine> _lines = [];
+
+    private DebitNote()
+    {
+        Number = string.Empty;
+        Reason = string.Empty;
+        JournalNumber = string.Empty;
+    }
+
+    private DebitNote(DebitNoteId id, CompanyId companyId, string number, PurchaseOrderId orderId, VendorBillId billId, VendorId vendorId,
+        DateOnly debitDate, string reason, Guid journalId, string journalNumber, decimal amountApplied, DateTimeOffset createdAt) : base(id)
+    {
+        CompanyId = companyId;
+        Number = number;
+        PurchaseOrderId = orderId;
+        VendorBillId = billId;
+        VendorId = vendorId;
+        DebitDate = debitDate;
+        Reason = reason;
+        JournalId = journalId;
+        JournalNumber = journalNumber;
+        AmountApplied = amountApplied;
+        CreatedAt = createdAt;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    public string Number { get; private set; }
+    public PurchaseOrderId PurchaseOrderId { get; private set; }
+    public VendorBillId VendorBillId { get; private set; }
+    public VendorId VendorId { get; private set; }
+    public DateOnly DebitDate { get; private set; }
+    public string Reason { get; private set; }
+    public Guid JournalId { get; private set; }
+    public string JournalNumber { get; private set; }
+    /// <summary>The part that reduced the bill's open balance.</summary>
+    public decimal AmountApplied { get; private set; }
+    /// <summary>Money the vendor has paid back against this note.</summary>
+    public decimal AmountRefunded { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public IReadOnlyCollection<DebitNoteLine> Lines => _lines.AsReadOnly();
+    public decimal Total => _lines.Sum(x => x.LineTotal);
+    public decimal AccruedTotal => _lines.Sum(x => x.AccruedTotal);
+    public decimal PriceVariance => Total - AccruedTotal;
+    /// <summary>What the vendor still owes us for this note (credit beyond the bill balance, not yet refunded).</summary>
+    public decimal RefundDue => Total - AmountApplied - AmountRefunded;
+
+    public static DebitNote Create(CompanyId companyId, string number, VendorBill bill, DateOnly debitDate, string reason,
+        IReadOnlyList<DebitNoteLine> lines, Guid journalId, string journalNumber, decimal amountApplied, DateTimeOffset createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) throw new DomainException("A reason is required for a debit note.");
+        if (lines.Count == 0) throw new DomainException("A debit note must contain at least one line.");
+        var note = new DebitNote(new DebitNoteId(Guid.NewGuid()), companyId, number, bill.PurchaseOrderId, bill.Id, bill.VendorId,
+            debitDate, reason.Trim(), journalId, journalNumber, amountApplied, createdAt);
+        note._lines.AddRange(lines);
+        if (amountApplied < 0 || amountApplied > note.Total) throw new DomainException("The applied debit must be between 0 and the debit note total.");
+        return note;
+    }
+
+    public void ApplyRefund(decimal amount)
+    {
+        if (amount <= 0) throw new DomainException("Refund amount must be positive.");
+        if (amount > RefundDue) throw new DomainException($"Refund exceeds the amount the vendor owes of {RefundDue:N2}.");
+        AmountRefunded += amount;
+    }
+}
+
+/// <summary>Money received back from a vendor against a debit note (Dr Cash or Bank / Cr Payables).</summary>
+public sealed class VendorRefund : AggregateRoot<VendorRefundId>
+{
+    private VendorRefund()
+    {
+        Number = string.Empty;
+        Reference = string.Empty;
+        JournalNumber = string.Empty;
+    }
+
+    private VendorRefund(VendorRefundId id, CompanyId companyId, string number, DebitNoteId debitNoteId, VendorId vendorId,
+        DateOnly refundDate, decimal amount, PaymentMethod method, string? reference, string journalNumber, DateTimeOffset createdAt) : base(id)
+    {
+        CompanyId = companyId;
+        Number = number;
+        DebitNoteId = debitNoteId;
+        VendorId = vendorId;
+        RefundDate = refundDate;
+        Amount = amount;
+        Method = method;
+        Reference = reference?.Trim() ?? string.Empty;
+        JournalNumber = journalNumber;
+        CreatedAt = createdAt;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    public string Number { get; private set; }
+    public DebitNoteId DebitNoteId { get; private set; }
+    public VendorId VendorId { get; private set; }
+    public DateOnly RefundDate { get; private set; }
+    public decimal Amount { get; private set; }
+    public PaymentMethod Method { get; private set; }
+    public string Reference { get; private set; }
+    public string JournalNumber { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+
+    public static VendorRefund Create(CompanyId companyId, string number, DebitNoteId debitNoteId, VendorId vendorId,
+        DateOnly refundDate, decimal amount, PaymentMethod method, string? reference, string journalNumber, DateTimeOffset createdAt)
+    {
+        if (amount <= 0) throw new DomainException("Refund amount must be positive.");
+        return new VendorRefund(new VendorRefundId(Guid.NewGuid()), companyId, number, debitNoteId, vendorId, refundDate,
             amount, method, reference, journalNumber, createdAt);
     }
 }

@@ -23,6 +23,7 @@ public sealed class PurchaseOrderService(
 {
     public const string OrderSequence = "PO";
     public const string ReceiptSequence = "GRN";
+    public const string ReturnSequence = "RTV";
 
     public async Task<PurchaseOrderResponse> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken)
     {
@@ -49,7 +50,7 @@ public sealed class PurchaseOrderService(
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Purchasing", "order.created", "PurchaseOrder", order.Id.Value.ToString(), order.Number, true,
             new Dictionary<string, object?> { ["Vendor"] = vendor.Code, ["Total"] = order.Total }, cancellationToken);
-        return Map(order, vendor.Name, [], []);
+        return Map(order, vendor.Name, [], [], []);
     }
 
     public async Task<IReadOnlyList<PurchaseOrderResponse>> ListAsync(int take, CancellationToken cancellationToken)
@@ -57,7 +58,7 @@ public sealed class PurchaseOrderService(
         var companyId = PurchasingCompany.Require(companyContext);
         var orders = await store.ListOrdersAsync(companyId, Math.Clamp(take, 1, 500), cancellationToken);
         var names = (await store.ListVendorsAsync(companyId, cancellationToken)).ToDictionary(x => x.Id, x => x.Name);
-        return orders.Select(o => Map(o, names.GetValueOrDefault(o.VendorId, string.Empty), [], [])).ToArray();
+        return orders.Select(o => Map(o, names.GetValueOrDefault(o.VendorId, string.Empty), [], [], [])).ToArray();
     }
 
     public async Task<PurchaseOrderResponse?> GetAsync(PurchaseOrderId id, CancellationToken cancellationToken)
@@ -173,21 +174,106 @@ public sealed class PurchaseOrderService(
         }
     }
 
+    public async Task<PurchaseOrderResponse?> ReturnAsync(PurchaseOrderId id, ReturnGoodsRequest request, CancellationToken cancellationToken)
+    {
+        var companyId = PurchasingCompany.Require(companyContext);
+        return await store.InLockedTransactionAsync<PurchaseOrderResponse?>(companyId, $"order:{id.Value}", async ct =>
+        {
+            var order = await store.GetOrderAsync(companyId, id, ct);
+            if (order is null) return null;
+            var vendor = await store.GetVendorAsync(companyId, order.VendorId, ct)
+                ?? throw new DomainException("The vendor was not found.");
+            if (string.IsNullOrWhiteSpace(request.Reason)) throw new DomainException("A reason is required for a return to vendor.");
+            if (request.Lines.Count == 0) throw new DomainException("Specify at least one line to return.");
+
+            // Goods leave at the cost they came in at (the order price), so inventory reverses exactly what the receipt booked.
+            var wanted = request.Lines.Select(l => (l.ItemId, l.Quantity)).ToList();
+            var lines = wanted.Select(w =>
+            {
+                var line = order.LineFor(w.ItemId);
+                return new VendorReturnLine(line.ItemId, line.Sku, line.Description, w.Quantity, line.UnitCost);
+            }).ToList();
+
+            var date = request.Date ?? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+            await periodGuard.EnsurePostingAllowedAsync(date, ct);
+            order.RecordReturn(wanted); // validates against the goods we still hold before anything is posted
+            var number = await numbers.NextAsync(ReturnSequence, "RTV-", ct);
+
+            var issued = new List<VendorReturnLine>();
+            PostedJournal? journal = null;
+            VendorReturn vendorReturn;
+            try
+            {
+                foreach (var line in lines)
+                {
+                    await inventory.IssueAsync(new StockMovementCommand(
+                        line.ItemId, line.Quantity, date, "PurchaseReturn", $"{order.Number}/{number}", null, line.UnitCost), ct);
+                    issued.Add(line);
+                }
+
+                var total = lines.Sum(x => x.LineTotal);
+                journal = await finance.PostJournalAsync(new PostJournalCommand(
+                    "Purchasing", number, date, $"Return to vendor {number} ({order.Number}) - {vendor.Name}",
+                    [
+                        new PostJournalLine(PurchasingAccounts.GoodsReceivedNotInvoiced, total, 0, $"Return {number}"),
+                        new PostJournalLine(PurchasingAccounts.Inventory, 0, total, $"Return {number}")
+                    ]), ct);
+
+                vendorReturn = VendorReturn.Create(companyId, number, order.Id, order.VendorId, date, request.Reason, request.Reference,
+                    lines, journal.JournalId, journal.Number, clock.UtcNow);
+                await store.AddReturnAsync(vendorReturn, ct);
+                await store.SaveChangesAsync(ct);
+            }
+            catch
+            {
+                await CompensateReturnAsync(issued, journal, number, ct);
+                throw;
+            }
+
+            await audit.RecordAsync("Purchasing", "order.returned", "PurchaseOrder", order.Id.Value.ToString(), order.Number, true,
+                new Dictionary<string, object?> { ["Return"] = vendorReturn.Number, ["Total"] = vendorReturn.Total, ["Reason"] = vendorReturn.Reason, ["Journal"] = journal.Number }, ct);
+            return await MapFullAsync(order, vendor.Name, companyId, ct);
+        }, cancellationToken);
+    }
+
+    private async Task CompensateReturnAsync(List<VendorReturnLine> issued, PostedJournal? journal, string number, CancellationToken ct)
+    {
+        // Best effort: never let a compensation failure mask the original error.
+        try
+        {
+            if (journal is not null)
+                await finance.ReverseJournalAsync(journal.JournalId, $"Compensation: return {number} failed to save", ct);
+            var today = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
+            foreach (var line in issued)
+                await inventory.ReceiveAsync(new StockMovementCommand(
+                    line.ItemId, line.Quantity, today, "PurchaseReturnVoid", number, null, line.UnitCost), ct);
+        }
+        catch
+        {
+            // Left for manual reconciliation; ledgers and the audit trail retain every posting.
+        }
+    }
+
     private async Task<PurchaseOrderResponse> MapFullAsync(PurchaseOrder order, string vendorName, CompanyId companyId, CancellationToken ct)
     {
         var receipts = await store.ListReceiptsForOrderAsync(companyId, order.Id, ct);
         var bills = await store.ListBillsForOrderAsync(companyId, order.Id, ct);
+        var returns = await store.ListReturnsForOrderAsync(companyId, order.Id, ct);
         return Map(order, vendorName,
             receipts.OrderBy(r => r.ReceiptDate).ThenBy(r => r.Number)
                 .Select(r => new ReceiptSummary(r.Id.Value, r.Number, r.ReceiptDate, r.Reference, r.Total, r.JournalNumber)).ToArray(),
             bills.OrderBy(b => b.BillDate).ThenBy(b => b.Number)
-                .Select(b => new BillSummary(b.Id.Value, b.Number, b.BillDate, b.Total, b.PriceVariance, b.Status)).ToArray());
+                .Select(b => new BillSummary(b.Id.Value, b.Number, b.BillDate, b.Total, b.PriceVariance, b.Status)).ToArray(),
+            returns.OrderBy(r => r.ReturnDate).ThenBy(r => r.Number)
+                .Select(r => new ReturnSummary(r.Id.Value, r.Number, r.ReturnDate, r.Reason, r.Reference, r.Total, r.JournalNumber)).ToArray());
     }
 
     internal static PurchaseOrderResponse Map(
-        PurchaseOrder o, string vendorName, IReadOnlyList<ReceiptSummary> receipts, IReadOnlyList<BillSummary> bills) => new(
+        PurchaseOrder o, string vendorName, IReadOnlyList<ReceiptSummary> receipts, IReadOnlyList<BillSummary> bills,
+        IReadOnlyList<ReturnSummary> returns) => new(
         o.Id.Value, o.Number, o.VendorId.Value, vendorName, o.OrderDate, o.Notes, o.Status, o.Total,
         o.Lines.Select(l => new PurchaseOrderLineResponse(
-            l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost, l.LineTotal, l.QuantityReceived, l.QuantityBilled)).ToArray(),
-        receipts, bills);
+            l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost, l.LineTotal, l.QuantityReceived, l.QuantityBilled,
+            l.QuantityReturned, l.QuantityDebited, l.DebitableQuantity)).ToArray(),
+        receipts, bills, returns);
 }

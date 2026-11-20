@@ -98,7 +98,7 @@ public sealed class BillService(
             await audit.RecordAsync("Purchasing", varianceApproved ? "bill.created.variance-override" : "bill.created", "VendorBill",
                 bill.Id.Value.ToString(), bill.Number, true,
                 new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = bill.Total, ["PriceVariance"] = bill.PriceVariance, ["Journal"] = journal.Number }, ct);
-            return Map(bill, vendor.Name);
+            return Map(bill, vendor.Name, DebitedQuantities([]));
         }, cancellationToken);
     }
 
@@ -151,7 +151,8 @@ public sealed class BillService(
         var companyId = PurchasingCompany.Require(companyContext);
         var bills = await store.ListBillsAsync(companyId, Math.Clamp(take, 1, 500), cancellationToken);
         var names = (await store.ListVendorsAsync(companyId, cancellationToken)).ToDictionary(x => x.Id, x => x.Name);
-        return bills.Select(b => Map(b, names.GetValueOrDefault(b.VendorId, string.Empty))).ToArray();
+        var debited = DebitedQuantities(await store.ListDebitNotesAsync(companyId, 500, cancellationToken));
+        return bills.Select(b => Map(b, names.GetValueOrDefault(b.VendorId, string.Empty), debited)).ToArray();
     }
 
     public async Task<BillResponse?> GetAsync(VendorBillId id, CancellationToken cancellationToken)
@@ -160,7 +161,8 @@ public sealed class BillService(
         var bill = await store.GetBillAsync(companyId, id, cancellationToken);
         if (bill is null) return null;
         var vendor = await store.GetVendorAsync(companyId, bill.VendorId, cancellationToken);
-        return Map(bill, vendor?.Name ?? string.Empty);
+        var debited = DebitedQuantities(await store.ListDebitNotesForBillAsync(companyId, bill.Id, cancellationToken));
+        return Map(bill, vendor?.Name ?? string.Empty, debited);
     }
 
     public async Task<IReadOnlyList<VendorPaymentResponse>> ListPaymentsAsync(int take, CancellationToken cancellationToken)
@@ -179,14 +181,21 @@ public sealed class BillService(
         catch { /* left for manual reconciliation; never mask the original error */ }
     }
 
-    private BillResponse Map(VendorBill b, string vendorName) => new(
+    /// <summary>Quantity debited so far, keyed by (bill, item).</summary>
+    internal static IReadOnlyDictionary<(Guid Bill, Guid Item), decimal> DebitedQuantities(IEnumerable<DebitNote> notes) =>
+        notes.SelectMany(n => n.Lines.Select(l => (Bill: n.VendorBillId.Value, Item: l.ItemId, l.Quantity)))
+            .GroupBy(x => (x.Bill, x.Item))
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+
+    private BillResponse Map(VendorBill b, string vendorName, IReadOnlyDictionary<(Guid Bill, Guid Item), decimal> debited) => new(
         b.Id.Value, b.Number, b.VendorReference, b.PurchaseOrderId.Value, b.VendorId.Value, vendorName, b.BillDate, b.DueDate,
-        b.Total, b.AmountPaid, b.Balance, b.Status,
+        b.Total, b.AmountPaid, b.AmountDebited, b.Balance, b.Status,
         b.Status == BillStatus.Open && b.DueDate < DateOnly.FromDateTime(clock.UtcNow.UtcDateTime),
         b.JournalNumber, b.PriceVariance, b.VarianceOverridden,
         b.Lines.Select(l => new BillLineResponse(
             l.ItemId, l.Sku, l.Description, l.Quantity, l.OrderUnitCost, l.UnitCost, l.LineTotal, l.PriceVariance,
-            l.PriceVariance == 0 ? "Matched" : ThreeWayMatch.WithinTolerance(l.OrderUnitCost, l.UnitCost) ? "Within tolerance" : "Variance approved")).ToArray());
+            l.PriceVariance == 0 ? "Matched" : ThreeWayMatch.WithinTolerance(l.OrderUnitCost, l.UnitCost) ? "Within tolerance" : "Variance approved",
+            debited.GetValueOrDefault((b.Id.Value, l.ItemId)))).ToArray());
 
     private static VendorPaymentResponse MapPayment(VendorPayment p, string billNumber, string vendorName) => new(
         p.Id.Value, p.Number, p.BillId.Value, billNumber, p.VendorId.Value, vendorName,

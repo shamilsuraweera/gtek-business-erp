@@ -8,6 +8,9 @@ public sealed class PurchasingDbContext(DbContextOptions<PurchasingDbContext> op
     public DbSet<Vendor> Vendors => Set<Vendor>();
     public DbSet<PurchaseOrder> Orders => Set<PurchaseOrder>();
     public DbSet<GoodsReceipt> Receipts => Set<GoodsReceipt>();
+    public DbSet<VendorReturn> Returns => Set<VendorReturn>();
+    public DbSet<DebitNote> DebitNotes => Set<DebitNote>();
+    public DbSet<VendorRefund> VendorRefunds => Set<VendorRefund>();
     public DbSet<VendorBill> Bills => Set<VendorBill>();
     public DbSet<VendorPayment> Payments => Set<VendorPayment>();
 
