@@ -44,3 +44,5 @@ export interface CreditNote { id: string; number: string; salesInvoiceId: string
 export interface DebitNoteLine { itemId: string; sku: string; description: string; quantity: number; orderUnitCost: number; unitCost: number; lineTotal: number; priceVariance: number }
 export interface VendorRefund { id: string; number: string; debitNoteId: string; debitNoteNumber: string; vendorId: string; vendorName: string; refundDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }
 export interface DebitNote { id: string; number: string; purchaseOrderId: string; billId: string; billNumber: string; vendorId: string; vendorName: string; debitDate: string; reason: string; total: number; amountApplied: number; amountRefunded: number; refundDue: number; priceVariance: number; journalNumber: string; lines: DebitNoteLine[]; refunds: VendorRefund[] }
+
+export interface AccountMapping { role: string; label: string; description: string; defaultCode: string; allowedTypes: AccountType[]; accountId: string | null; accountCode: string | null; accountName: string | null; isDefault: boolean; isMissing: boolean; hasPostings: boolean }

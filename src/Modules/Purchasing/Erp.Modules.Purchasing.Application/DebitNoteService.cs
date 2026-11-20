@@ -69,11 +69,11 @@ public sealed class DebitNoteService(
             var variance = total - accrued;
             var journalLines = new List<PostJournalLine>
             {
-                new(PurchasingAccounts.Payable, total, 0, $"Debit note {number}"),
-                new(PurchasingAccounts.GoodsReceivedNotInvoiced, 0, accrued, $"Debit note {number}")
+                PostJournalLine.ForRole(AccountRole.AccountsPayable, total, 0, $"Debit note {number}"),
+                PostJournalLine.ForRole(AccountRole.GoodsReceivedNotInvoiced, 0, accrued, $"Debit note {number}")
             };
-            if (variance > 0) journalLines.Add(new(PurchasingAccounts.PurchasePriceVariance, 0, variance, $"Price variance reversal {number}"));
-            else if (variance < 0) journalLines.Add(new(PurchasingAccounts.PurchasePriceVariance, -variance, 0, $"Price variance reversal {number}"));
+            if (variance > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, 0, variance, $"Price variance reversal {number}"));
+            else if (variance < 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, -variance, 0, $"Price variance reversal {number}"));
 
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
                 "Purchasing", number, date, $"Debit note {number} for bill {bill.Number} - {vendor.Name}", journalLines), ct);
@@ -119,12 +119,12 @@ public sealed class DebitNoteService(
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
             var number = await numbers.NextAsync(RefundSequence, "VRFD-", ct);
 
-            var account = request.Method == PaymentMethod.Cash ? PurchasingAccounts.Cash : PurchasingAccounts.Bank;
+            var account = request.Method == PaymentMethod.Cash ? AccountRole.Cash : AccountRole.Bank;
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
                 "Purchasing", number, date, $"Vendor refund {number} for debit note {note.Number}",
                 [
-                    new PostJournalLine(account, request.Amount, 0, $"Refund {number}"),
-                    new PostJournalLine(PurchasingAccounts.Payable, 0, request.Amount, $"Debit note {note.Number}")
+                    PostJournalLine.ForRole(account, request.Amount, 0, $"Refund {number}"),
+                    PostJournalLine.ForRole(AccountRole.AccountsPayable, 0, request.Amount, $"Debit note {note.Number}")
                 ]), ct);
 
             VendorRefund refund;

@@ -59,6 +59,20 @@ public sealed class RolePermissionStore(PlatformDbContext db) : IRolePermissionS
             db.UserRoles.Add(new UserRoleEntity(userId, role.Id));
     }
 
+    public async Task SyncSystemAdministratorPermissionsAsync(CancellationToken ct)
+    {
+        await EnsurePermissionCatalogueAsync(ct);
+        await db.SaveChangesAsync(ct);
+        var role = await db.Roles.SingleOrDefaultAsync(x => x.Code == "SYSTEM_ADMIN", ct);
+        if (role is null) return; // nobody has bootstrapped yet; the first administrator gets every permission on creation
+
+        var held = (await db.RolePermissions.Where(x => x.RoleId == role.Id).Select(x => x.PermissionId).ToListAsync(ct)).ToHashSet();
+        foreach (var permissionId in await db.Permissions.Select(x => x.Id).ToListAsync(ct))
+            if (!held.Contains(permissionId))
+                db.RolePermissions.Add(new RolePermissionEntity(role.Id, permissionId));
+        await db.SaveChangesAsync(ct);
+    }
+
     public Task SaveChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);
 }
 

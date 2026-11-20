@@ -27,6 +27,14 @@ public static class FinanceEndpoints
         accounts.MapPost("/{id:guid}/activate", SetActive(true)).RequirePermission(Permissions.Finance.AccountsManage);
         accounts.MapPost("/{id:guid}/deactivate", SetActive(false)).RequirePermission(Permissions.Finance.AccountsManage);
 
+        var mappings = endpoints.MapGroup("/api/v1/finance/account-mappings").WithTags("Finance").RequireCompanyContext();
+        mappings.MapGet("/", async (IAccountMappingService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(ct))).RequirePermission(Permissions.Finance.AccountsRead);
+        mappings.MapPut("/{role}", async (string role, SetAccountMappingRequest request, IAccountMappingService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.SetAsync(role, request, ct))).RequirePermission(Permissions.Finance.MappingManage);
+        mappings.MapDelete("/{role}", async (string role, IAccountMappingService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ResetAsync(role, ct))).RequirePermission(Permissions.Finance.MappingManage);
+
         var journals = endpoints.MapGroup("/api/v1/finance/journals").WithTags("Finance").RequireCompanyContext();
         journals.MapGet("/", async (int? take, IJournalService service, CancellationToken ct) =>
             TypedResults.Ok(await service.ListAsync(take ?? 50, ct))).RequirePermission(Permissions.Finance.JournalsRead);

@@ -4,7 +4,7 @@ import { useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney } from '../format'
 import { Badge, Empty, Kpi, Loading, PageHeader } from '../ui'
-import type { Bill, Invoice, Order, StockLevel, TrialBalance } from '../api/types'
+import type { AccountMapping, Bill, Invoice, Order, StockLevel, TrialBalance } from '../api/types'
 
 const DAY = 86_400_000
 
@@ -13,9 +13,26 @@ export function Dashboard() {
   const tb = useApiQuery<TrialBalance>('/finance/trial-balance', { enabled: can(P.reportsRead) })
   const invoices = useApiQuery<Invoice[]>('/sales/invoices?take=500', { enabled: can(P.invoicesRead) })
   const orders = useApiQuery<Order[]>('/sales/orders?take=500', { enabled: can(P.ordersRead) })
+  const mappings = useApiQuery<AccountMapping[]>('/finance/account-mappings', { enabled: can(P.accountsRead) })
   const bills = useApiQuery<Bill[]>('/purchasing/bills?take=500', { enabled: can(P.billsRead) })
   const stock = useApiQuery<StockLevel[]>('/inventory/stock', { enabled: can(P.stockRead) })
 
+  // Account codes come from the account mapping. A remapped role keeps its earlier postings on the account it used before,
+  // so each figure sums the currently mapped account *and* the role's default code (deduplicated, so shared accounts count once).
+  const codesFor = (...roles: string[]) => {
+    const codes = new Set<string>()
+    for (const role of roles) {
+      const m = mappings.data?.find((x) => x.role === role)
+      if (m) { codes.add(m.defaultCode); if (m.accountCode) codes.add(m.accountCode) }
+    }
+    return codes
+  }
+  const FALLBACK = { cash: ['1000', '1010'], revenue: ['4000', '4100'], cogs: ['5000'] }
+  const orFallback = (codes: Set<string>, fallback: string[]) => (codes.size ? codes : new Set(fallback))
+  const cashCodes = orFallback(codesFor('Cash', 'Bank'), FALLBACK.cash)
+  const revenueCodes = orFallback(codesFor('SalesRevenue', 'SalesReturns'), FALLBACK.revenue)
+  const returnsCodes = orFallback(codesFor('SalesReturns'), ['4100'])
+  const cogsCodes = orFallback(codesFor('CostOfGoodsSold'), FALLBACK.cogs)
   const net = (code: string) => {
     const row = tb.data?.rows.find((r) => r.accountCode === code)
     return row ? row.debit - row.credit : 0
@@ -28,8 +45,10 @@ export function Dashboard() {
   const overdueBills = openBills.filter((b) => b.isOverdue)
   const stockValue = (stock.data ?? []).reduce((sum, s) => sum + s.value, 0)
   // Net revenue: gross sales less returns and allowances (contra account 4100).
-  const revenue = -net('4000') - net('4100')
-  const grossProfit = revenue - net('5000')
+  const sum = (codes: Set<string>) => [...codes].reduce((total, code) => total + net(code), 0)
+  const revenue = -sum(revenueCodes)
+  const returnsTotal = sum(new Set([...returnsCodes].filter((c) => !codesFor('SalesRevenue').has(c))))
+  const grossProfit = revenue - sum(cogsCodes)
 
   const now = Date.now()
   const ageing = [
@@ -57,12 +76,12 @@ export function Dashboard() {
       <PageHeader title="Dashboard" subtitle={company?.name} />
       {loading && <Loading />}
       <div className="grid kpis">
-        {can(P.reportsRead) && <Kpi label="Cash & bank" value={formatMoney(net('1000') + net('1010'))} />}
+        {can(P.reportsRead) && <Kpi label="Cash & bank" value={formatMoney(sum(cashCodes))} />}
         {can(P.invoicesRead) && <Kpi label="Receivables" value={formatMoney(receivables)} hint={`${open.length} open invoices`} />}
         {can(P.invoicesRead) && <Kpi label="Overdue" value={formatMoney(overdue.reduce((s, i) => s + i.balance, 0))} hint={`${overdue.length} invoices`} tone={overdue.length ? 'bad' : ''} />}
         {can(P.billsRead) && <Kpi label="Payables" value={formatMoney(payables)} hint={`${openBills.length} open bills · ${overdueBills.length} overdue`} tone={overdueBills.length ? 'bad' : ''} />}
         {can(P.stockRead) && <Kpi label="Inventory value" value={formatMoney(stockValue)} />}
-        {can(P.reportsRead) && <Kpi label="Net revenue" value={formatMoney(revenue)} hint={net('4100') ? `after ${formatMoney(net('4100'))} returns` : undefined} />}
+        {can(P.reportsRead) && <Kpi label="Net revenue" value={formatMoney(revenue)} hint={returnsTotal ? `after ${formatMoney(returnsTotal)} returns` : undefined} />}
         {can(P.reportsRead) && <Kpi label="Gross profit" value={formatMoney(grossProfit)} hint={revenue ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined} tone="ok" />}
       </div>
 

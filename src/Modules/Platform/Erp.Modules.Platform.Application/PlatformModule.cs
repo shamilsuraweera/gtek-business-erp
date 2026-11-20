@@ -182,6 +182,12 @@ public interface IRolePermissionStore
     Task<bool> UserHasPermissionAsync(UserId userId, string permissionCode, CancellationToken cancellationToken);
     Task EnsurePermissionCatalogueAsync(CancellationToken cancellationToken);
     Task EnsureSystemAdministratorAsync(UserId userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Adds any permissions introduced since the last release to the permission catalogue and to the SYSTEM_ADMIN role, so upgrading never
+    /// locks the system administrator out of new features. No-op by default (test doubles); the real store implements it.
+    /// </summary>
+    Task SyncSystemAdministratorPermissionsAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
@@ -310,6 +316,7 @@ public static class Permissions
     {
         public const string AccountsRead = "finance.accounts.read";
         public const string AccountsManage = "finance.accounts.manage";
+        public const string MappingManage = "finance.account-mapping.manage";
         public const string JournalsRead = "finance.journals.read";
         public const string JournalsPost = "finance.journals.post";
         public const string ReportsRead = "finance.reports.read";
@@ -370,6 +377,7 @@ public static class Permissions
         (Platform.AccountingPeriodsManage, "Manage accounting periods", "platform", "Create and manage company accounting periods."),
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts."),
         (Finance.AccountsManage, "Manage finance accounts", "finance", "Create and manage the chart of accounts."),
+        (Finance.MappingManage, "Manage account mapping", "finance", "Choose which ledger accounts sales, purchasing and inventory postings use."),
         (Finance.JournalsRead, "Read journals", "finance", "View general journals."),
         (Finance.JournalsPost, "Post journals", "finance", "Post and reverse general journals."),
         (Finance.ReportsRead, "Read finance reports", "finance", "View the trial balance and finance reports."),

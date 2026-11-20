@@ -45,6 +45,21 @@ builder.Services
     .AddInventoryInfrastructure(connectionString);
 
 var app = builder.Build();
+
+// Keep the system administrator role in step with the permission catalogue after an upgrade. Data only (no schema change),
+// and never fatal: an unreachable or not-yet-migrated database must not stop the API from starting.
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        await scope.ServiceProvider.GetRequiredService<Erp.Modules.Platform.Application.IRolePermissionStore>()
+            .SyncSystemAdministratorPermissionsAsync(CancellationToken.None);
+    }
+    catch (Exception exception)
+    {
+        app.Logger.LogWarning(exception, "Could not sync system administrator permissions at startup (is the database migrated?).");
+    }
+}
 app.UseExceptionHandler();
 app.UseCors("DevFrontend");
 app.UseAuthentication();

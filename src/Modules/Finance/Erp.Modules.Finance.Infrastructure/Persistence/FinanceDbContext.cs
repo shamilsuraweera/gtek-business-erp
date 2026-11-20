@@ -6,6 +6,7 @@ namespace Erp.Modules.Finance.Infrastructure.Persistence;
 public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbContext(options)
 {
     public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<AccountMapping> AccountMappings => Set<AccountMapping>();
     public DbSet<GeneralJournal> Journals => Set<GeneralJournal>();
     public DbSet<GeneralLedgerEntry> LedgerEntries => Set<GeneralLedgerEntry>();
 

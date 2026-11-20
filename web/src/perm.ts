@@ -1,6 +1,6 @@
 /** Permission codes mirrored from the API's Permissions catalogue. */
 export const P = {
-  accountsRead: 'finance.accounts.read', accountsManage: 'finance.accounts.manage',
+  accountsRead: 'finance.accounts.read', accountsManage: 'finance.accounts.manage', mappingManage: 'finance.account-mapping.manage',
   journalsRead: 'finance.journals.read', journalsPost: 'finance.journals.post', reportsRead: 'finance.reports.read',
   itemsRead: 'inventory.items.read', itemsManage: 'inventory.items.manage', stockRead: 'inventory.stock.read', stockManage: 'inventory.stock.manage',
   customersRead: 'sales.customers.read', customersManage: 'sales.customers.manage',

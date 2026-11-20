@@ -4,19 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.Modules.Purchasing.Application;
 
-/// <summary>GL account codes used by purchasing postings. MVP: fixed mapping (seeded by the dev seeder).</summary>
-public static class PurchasingAccounts
-{
-    public const string Cash = "1000";
-    public const string Bank = "1010";
-    public const string Inventory = "1200";
-    public const string Payable = "2000";
-    /// <summary>Purchase price variance: the difference between the billed price and the order price (set when a bill is matched).</summary>
-    public const string PurchasePriceVariance = "5100";
-    /// <summary>Goods received not invoiced: accrued at receipt, cleared when the vendor bill is entered.</summary>
-    public const string GoodsReceivedNotInvoiced = "2100";
-}
-
 public sealed record VendorResponse(Guid Id, string Code, string Name, string? Email, string? Phone, int PaymentTermsDays, bool IsActive);
 public sealed record CreateVendorRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays);
 public sealed record UpdateVendorRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays);

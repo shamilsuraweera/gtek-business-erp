@@ -67,6 +67,7 @@ public static class FinanceModule
     public static IServiceCollection AddFinanceModule(this IServiceCollection services)
     {
         services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<IAccountMappingService, AccountMappingService>();
         services.AddScoped<JournalService>();
         services.AddScoped<IJournalService>(sp => sp.GetRequiredService<JournalService>());
         services.AddScoped<IFinancePosting>(sp => sp.GetRequiredService<JournalService>());

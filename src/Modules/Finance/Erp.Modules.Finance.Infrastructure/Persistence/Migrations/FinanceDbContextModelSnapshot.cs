@@ -60,6 +60,38 @@ namespace Erp.Modules.Finance.Infrastructure.Persistence.Migrations
                     b.ToTable("Accounts", "finance");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Finance.Domain.AccountMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ModifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("CompanyId", "Role")
+                        .IsUnique();
+
+                    b.ToTable("AccountMappings", "finance");
+                });
+
             modelBuilder.Entity("Erp.Modules.Finance.Domain.GeneralJournal", b =>
                 {
                     b.Property<Guid>("Id")
@@ -150,6 +182,15 @@ namespace Erp.Modules.Finance.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyId", "AccountId", "PostingDate");
 
                     b.ToTable("LedgerEntries", "finance");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Finance.Domain.AccountMapping", b =>
+                {
+                    b.HasOne("Erp.Modules.Finance.Domain.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Erp.Modules.Finance.Domain.GeneralJournal", b =>

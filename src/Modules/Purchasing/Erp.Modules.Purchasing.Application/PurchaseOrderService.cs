@@ -136,8 +136,8 @@ public sealed class PurchaseOrderService(
                 journal = await finance.PostJournalAsync(new PostJournalCommand(
                     "Purchasing", number, date, $"Goods received {number} ({order.Number}) - {vendor.Name}",
                     [
-                        new PostJournalLine(PurchasingAccounts.Inventory, total, 0, $"Receipt {number}"),
-                        new PostJournalLine(PurchasingAccounts.GoodsReceivedNotInvoiced, 0, total, $"Receipt {number}")
+                        PostJournalLine.ForRole(AccountRole.Inventory, total, 0, $"Receipt {number}"),
+                        PostJournalLine.ForRole(AccountRole.GoodsReceivedNotInvoiced, 0, total, $"Receipt {number}")
                     ]), ct);
 
                 receipt = GoodsReceipt.Create(companyId, number, order.Id, order.VendorId, date, request.Reference, lines,
@@ -215,8 +215,8 @@ public sealed class PurchaseOrderService(
                 journal = await finance.PostJournalAsync(new PostJournalCommand(
                     "Purchasing", number, date, $"Return to vendor {number} ({order.Number}) - {vendor.Name}",
                     [
-                        new PostJournalLine(PurchasingAccounts.GoodsReceivedNotInvoiced, total, 0, $"Return {number}"),
-                        new PostJournalLine(PurchasingAccounts.Inventory, 0, total, $"Return {number}")
+                        PostJournalLine.ForRole(AccountRole.GoodsReceivedNotInvoiced, total, 0, $"Return {number}"),
+                        PostJournalLine.ForRole(AccountRole.Inventory, 0, total, $"Return {number}")
                     ]), ct);
 
                 vendorReturn = VendorReturn.Create(companyId, number, order.Id, order.VendorId, date, request.Reason, request.Reference,

@@ -14,6 +14,7 @@ public static class FinanceInfrastructure
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "finance")));
         services.AddScoped<IAccountStore, AccountStore>();
         services.AddScoped<IJournalStore, JournalStore>();
+        services.AddScoped<IAccountMappingStore, AccountMappingStore>();
         return services;
     }
 }

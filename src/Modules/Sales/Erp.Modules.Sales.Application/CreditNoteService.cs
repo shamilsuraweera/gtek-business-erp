@@ -78,13 +78,13 @@ public sealed class CreditNoteService(
 
                 var journalLines = new List<PostJournalLine>
                 {
-                    new(SalesAccounts.SalesReturns, total, 0, $"Credit note {number}"),
-                    new(SalesAccounts.Receivable, 0, total, $"Credit note {number}")
+                    PostJournalLine.ForRole(AccountRole.SalesReturns, total, 0, $"Credit note {number}"),
+                    PostJournalLine.ForRole(AccountRole.AccountsReceivable, 0, total, $"Credit note {number}")
                 };
                 if (returnedCost > 0)
                 {
-                    journalLines.Add(new(SalesAccounts.Inventory, returnedCost, 0, $"Returned goods {number}"));
-                    journalLines.Add(new(SalesAccounts.CostOfGoodsSold, 0, returnedCost, $"Returned goods {number}"));
+                    journalLines.Add(PostJournalLine.ForRole(AccountRole.Inventory, returnedCost, 0, $"Returned goods {number}"));
+                    journalLines.Add(PostJournalLine.ForRole(AccountRole.CostOfGoodsSold, 0, returnedCost, $"Returned goods {number}"));
                 }
 
                 journal = await finance.PostJournalAsync(new PostJournalCommand(
@@ -127,12 +127,12 @@ public sealed class CreditNoteService(
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
             var number = await numbers.NextAsync(RefundSequence, "RFD-", ct);
 
-            var account = request.Method == PaymentMethod.Cash ? SalesAccounts.Cash : SalesAccounts.Bank;
+            var account = request.Method == PaymentMethod.Cash ? AccountRole.Cash : AccountRole.Bank;
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
                 "Sales", number, date, $"Refund {number} for credit note {note.Number}",
                 [
-                    new PostJournalLine(SalesAccounts.Receivable, request.Amount, 0, $"Credit note {note.Number}"),
-                    new PostJournalLine(account, 0, request.Amount, $"Refund {number}")
+                    PostJournalLine.ForRole(AccountRole.AccountsReceivable, request.Amount, 0, $"Credit note {note.Number}"),
+                    PostJournalLine.ForRole(account, 0, request.Amount, $"Refund {number}")
                 ]), ct);
 
             CustomerRefund refund;

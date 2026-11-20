@@ -72,11 +72,11 @@ public sealed class BillService(
             var variance = total - accrued;
             var journalLines = new List<PostJournalLine>
             {
-                new(PurchasingAccounts.GoodsReceivedNotInvoiced, accrued, 0, $"Bill {number}"),
-                new(PurchasingAccounts.Payable, 0, total, $"Bill {number}")
+                PostJournalLine.ForRole(AccountRole.GoodsReceivedNotInvoiced, accrued, 0, $"Bill {number}"),
+                PostJournalLine.ForRole(AccountRole.AccountsPayable, 0, total, $"Bill {number}")
             };
-            if (variance > 0) journalLines.Add(new(PurchasingAccounts.PurchasePriceVariance, variance, 0, $"Price variance {number}"));
-            else if (variance < 0) journalLines.Add(new(PurchasingAccounts.PurchasePriceVariance, 0, -variance, $"Price variance {number}"));
+            if (variance > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, variance, 0, $"Price variance {number}"));
+            else if (variance < 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, 0, -variance, $"Price variance {number}"));
 
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
                 "Purchasing", number, date, $"Vendor bill {number} ({order.Number}) - {vendor.Name}", journalLines), ct);
@@ -117,12 +117,12 @@ public sealed class BillService(
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
             var number = await numbers.NextAsync(PaymentSequence, "VPAY-", ct);
 
-            var account = request.Method == PaymentMethod.Cash ? PurchasingAccounts.Cash : PurchasingAccounts.Bank;
+            var account = request.Method == PaymentMethod.Cash ? AccountRole.Cash : AccountRole.Bank;
             var journal = await finance.PostJournalAsync(new PostJournalCommand(
                 "Purchasing", number, date, $"Payment {number} for bill {bill.Number}",
                 [
-                    new PostJournalLine(PurchasingAccounts.Payable, request.Amount, 0, $"Bill {bill.Number}"),
-                    new PostJournalLine(account, 0, request.Amount, $"Payment {number}")
+                    PostJournalLine.ForRole(AccountRole.AccountsPayable, request.Amount, 0, $"Bill {bill.Number}"),
+                    PostJournalLine.ForRole(account, 0, request.Amount, $"Payment {number}")
                 ]), ct);
 
             VendorPayment payment;

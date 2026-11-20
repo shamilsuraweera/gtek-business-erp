@@ -60,3 +60,26 @@ public sealed class JournalStore(FinanceDbContext db) : IJournalStore
 
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
 }
+
+public sealed class AccountMappingStore(FinanceDbContext db) : IAccountMappingStore
+{
+    public async Task<IReadOnlyList<AccountMapping>> ListAsync(CompanyId companyId, CancellationToken cancellationToken) =>
+        await db.AccountMappings.Where(x => x.CompanyId == companyId).ToListAsync(cancellationToken);
+
+    public Task<AccountMapping?> GetAsync(CompanyId companyId, string role, CancellationToken cancellationToken) =>
+        db.AccountMappings.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Role == role, cancellationToken);
+
+    public Task AddAsync(AccountMapping mapping, CancellationToken cancellationToken)
+    {
+        db.AccountMappings.Add(mapping);
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveAsync(AccountMapping mapping, CancellationToken cancellationToken)
+    {
+        db.AccountMappings.Remove(mapping);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
+}

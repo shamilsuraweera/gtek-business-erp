@@ -4,19 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.Modules.Sales.Application;
 
-/// <summary>GL account codes used by sales postings. MVP: fixed chart-of-accounts mapping (seeded by the dev seeder).</summary>
-public static class SalesAccounts
-{
-    public const string Cash = "1000";
-    public const string Bank = "1010";
-    public const string Receivable = "1100";
-    public const string Inventory = "1200";
-    public const string Revenue = "4000";
-    /// <summary>Contra-revenue: credit notes debit this account so gross sales stay visible.</summary>
-    public const string SalesReturns = "4100";
-    public const string CostOfGoodsSold = "5000";
-}
-
 public sealed record CustomerResponse(Guid Id, string Code, string Name, string? Email, string? Phone, int PaymentTermsDays, bool IsActive);
 public sealed record CreateCustomerRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays);
 public sealed record UpdateCustomerRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays);
