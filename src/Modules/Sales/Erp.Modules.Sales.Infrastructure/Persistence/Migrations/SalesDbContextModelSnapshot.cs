@@ -23,6 +23,62 @@ namespace Erp.Modules.Sales.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Erp.Modules.Sales.Domain.CreditNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AmountApplied")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<decimal>("AmountRefunded")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("CreditDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("JournalId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JournalNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("SalesInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SalesInvoiceId");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("CreditNotes", "sales");
+                });
+
             modelBuilder.Entity("Erp.Modules.Sales.Domain.Customer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -64,6 +120,60 @@ namespace Erp.Modules.Sales.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Customers", "sales");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Sales.Domain.CustomerRefund", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreditNoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JournalNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateOnly>("RefundDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreditNoteId");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("Refunds", "sales");
                 });
 
             modelBuilder.Entity("Erp.Modules.Sales.Domain.Payment", b =>
@@ -124,6 +234,10 @@ namespace Erp.Modules.Sales.Infrastructure.Persistence.Migrations
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal>("AmountCredited")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
 
                     b.Property<decimal>("AmountPaid")
                         .HasPrecision(19, 4)
@@ -216,6 +330,58 @@ namespace Erp.Modules.Sales.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("SalesOrders", "sales");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Sales.Domain.CreditNote", b =>
+                {
+                    b.OwnsMany("Erp.Modules.Sales.Domain.CreditNoteLine", "Lines", b1 =>
+                        {
+                            b1.Property<Guid>("CreditNoteId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("LineNo")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("LineNo"));
+
+                            b1.Property<string>("Description")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)");
+
+                            b1.Property<Guid>("ItemId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal>("Quantity")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<bool>("ReturnedToStock")
+                                .HasColumnType("boolean");
+
+                            b1.Property<string>("Sku")
+                                .IsRequired()
+                                .HasMaxLength(60)
+                                .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal>("UnitCost")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("UnitPrice")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.HasKey("CreditNoteId", "LineNo");
+
+                            b1.ToTable("CreditNoteLines", "sales");
+
+                            b1.WithOwner()
+                                .HasForeignKey("CreditNoteId");
+                        });
+
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Erp.Modules.Sales.Domain.SalesInvoice", b =>

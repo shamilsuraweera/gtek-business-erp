@@ -86,7 +86,7 @@ public sealed class InvoiceService(
             // Committed from here on: never compensate for a failure after this point.
             await audit.RecordAsync("Sales", "invoice.created", "SalesInvoice", invoice.Id.Value.ToString(), invoice.Number, true,
                 new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = invoice.Total, ["Journal"] = journal.Number }, ct);
-            return Map(invoice, customer.Name);
+            return Map(invoice, customer.Name, CreditedQuantities([]));
         }, cancellationToken);
     }
 
@@ -138,7 +138,8 @@ public sealed class InvoiceService(
         var companyId = SalesCompany.Require(companyContext);
         var invoices = await store.ListInvoicesAsync(companyId, Math.Clamp(take, 1, 500), cancellationToken);
         var names = (await store.ListCustomersAsync(companyId, cancellationToken)).ToDictionary(x => x.Id, x => x.Name);
-        return invoices.Select(i => Map(i, names.GetValueOrDefault(i.CustomerId, string.Empty))).ToArray();
+        var credited = CreditedQuantities(await store.ListCreditNotesAsync(companyId, 500, cancellationToken));
+        return invoices.Select(i => Map(i, names.GetValueOrDefault(i.CustomerId, string.Empty), credited)).ToArray();
     }
 
     public async Task<InvoiceResponse?> GetAsync(SalesInvoiceId id, CancellationToken cancellationToken)
@@ -147,7 +148,8 @@ public sealed class InvoiceService(
         var invoice = await store.GetInvoiceAsync(companyId, id, cancellationToken);
         if (invoice is null) return null;
         var customer = await store.GetCustomerAsync(companyId, invoice.CustomerId, cancellationToken);
-        return Map(invoice, customer?.Name ?? string.Empty);
+        var credited = CreditedQuantities(await store.ListCreditNotesForInvoiceAsync(companyId, invoice.Id, cancellationToken));
+        return Map(invoice, customer?.Name ?? string.Empty, credited);
     }
 
     public async Task<IReadOnlyList<PaymentResponse>> ListPaymentsAsync(int take, CancellationToken cancellationToken)
@@ -178,12 +180,19 @@ public sealed class InvoiceService(
         }
     }
 
-    private InvoiceResponse Map(SalesInvoice i, string customerName) => new(
+    /// <summary>Quantity credited so far, keyed by (invoice, item).</summary>
+    internal static IReadOnlyDictionary<(Guid Invoice, Guid Item), decimal> CreditedQuantities(IEnumerable<CreditNote> notes) =>
+        notes.SelectMany(n => n.Lines.Select(l => (Invoice: n.SalesInvoiceId.Value, Item: l.ItemId, l.Quantity)))
+            .GroupBy(x => (x.Invoice, x.Item))
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.Quantity));
+
+    private InvoiceResponse Map(SalesInvoice i, string customerName, IReadOnlyDictionary<(Guid Invoice, Guid Item), decimal> credited) => new(
         i.Id.Value, i.Number, i.SalesOrderId.Value, i.CustomerId.Value, customerName, i.InvoiceDate, i.DueDate,
-        i.Total, i.AmountPaid, i.Balance, i.Status,
+        i.Total, i.AmountPaid, i.AmountCredited, i.Balance, i.Status,
         i.Status == InvoiceStatus.Open && i.DueDate < DateOnly.FromDateTime(clock.UtcNow.UtcDateTime),
         i.JournalNumber,
-        i.Lines.Select(l => new InvoiceLineResponse(l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitPrice, l.LineTotal)).ToArray());
+        i.Lines.Select(l => new InvoiceLineResponse(
+            l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitPrice, l.LineTotal, credited.GetValueOrDefault((i.Id.Value, l.ItemId)))).ToArray());
 
     private static PaymentResponse MapPayment(Payment p, string invoiceNumber, string customerName) => new(
         p.Id.Value, p.Number, p.InvoiceId.Value, invoiceNumber, p.CustomerId.Value, customerName,

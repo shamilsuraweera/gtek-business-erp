@@ -112,4 +112,128 @@ public class SalesTests
         Assert.Throws<DomainException>(() => Customer.Create(Company, "", "x", null, null, 30, DateTimeOffset.UtcNow));
         Assert.Throws<DomainException>(() => Customer.Create(Company, "c", "x", null, null, 400, DateTimeOffset.UtcNow));
     }
+
+    // ---- credit notes -------------------------------------------------------------------------------------------
+
+    private static (SalesInvoice Invoice, Guid Item) InvoiceOf(decimal quantity = 4m, decimal price = 100m, decimal cost = 60m)
+    {
+        var item = Guid.NewGuid();
+        var order = SalesOrder.Create(Company, "SO-9", CustomerRef, new DateOnly(2026, 11, 1), null, DateTimeOffset.UtcNow);
+        order.AddLine(item, "SKU-X", "Item X", quantity, price);
+        order.Open();
+        order.Release();
+        var invoice = SalesInvoice.Create(Company, "INV-9", order, new DateOnly(2026, 11, 2), 30,
+            [new SalesInvoiceLine(item, "SKU-X", "Item X", quantity, price, cost)], Guid.NewGuid(), "JE-9", DateTimeOffset.UtcNow);
+        return (invoice, item);
+    }
+
+    private static CreditNote Note(SalesInvoice invoice, Guid item, decimal quantity, bool returned, decimal applied) =>
+        CreditNote.Create(Company, "CN-1", invoice, new DateOnly(2026, 11, 10), " damaged in transit ",
+            [new CreditNoteLine(item, "SKU-X", "Item X", quantity, 100m, 60m, returned)], Guid.NewGuid(), "JE-10", applied, DateTimeOffset.UtcNow);
+
+    [Fact]
+    public void Duplicate_items_are_rejected_on_a_sales_order()
+    {
+        var order = Order();
+        var item = Guid.NewGuid();
+        order.AddLine(item, "DUP", "Dup", 1m, 1m);
+        Assert.Throws<DomainException>(() => order.AddLine(item, "DUP", "Dup", 2m, 1m));
+    }
+
+    [Fact]
+    public void Credit_note_totals_and_returned_cost_only_count_goods_that_came_back()
+    {
+        var (invoice, item) = InvoiceOf();
+
+        var returned = Note(invoice, item, 3m, returned: true, applied: 300m);
+        Assert.Equal(300m, returned.Total);
+        Assert.Equal(180m, returned.ReturnedCost);           // 3 x original cost 60
+
+        var allowance = Note(invoice, item, 3m, returned: false, applied: 300m);
+        Assert.Equal(0m, allowance.ReturnedCost);            // price adjustment: goods stay with the customer
+    }
+
+    [Fact]
+    public void Credit_note_requires_a_reason_lines_and_a_valid_applied_amount()
+    {
+        var (invoice, item) = InvoiceOf();
+        var line = new CreditNoteLine(item, "SKU-X", "Item X", 1m, 100m, 60m, true);
+
+        Assert.Throws<DomainException>(() => CreditNote.Create(Company, "CN-1", invoice, new DateOnly(2026, 11, 10), "  ", [line], Guid.NewGuid(), "JE", 100m, DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => CreditNote.Create(Company, "CN-1", invoice, new DateOnly(2026, 11, 10), "x", [], Guid.NewGuid(), "JE", 0m, DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => CreditNote.Create(Company, "CN-1", invoice, new DateOnly(2026, 11, 10), "x", [line], Guid.NewGuid(), "JE", 100.01m, DateTimeOffset.UtcNow));
+        Assert.Throws<DomainException>(() => new CreditNoteLine(item, "SKU-X", "Item X", 0m, 100m, 60m, true));
+    }
+
+    [Fact]
+    public void Credit_reduces_the_invoice_balance_and_fully_credited_unpaid_invoice_becomes_credited()
+    {
+        var (invoice, _) = InvoiceOf();           // total 400
+        invoice.ApplyCredit(100m);
+        Assert.Equal(300m, invoice.Balance);
+        Assert.Equal(InvoiceStatus.Open, invoice.Status);
+
+        invoice.ApplyCredit(300m);
+        Assert.Equal(0m, invoice.Balance);
+        Assert.Equal(InvoiceStatus.Credited, invoice.Status);
+    }
+
+    [Fact]
+    public void Credit_that_settles_a_part_paid_invoice_marks_it_paid()
+    {
+        var (invoice, _) = InvoiceOf();
+        invoice.ApplyPayment(250m);
+        invoice.ApplyCredit(150m);
+
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+        Assert.Equal(0m, invoice.Balance);
+    }
+
+    [Fact]
+    public void Credit_cannot_exceed_the_open_balance_and_payments_respect_credits()
+    {
+        var (invoice, _) = InvoiceOf();
+        invoice.ApplyPayment(300m);
+        Assert.Throws<DomainException>(() => invoice.ApplyCredit(100.01m));
+        Assert.Throws<DomainException>(() => invoice.ApplyCredit(-1m));
+
+        invoice.ApplyCredit(60m);
+        Assert.Throws<DomainException>(() => invoice.ApplyPayment(40.01m));   // only 40 is still open
+        invoice.ApplyPayment(40m);
+        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
+    }
+
+    [Fact]
+    public void Credit_on_an_already_paid_invoice_applies_nothing_and_is_fully_refundable()
+    {
+        var (invoice, item) = InvoiceOf();
+        invoice.ApplyPayment(400m);                                   // fully paid
+        var note = Note(invoice, item, 1m, returned: true, applied: 0m);
+
+        Assert.Equal(100m, note.RefundDue);
+        note.ApplyRefund(40m);
+        Assert.Equal(60m, note.RefundDue);
+        note.ApplyRefund(60m);
+        Assert.Equal(0m, note.RefundDue);
+        Assert.Throws<DomainException>(() => note.ApplyRefund(0.01m));
+    }
+
+    [Fact]
+    public void Refund_is_limited_to_the_credit_beyond_what_reduced_the_invoice()
+    {
+        var (invoice, item) = InvoiceOf();
+        invoice.ApplyPayment(350m);                                   // 50 still open
+        var note = Note(invoice, item, 1m, returned: false, applied: 50m);   // credit 100: 50 applied, 50 owed
+
+        Assert.Equal(50m, note.RefundDue);
+        Assert.Throws<DomainException>(() => note.ApplyRefund(50.01m));
+        Assert.Throws<DomainException>(() => note.ApplyRefund(0m));
+        note.ApplyRefund(50m);
+        Assert.Equal(50m, note.AmountRefunded);
+    }
+
+    [Fact]
+    public void Refund_record_requires_a_positive_amount() =>
+        Assert.Throws<DomainException>(() => CustomerRefund.Create(
+            Company, "RFD-1", new CreditNoteId(Guid.NewGuid()), CustomerRef, new DateOnly(2026, 11, 11), 0m, PaymentMethod.Bank, null, "JE-11", DateTimeOffset.UtcNow));
 }

@@ -5,7 +5,7 @@ export const P = {
   itemsRead: 'inventory.items.read', itemsManage: 'inventory.items.manage', stockRead: 'inventory.stock.read', stockManage: 'inventory.stock.manage',
   customersRead: 'sales.customers.read', customersManage: 'sales.customers.manage',
   ordersRead: 'sales.orders.read', ordersManage: 'sales.orders.manage',
-  invoicesRead: 'sales.invoices.read', invoicesPost: 'sales.invoices.post', paymentsRecord: 'sales.payments.record',
+  invoicesRead: 'sales.invoices.read', creditNotesPost: 'sales.credit-notes.post', refundsRecord: 'sales.refunds.record', invoicesPost: 'sales.invoices.post', paymentsRecord: 'sales.payments.record',
   vendorsRead: 'purchasing.vendors.read', vendorsManage: 'purchasing.vendors.manage',
   poRead: 'purchasing.orders.read', poManage: 'purchasing.orders.manage', poReceive: 'purchasing.orders.receive',
   billsRead: 'purchasing.bills.read', billsPost: 'purchasing.bills.post', billsOverride: 'purchasing.bills.override-variance', vendorPay: 'purchasing.payments.record',

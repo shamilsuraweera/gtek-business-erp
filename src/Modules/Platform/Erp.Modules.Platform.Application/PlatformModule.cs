@@ -332,6 +332,8 @@ public static class Permissions
         public const string InvoicesRead = "sales.invoices.read";
         public const string InvoicesPost = "sales.invoices.post";
         public const string PaymentsRecord = "sales.payments.record";
+        public const string CreditNotesPost = "sales.credit-notes.post";
+        public const string RefundsRecord = "sales.refunds.record";
     }
 
     public static class Purchasing
@@ -379,6 +381,8 @@ public static class Permissions
         (Sales.InvoicesRead, "Read sales invoices", "sales", "View sales invoices and payments."),
         (Sales.InvoicesPost, "Post sales invoices", "sales", "Invoice released sales orders (issues stock and posts to the ledger)."),
         (Sales.PaymentsRecord, "Record customer payments", "sales", "Record payments against sales invoices."),
+        (Sales.CreditNotesPost, "Issue credit notes", "sales", "Issue credit notes and returns against sales invoices (reverses revenue, stock and cost of sales)."),
+        (Sales.RefundsRecord, "Refund customers", "sales", "Pay money back to customers against credit notes."),
         (Purchasing.VendorsRead, "Read vendors", "purchasing", "View vendors."),
         (Purchasing.VendorsManage, "Manage vendors", "purchasing", "Create and manage vendors."),
         (Purchasing.OrdersRead, "Read purchase orders", "purchasing", "View purchase orders."),

@@ -27,7 +27,8 @@ export function Dashboard() {
   const payables = openBills.reduce((sum, b) => sum + b.balance, 0)
   const overdueBills = openBills.filter((b) => b.isOverdue)
   const stockValue = (stock.data ?? []).reduce((sum, s) => sum + s.value, 0)
-  const revenue = -net('4000')
+  // Net revenue: gross sales less returns and allowances (contra account 4100).
+  const revenue = -net('4000') - net('4100')
   const grossProfit = revenue - net('5000')
 
   const now = Date.now()
@@ -61,7 +62,7 @@ export function Dashboard() {
         {can(P.invoicesRead) && <Kpi label="Overdue" value={formatMoney(overdue.reduce((s, i) => s + i.balance, 0))} hint={`${overdue.length} invoices`} tone={overdue.length ? 'bad' : ''} />}
         {can(P.billsRead) && <Kpi label="Payables" value={formatMoney(payables)} hint={`${openBills.length} open bills · ${overdueBills.length} overdue`} tone={overdueBills.length ? 'bad' : ''} />}
         {can(P.stockRead) && <Kpi label="Inventory value" value={formatMoney(stockValue)} />}
-        {can(P.reportsRead) && <Kpi label="Revenue" value={formatMoney(revenue)} />}
+        {can(P.reportsRead) && <Kpi label="Net revenue" value={formatMoney(revenue)} hint={net('4100') ? `after ${formatMoney(net('4100'))} returns` : undefined} />}
         {can(P.reportsRead) && <Kpi label="Gross profit" value={formatMoney(grossProfit)} hint={revenue ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined} tone="ok" />}
       </div>
 

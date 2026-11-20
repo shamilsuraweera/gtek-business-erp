@@ -40,6 +40,7 @@ public static class DevSeeder
         await SeedOpeningBalancesAsync(sp, log, ct);
         await SeedInventoryAsync(sp, log, ct);
         await SeedSalesAsync(sp, log, ct);
+        await SeedCreditNotesAsync(sp, log, ct);
         await SeedPurchasingAsync(sp, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
@@ -112,6 +113,7 @@ public static class DevSeeder
         ("3000", "Owner's Equity", AccountType.Equity),
         ("3100", "Retained Earnings", AccountType.Equity),
         ("4000", "Sales Revenue", AccountType.Revenue),
+        ("4100", "Sales Returns & Allowances", AccountType.Revenue),
         ("5000", "Cost of Goods Sold", AccountType.Expense),
         ("5100", "Purchase Price Variance", AccountType.Expense),
         ("6000", "Operating Expenses", AccountType.Expense),
@@ -428,5 +430,40 @@ public static class DevSeeder
         if (!(await access.ListCompaniesForUserAsync(new UserId(clerk.Id), ct)).Any(x => x.Id == company.Id))
             await access.GrantAsync(new UserId(admin!.Id), new UserId(clerk.Id), new CompanyId(company.Id), ct);
         log.LogInformation("Demo clerk ready ('{User}' / '{Password}').", ClerkUserName, ClerkPassword);
+    }
+
+    private static readonly (string OrderMarker, string Tag, string Reason, (string Sku, decimal Qty, bool Return)[] Lines, DateOnly Date, bool Refund)[] CreditScenarios =
+    [
+        // Paid invoice: the goods came back, the credit is fully refundable and is refunded.
+        ("SEED-4", "SEED-CN-1", "Faulty drive returned", [("SSD-512", 1, true)], new DateOnly(2026, 11, 12), true),
+        // Open invoice: the return reduces what the customer still owes.
+        ("SEED-8", "SEED-CN-2", "Wrong memory module ordered", [("RAM-16", 1, true)], new DateOnly(2026, 11, 15), false),
+        // Overdue invoice: toner arrived damaged; the customer keeps it, so it is a price allowance (nothing returns to stock).
+        ("SEED-6", "SEED-CN-3", "Toner damaged in transit - allowance", [("TON-100", 4, false)], new DateOnly(2026, 11, 10), false),
+    ];
+
+    private static async Task SeedCreditNotesAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var orderService = sp.GetRequiredService<IOrderService>();
+        var creditService = sp.GetRequiredService<ICreditNoteService>();
+        var itemIds = (await sp.GetRequiredService<IItemService>().ListAsync(ct)).ToDictionary(x => x.Sku, x => x.Id);
+        var orders = (await orderService.ListAsync(500, ct)).Where(o => o.Notes is not null).ToDictionary(o => o.Notes!);
+        var existing = (await creditService.ListAsync(500, ct)).Select(n => n.Reason).ToList();
+
+        var created = 0;
+        foreach (var (marker, tag, reason, lines, date, refund) in CreditScenarios)
+        {
+            if (existing.Any(r => r.StartsWith(tag, StringComparison.Ordinal)) || !orders.TryGetValue(marker, out var order) || order.InvoiceId is not { } invoiceId)
+                continue;
+
+            var note = await creditService.CreateAsync(new SalesInvoiceId(invoiceId), new CreateCreditNoteRequest(
+                date, $"{tag}: {reason}", lines.Select(l => new CreditNoteLineRequest(itemIds[l.Sku], l.Qty, l.Return)).ToArray()), ct);
+            created++;
+            if (refund && note is { RefundDue: > 0 })
+                await creditService.RefundAsync(new CreditNoteId(note.Id),
+                    new RefundRequest(note.RefundDue, PaymentMethod.Bank, date.AddDays(2), $"{tag}-REFUND"), ct);
+        }
+
+        log.LogInformation("Credit notes ready ({Created} new).", created);
     }
 }

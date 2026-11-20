@@ -14,7 +14,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 }
 
 const TONES: Record<string, string> = {
-  Draft: 'neutral', Open: 'info', Released: 'warn', Invoiced: 'ok', Received: 'warn', PartiallyReceived: 'warn', Billed: 'ok', Cancelled: 'bad', Paid: 'ok',
+  Draft: 'neutral', Credited: 'info', Open: 'info', Released: 'warn', Invoiced: 'ok', Received: 'warn', PartiallyReceived: 'warn', Billed: 'ok', Cancelled: 'bad', Paid: 'ok',
   Closed: 'warn', Locked: 'bad', Active: 'ok', Inactive: 'neutral', Succeeded: 'ok', Failed: 'bad',
   Overdue: 'bad', Asset: 'info', Liability: 'warn', Equity: 'neutral', Revenue: 'ok', Expense: 'bad',
 }
