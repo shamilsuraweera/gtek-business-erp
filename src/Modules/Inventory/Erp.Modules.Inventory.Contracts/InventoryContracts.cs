@@ -8,7 +8,8 @@ public sealed record StockMovementCommand(
     DateOnly Date,
     string SourceType,
     string SourceReference,
-    Guid? LocationId = null);
+    Guid? LocationId = null,
+    decimal? UnitCost = null);
 
 public sealed record StockMovementResult(Guid ItemId, decimal Quantity, decimal UnitCost, decimal TotalCost);
 
@@ -24,6 +25,6 @@ public interface IInventoryStock
     /// <summary>Removes <c>Quantity</c> (positive) from stock, valued at the item's standard cost.</summary>
     Task<StockMovementResult> IssueAsync(StockMovementCommand command, CancellationToken cancellationToken);
 
-    /// <summary>Adds <c>Quantity</c> (positive) to stock, valued at the item's standard cost (used for returns and compensation).</summary>
+    /// <summary>Adds <c>Quantity</c> (positive) to stock, valued at <c>UnitCost</c> when given, otherwise the item's standard cost.</summary>
     Task<StockMovementResult> ReceiveAsync(StockMovementCommand command, CancellationToken cancellationToken);
 }

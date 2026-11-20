@@ -4,7 +4,7 @@ import { useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney } from '../format'
 import { Badge, Empty, Kpi, Loading, PageHeader } from '../ui'
-import type { Invoice, Order, StockLevel, TrialBalance } from '../api/types'
+import type { Bill, Invoice, Order, StockLevel, TrialBalance } from '../api/types'
 
 const DAY = 86_400_000
 
@@ -13,6 +13,7 @@ export function Dashboard() {
   const tb = useApiQuery<TrialBalance>('/finance/trial-balance', { enabled: can(P.reportsRead) })
   const invoices = useApiQuery<Invoice[]>('/sales/invoices?take=500', { enabled: can(P.invoicesRead) })
   const orders = useApiQuery<Order[]>('/sales/orders?take=500', { enabled: can(P.ordersRead) })
+  const bills = useApiQuery<Bill[]>('/purchasing/bills?take=500', { enabled: can(P.billsRead) })
   const stock = useApiQuery<StockLevel[]>('/inventory/stock', { enabled: can(P.stockRead) })
 
   const net = (code: string) => {
@@ -22,6 +23,9 @@ export function Dashboard() {
   const open = (invoices.data ?? []).filter((i) => i.balance > 0)
   const overdue = open.filter((i) => i.isOverdue)
   const receivables = open.reduce((sum, i) => sum + i.balance, 0)
+  const openBills = (bills.data ?? []).filter((b) => b.balance > 0)
+  const payables = openBills.reduce((sum, b) => sum + b.balance, 0)
+  const overdueBills = openBills.filter((b) => b.isOverdue)
   const stockValue = (stock.data ?? []).reduce((sum, s) => sum + s.value, 0)
   const revenue = -net('4000')
   const grossProfit = revenue - net('5000')
@@ -55,6 +59,7 @@ export function Dashboard() {
         {can(P.reportsRead) && <Kpi label="Cash & bank" value={formatMoney(net('1000') + net('1010'))} />}
         {can(P.invoicesRead) && <Kpi label="Receivables" value={formatMoney(receivables)} hint={`${open.length} open invoices`} />}
         {can(P.invoicesRead) && <Kpi label="Overdue" value={formatMoney(overdue.reduce((s, i) => s + i.balance, 0))} hint={`${overdue.length} invoices`} tone={overdue.length ? 'bad' : ''} />}
+        {can(P.billsRead) && <Kpi label="Payables" value={formatMoney(payables)} hint={`${openBills.length} open bills · ${overdueBills.length} overdue`} tone={overdueBills.length ? 'bad' : ''} />}
         {can(P.stockRead) && <Kpi label="Inventory value" value={formatMoney(stockValue)} />}
         {can(P.reportsRead) && <Kpi label="Revenue" value={formatMoney(revenue)} />}
         {can(P.reportsRead) && <Kpi label="Gross profit" value={formatMoney(grossProfit)} hint={revenue ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined} tone="ok" />}

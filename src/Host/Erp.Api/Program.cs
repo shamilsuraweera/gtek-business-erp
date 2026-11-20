@@ -63,6 +63,7 @@ app.MapAccountingPeriodEndpoints();
 app.MapFinanceEndpoints();
 app.MapInventoryEndpoints();
 app.MapSalesEndpoints();
+app.MapPurchasingEndpoints();
 
 if (args.Contains("--seed"))
 {

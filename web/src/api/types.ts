@@ -24,3 +24,10 @@ export interface Period { id: string; code: string; name: string; startDate: str
 export interface Sequence { id: string; code: string; name: string; prefix: string; suffix: string | null; nextValue: number; padding: number; increment: number; status: string }
 export interface AuditEntry { id: string; occurredAt: string; actorUserName: string | null; category: string; action: string; entityType: string; entityDisplay: string | null; outcome: string }
 export interface AuditPage { items: AuditEntry[]; page: number; pageSize: number; totalCount: number }
+
+export interface Vendor { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean }
+export type PurchaseOrderStatus = 'Draft' | 'Open' | 'Released' | 'Received' | 'Billed' | 'Cancelled'
+export interface PurchaseLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number }
+export interface PurchaseOrder { id: string; number: string; vendorId: string; vendorName: string; orderDate: string; notes: string | null; status: PurchaseOrderStatus; total: number; receivedDate: string | null; receiptJournalNumber: string | null; billId: string | null; lines: PurchaseLine[] }
+export interface Bill { id: string; number: string; vendorReference: string | null; purchaseOrderId: string; vendorId: string; vendorName: string; billDate: string; dueDate: string; total: number; amountPaid: number; balance: number; status: 'Open' | 'Paid'; isOverdue: boolean; journalNumber: string; lines: PurchaseLine[] }
+export interface VendorPayment { id: string; number: string; billId: string; billNumber: string; vendorId: string; vendorName: string; paymentDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }

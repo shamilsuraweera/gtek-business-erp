@@ -21,7 +21,7 @@ public sealed record StockLedgerEntryResponse(
     Guid Id, Guid ItemId, string Sku, Guid LocationId, decimal Quantity, decimal UnitCost,
     DateOnly PostingDate, DateTimeOffset PostedAt, string SourceType, string SourceReference);
 
-public sealed record ItemQuantity(ItemId ItemId, decimal Quantity);
+public sealed record ItemQuantity(ItemId ItemId, decimal Quantity, decimal Value);
 
 public interface IItemStore
 {

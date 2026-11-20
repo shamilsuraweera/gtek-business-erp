@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 CONN="${ERP_DATABASE_CONNECTION:-Host=localhost;Port=5432;Database=gtek_erp;Username=gtek;Password=gtek_dev}"
 export ERP_DATABASE_CONNECTION="$CONN"
 
-for module in Platform Finance Inventory Sales; do
+for module in Platform Finance Inventory Sales Purchasing; do
   echo "==> Migrating $module"
   dotnet ef database update \
     --project "src/Modules/$module/Erp.Modules.$module.Infrastructure" \

@@ -11,6 +11,12 @@ import { NewOrder } from './pages/NewOrder'
 import { OrderDetail } from './pages/OrderDetail'
 import { Invoices } from './pages/Invoices'
 import { InvoiceDetail } from './pages/InvoiceDetail'
+import { Vendors } from './pages/Vendors'
+import { PurchaseOrders } from './pages/PurchaseOrders'
+import { NewPurchaseOrder } from './pages/NewPurchaseOrder'
+import { PurchaseOrderDetail } from './pages/PurchaseOrderDetail'
+import { Bills } from './pages/Bills'
+import { BillDetail } from './pages/BillDetail'
 import { Finance } from './pages/Finance'
 import { Admin } from './pages/Admin'
 
@@ -29,6 +35,10 @@ function Layout() {
           {link('/orders', 'Sales orders', can(P.ordersRead))}
           {link('/invoices', 'Invoices & payments', can(P.invoicesRead))}
           {link('/customers', 'Customers', can(P.customersRead))}
+          <div className="nav-group">Purchasing</div>
+          {link('/purchase-orders', 'Purchase orders', can(P.poRead))}
+          {link('/bills', 'Bills & payments', can(P.billsRead))}
+          {link('/vendors', 'Vendors', can(P.vendorsRead))}
           <div className="nav-group">Inventory</div>
           {link('/items', 'Items & stock', can(P.itemsRead))}
           <div className="nav-group">Finance</div>
@@ -61,6 +71,12 @@ function Layout() {
               <Route path="/orders/:id" element={<OrderDetail />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/invoices/:id" element={<InvoiceDetail />} />
+              <Route path="/vendors" element={<Vendors />} />
+              <Route path="/purchase-orders" element={<PurchaseOrders />} />
+              <Route path="/purchase-orders/new" element={<NewPurchaseOrder />} />
+              <Route path="/purchase-orders/:id" element={<PurchaseOrderDetail />} />
+              <Route path="/bills" element={<Bills />} />
+              <Route path="/bills/:id" element={<BillDetail />} />
               <Route path="/finance" element={<Finance />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="*" element={<Navigate to="/" replace />} />
