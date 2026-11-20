@@ -103,7 +103,9 @@ public sealed class NumberSequencePostgreSqlTests
 
     private static DbContextOptions<PlatformDbContext> CreateOptions(string connectionString) =>
         new DbContextOptionsBuilder<PlatformDbContext>()
-            .UseNpgsql(connectionString)
+            // Cap the pool well below the server's max_connections so 100 concurrent tasks queue for
+            // connections instead of exhausting the server (the row lock under test still serialises them).
+            .UseNpgsql(new Npgsql.NpgsqlConnectionStringBuilder(connectionString) { MaxPoolSize = 20 }.ConnectionString)
             .Options;
 
     private static string RequireConnectionString() =>
