@@ -23,6 +23,57 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Erp.Modules.Platform.Domain.AccountingPeriod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset?>("ModifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ModifiedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "StartDate", "EndDate");
+
+                    b.ToTable("AccountingPeriods", "platform");
+                });
+
             modelBuilder.Entity("Erp.Modules.Platform.Domain.AuditEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -393,6 +444,15 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId");
 
                     b.ToTable("UserRoles", "platform");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Platform.Domain.AccountingPeriod", b =>
+                {
+                    b.HasOne("Erp.Modules.Platform.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Erp.Modules.Platform.Domain.NumberSequence", b =>

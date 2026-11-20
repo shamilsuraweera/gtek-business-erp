@@ -2,7 +2,7 @@
 
 ## 1. What this application is
 
-The current release is **Phase 1.5** of the GTEK Business ERP. It provides the
+The current release is **Phase 1.7** of the GTEK Business ERP. It provides the
 technical foundation for a modular monolith:
 
 - A .NET 10 ASP.NET Core API host
@@ -15,7 +15,7 @@ technical foundation for a modular monolith:
 
 It is not yet a complete end-user ERP. There is no browser UI; authentication
 is provided through the documented API login endpoint, and current read endpoints intentionally return representative empty
-collections. Phase 1.5 now includes database-backed company management, local
+collections. Phase 1.7 now includes database-backed company management, local
 authentication, policy-based permissions, and explicit user-company access.
 It also records intentional security and administrative audit history.
 
@@ -193,6 +193,14 @@ Metadata is deliberately limited to safe identifiers and before/after values.
 Passwords, hashes, JWTs, signing keys, connection strings, tokens, and full
 request bodies are never stored. Audit entries have no update or delete use
 case, and no automatic retention purge is enabled.
+
+### Accounting periods
+
+Accounting periods are company-scoped and begin in the `Open` state. Create
+periods through `POST /api/v1/accounting-periods`, then close or lock them with
+the corresponding lifecycle endpoints. A period must be closed before it can
+be locked, and locked periods cannot be reopened or renamed. Periods for the
+same company may not overlap.
 
 ## 5. Optional Docker database
 

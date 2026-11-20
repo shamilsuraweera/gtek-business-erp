@@ -16,6 +16,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     public DbSet<UserCompanyAccess> UserCompanyAccesses => Set<UserCompanyAccess>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
+    public DbSet<AccountingPeriod> AccountingPeriods => Set<AccountingPeriod>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PlatformDbContext).Assembly)

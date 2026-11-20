@@ -71,6 +71,12 @@ public readonly record struct NumberSequenceId(Guid Value)
     public override string ToString() => Value.ToString();
 }
 
+public readonly record struct AccountingPeriodId(Guid Value)
+{
+    public static AccountingPeriodId New() => new(Guid.NewGuid());
+    public override string ToString() => Value.ToString();
+}
+
 public sealed record AuditMetadata(
     DateTimeOffset CreatedAt,
     UserId CreatedBy,

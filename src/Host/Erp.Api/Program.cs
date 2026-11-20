@@ -12,6 +12,7 @@ using Erp.Modules.Sales.Infrastructure;
 using Erp.Api.Endpoints;
 using Erp.Api.Middleware;
 using Erp.Api.Authentication;
+using Erp.Api.Seeding;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,10 @@ builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 builder.Services.AddValidation();
 builder.Services.AddLocalAuthentication(builder.Configuration, builder.Environment);
+builder.Services.AddCors(options => options.AddPolicy("DevFrontend", policy => policy
+    .WithOrigins(builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173"])
+    .AllowAnyHeader()
+    .AllowAnyMethod()));
 
 var connectionString = builder.Configuration.GetConnectionString("Erp")
     ?? "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres";
@@ -39,6 +44,7 @@ builder.Services
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseCors("DevFrontend");
 app.UseAuthentication();
 app.UseMiddleware<CompanyContextMiddleware>();
 app.UseAuthorization();
@@ -51,12 +57,16 @@ app.MapRoleEndpoints();
 app.MapPermissionEndpoints();
 app.MapAuditEndpoints();
 app.MapNumberSequenceEndpoints();
-app.MapGet("/api/v1/finance/accounts", () => TypedResults.Ok(Array.Empty<object>()))
-    .RequireCompanyContext()
-    .RequirePermission(Permissions.Finance.AccountsRead)
-    .WithSummary("List finance accounts")
-    .WithDescription("Representative company-scoped finance endpoint.")
-    .Produces<object[]>(StatusCodes.Status200OK);
+app.MapAccountingPeriodEndpoints();
+app.MapFinanceEndpoints();
+
+if (args.Contains("--seed"))
+{
+    if (!app.Environment.IsDevelopment())
+        throw new InvalidOperationException("--seed is only allowed in the Development environment.");
+    await DevSeeder.RunAsync(app.Services);
+    return;
+}
 
 app.Run();
 

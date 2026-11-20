@@ -48,4 +48,35 @@ public sealed class NumberSequenceConfiguration : IEntityTypeConfiguration<Numbe
                 .OnDelete(DeleteBehavior.Restrict);
             builder.ToTable("NumberSequences", "platform");
     }
+
+    public sealed class AccountingPeriodConfiguration : IEntityTypeConfiguration<AccountingPeriod>
+    {
+        public void Configure(EntityTypeBuilder<AccountingPeriod> builder)
+        {
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id)
+                .HasConversion(x => x.Value, x => new Erp.SharedKernel.AccountingPeriodId(x));
+            builder.Property(x => x.CompanyId)
+                .HasConversion(x => x.Value, x => new Erp.SharedKernel.CompanyId(x))
+                .IsRequired();
+            builder.Property(x => x.Code).HasMaxLength(50).IsRequired();
+            builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            builder.Property(x => x.StartDate).IsRequired();
+            builder.Property(x => x.EndDate).IsRequired();
+            builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            builder.Property(x => x.CreatedBy).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
+            builder.Property(x => x.ModifiedBy).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
+            builder.HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.HasIndex(x => new { x.CompanyId, x.StartDate, x.EndDate });
+            builder.HasOne<Company>()
+                .WithMany()
+                .HasForeignKey(x => x.CompanyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.ToTable("AccountingPeriods", "platform");
+        }
+    }
 }
