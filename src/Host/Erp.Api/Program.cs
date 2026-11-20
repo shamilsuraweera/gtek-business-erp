@@ -59,6 +59,7 @@ app.MapAuditEndpoints();
 app.MapNumberSequenceEndpoints();
 app.MapAccountingPeriodEndpoints();
 app.MapFinanceEndpoints();
+app.MapInventoryEndpoints();
 
 if (args.Contains("--seed"))
 {
