@@ -3,7 +3,7 @@
 GTEK Business ERP is a .NET 10 modular-monolith ERP platform with a React web
 client. The local MVP demonstrates two complete workflows:
 
-> **Order-to-cash:** customer → sales order → invoice (stock issue + ledger posting) → payment
+> **Order-to-cash:** customer → sales order → invoice (stock issue + ledger posting) → payment, with credit notes, returns to stock and refunds
 >
 > **Procure-to-pay:** vendor → purchase order → goods receipts (partial deliveries, stock in, GRNI accrual) → vendor bills matched to the order and receipts → payment
 
@@ -12,7 +12,7 @@ client. The local MVP demonstrates two complete workflows:
 | Platform | Companies, users, JWT sign-in, roles/permissions, company access, audit trail, number sequences, accounting periods |
 | Finance | Chart of accounts, balanced journals, reversals, trial balance (append-only ledger) |
 | Inventory | Items, locations, append-only stock ledger, receipts/adjustments, oversell protection |
-| Sales | Customers, orders (draft → confirmed → released → invoiced), invoices, payments |
+| Sales | Customers, orders (draft → confirmed → released → invoiced), invoices, payments, credit notes and returns (stock and COGS reversed at original cost), refunds |
 | Purchasing | Vendors, purchase orders, partial goods receipts (stock at PO cost), close short, three-way matched vendor bills, price-variance approval, payments |
 | Web (`web/`) | Dashboard, sales, purchasing, inventory, ledger and administration screens |
 
@@ -51,9 +51,9 @@ Notes:
 - Integration tests need a disposable database: `ERP_TEST_DATABASE_CONNECTION="Host=localhost;Database=gtek_erp_test;Username=gtek;Password=gtek_dev"`.
 - MVP limitations: sales and purchasing postings use a fixed account mapping (1000/1010 cash and
   bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received not invoiced, 5100 purchase price variance, 5100 purchase price variance,
-  4000 revenue, 5000 COGS); manual stock receipts do not post to the ledger; the three-way
-  match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; there is no tax,
-  multi-currency, credit notes or returns yet.
+  4000 revenue, 4100 sales returns, 5000 COGS); manual stock receipts do not post to the ledger; the three-way
+  match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; credit notes are at the invoiced price (no partial price adjustments); there is no tax,
+  multi-currency or vendor returns yet.
 
 ## Quick start
 

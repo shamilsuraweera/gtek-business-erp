@@ -70,6 +70,28 @@ public static class SalesEndpoints
             return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/sales/invoices/{id}", result);
         }).RequirePermission(Permissions.Sales.PaymentsRecord);
 
+        invoices.MapPost("/{id:guid}/credit-notes", async Task<Results<Created<CreditNoteResponse>, NotFound>>(
+            Guid id, CreateCreditNoteRequest request, ICreditNoteService service, CancellationToken ct) =>
+        {
+            var result = await service.CreateAsync(new SalesInvoiceId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/sales/credit-notes/{result.Id}", result);
+        }).RequirePermission(Permissions.Sales.CreditNotesPost);
+
+        var creditNotes = endpoints.MapGroup("/api/v1/sales/credit-notes").WithTags("Sales").RequireCompanyContext();
+        creditNotes.MapGet("/", async (int? take, ICreditNoteService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(take ?? 100, ct))).RequirePermission(Permissions.Sales.InvoicesRead);
+        creditNotes.MapGet("/{id:guid}", async Task<Results<Ok<CreditNoteResponse>, NotFound>>(Guid id, ICreditNoteService service, CancellationToken ct) =>
+        {
+            var result = await service.GetAsync(new CreditNoteId(id), ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Sales.InvoicesRead);
+        creditNotes.MapPost("/{id:guid}/refunds", async Task<Results<Created<RefundResponse>, NotFound>>(
+            Guid id, RefundRequest request, ICreditNoteService service, CancellationToken ct) =>
+        {
+            var result = await service.RefundAsync(new CreditNoteId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/sales/credit-notes/{id}", result);
+        }).RequirePermission(Permissions.Sales.RefundsRecord);
+
         endpoints.MapGet("/api/v1/sales/payments", async (int? take, IInvoiceService service, CancellationToken ct) =>
                 TypedResults.Ok(await service.ListPaymentsAsync(take ?? 100, ct)))
             .WithTags("Sales").RequireCompanyContext().RequirePermission(Permissions.Sales.InvoicesRead);

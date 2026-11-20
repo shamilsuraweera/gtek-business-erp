@@ -10,7 +10,8 @@ export interface StockLedgerEntry { id: string; itemId: string; sku: string; loc
 export type OrderStatus = 'Draft' | 'Open' | 'Released' | 'Invoiced' | 'Cancelled'
 export interface OrderLine { itemId: string; sku: string; description: string; quantity: number; unitPrice: number; lineTotal: number }
 export interface Order { id: string; number: string; customerId: string; customerName: string; orderDate: string; notes: string | null; status: OrderStatus; total: number; invoiceId: string | null; lines: OrderLine[] }
-export interface Invoice { id: string; number: string; salesOrderId: string; customerId: string; customerName: string; invoiceDate: string; dueDate: string; total: number; amountPaid: number; balance: number; status: 'Open' | 'Paid'; isOverdue: boolean; journalNumber: string; lines: OrderLine[] }
+export interface InvoiceLine extends OrderLine { quantityCredited: number }
+export interface Invoice { id: string; number: string; salesOrderId: string; customerId: string; customerName: string; invoiceDate: string; dueDate: string; total: number; amountPaid: number; amountCredited: number; balance: number; status: 'Open' | 'Paid' | 'Credited'; isOverdue: boolean; journalNumber: string; lines: InvoiceLine[] }
 export interface Payment { id: string; number: string; invoiceId: string; invoiceNumber: string; customerId: string; customerName: string; paymentDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense'
@@ -34,3 +35,7 @@ export interface PurchaseOrder { id: string; number: string; vendorId: string; v
 export interface BillLine { itemId: string; sku: string; description: string; quantity: number; orderUnitCost: number; unitCost: number; lineTotal: number; priceVariance: number; matchStatus: 'Matched' | 'Within tolerance' | 'Variance approved' }
 export interface Bill { id: string; number: string; vendorReference: string | null; purchaseOrderId: string; vendorId: string; vendorName: string; billDate: string; dueDate: string; total: number; amountPaid: number; balance: number; status: 'Open' | 'Paid'; isOverdue: boolean; journalNumber: string; priceVariance: number; varianceOverridden: boolean; lines: BillLine[] }
 export interface VendorPayment { id: string; number: string; billId: string; billNumber: string; vendorId: string; vendorName: string; paymentDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }
+
+export interface CreditNoteLine { itemId: string; sku: string; description: string; quantity: number; unitPrice: number; lineTotal: number; returnedToStock: boolean }
+export interface Refund { id: string; number: string; creditNoteId: string; creditNoteNumber: string; customerId: string; customerName: string; refundDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }
+export interface CreditNote { id: string; number: string; salesInvoiceId: string; invoiceNumber: string; customerId: string; customerName: string; creditDate: string; reason: string; total: number; amountApplied: number; amountRefunded: number; refundDue: number; returnedCost: number; journalNumber: string; lines: CreditNoteLine[]; refunds: Refund[] }

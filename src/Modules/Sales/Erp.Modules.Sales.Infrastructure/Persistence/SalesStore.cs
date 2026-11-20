@@ -51,6 +51,32 @@ public sealed class SalesStore(SalesDbContext db) : ISalesStore
     public Task<SalesInvoice?> GetInvoiceAsync(CompanyId companyId, SalesInvoiceId id, CancellationToken cancellationToken) =>
         db.Invoices.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
 
+    public Task AddCreditNoteAsync(CreditNote note, CancellationToken cancellationToken)
+    {
+        db.CreditNotes.Add(note);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<CreditNote>> ListCreditNotesAsync(CompanyId companyId, int take, CancellationToken cancellationToken) =>
+        await db.CreditNotes.AsNoTracking().Where(x => x.CompanyId == companyId)
+            .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
+
+    public Task<CreditNote?> GetCreditNoteAsync(CompanyId companyId, CreditNoteId id, CancellationToken cancellationToken) =>
+        db.CreditNotes.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<CreditNote>> ListCreditNotesForInvoiceAsync(CompanyId companyId, SalesInvoiceId invoiceId, CancellationToken cancellationToken) =>
+        await db.CreditNotes.AsNoTracking().Where(x => x.CompanyId == companyId && x.SalesInvoiceId == invoiceId).ToListAsync(cancellationToken);
+
+    public Task AddRefundAsync(CustomerRefund refund, CancellationToken cancellationToken)
+    {
+        db.Refunds.Add(refund);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<CustomerRefund>> ListRefundsAsync(CompanyId companyId, int take, CancellationToken cancellationToken) =>
+        await db.Refunds.AsNoTracking().Where(x => x.CompanyId == companyId)
+            .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
+
     public Task AddPaymentAsync(Payment payment, CancellationToken cancellationToken)
     {
         db.Payments.Add(payment);
