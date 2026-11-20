@@ -1,3 +1,4 @@
+using Erp.Modules.Sales.Application;
 using Erp.Modules.Sales.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,7 +9,10 @@ public static class SalesInfrastructure
 {
     public static IServiceCollection AddSalesInfrastructure(this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<SalesDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<SalesDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "sales")));
+        services.AddScoped<ISalesStore, SalesStore>();
         return services;
     }
 }

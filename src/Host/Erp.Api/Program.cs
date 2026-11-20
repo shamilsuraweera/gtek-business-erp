@@ -16,6 +16,8 @@ using Erp.Api.Seeding;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddHealthChecks();
@@ -60,6 +62,7 @@ app.MapNumberSequenceEndpoints();
 app.MapAccountingPeriodEndpoints();
 app.MapFinanceEndpoints();
 app.MapInventoryEndpoints();
+app.MapSalesEndpoints();
 
 if (args.Contains("--seed"))
 {

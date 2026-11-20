@@ -8,6 +8,9 @@ public class DomainTests
 {
     private static readonly CompanyId Company = new(Guid.NewGuid());
 
+    private static SalesOrder NewOrder() =>
+        SalesOrder.Create(Company, "SO-1", new CustomerId(Guid.NewGuid()), new DateOnly(2026, 1, 1), null, DateTimeOffset.UtcNow);
+
     [Fact]
     public void Balanced_journal_is_accepted()
     {
@@ -33,8 +36,8 @@ public class DomainTests
     [Fact]
     public void Sales_order_release_requires_open_order()
     {
-        var order = SalesOrder.Create(Company, new CustomerId(Guid.NewGuid()));
-        order.AddLine("ITEM-1", 1m, 10m);
+        var order = NewOrder();
+        order.AddLine(Guid.NewGuid(), "ITEM-1", "Item", 1m, 10m);
         order.Open();
         order.Release();
 
@@ -44,7 +47,7 @@ public class DomainTests
     [Fact]
     public void Sales_order_cannot_release_from_draft()
     {
-        var order = SalesOrder.Create(Company, new CustomerId(Guid.NewGuid()));
+        var order = NewOrder();
 
         Assert.Throws<DomainException>(order.Release);
     }

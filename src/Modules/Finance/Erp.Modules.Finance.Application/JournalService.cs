@@ -31,6 +31,13 @@ public sealed class JournalService(
         return new PostedJournal(journal.Id, journal.Number);
     }
 
+    public async Task<PostedJournal> ReverseJournalAsync(Guid journalId, string reason, CancellationToken cancellationToken)
+    {
+        var reversal = await ReverseAsync(new JournalId(journalId), new ReverseJournalRequest(null, reason), cancellationToken)
+            ?? throw new DomainException("The journal to reverse was not found.");
+        return new PostedJournal(reversal.Id, reversal.Number);
+    }
+
     public async Task<IReadOnlyList<JournalResponse>> ListAsync(int take, CancellationToken cancellationToken)
     {
         var companyId = RequireCompany();
