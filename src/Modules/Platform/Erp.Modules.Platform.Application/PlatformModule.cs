@@ -283,6 +283,7 @@ public interface IRolePermissionService
     Task<IReadOnlyList<RoleResponse>?> ListUserRolesAsync(UserId userId, CancellationToken cancellationToken);
     Task<bool> AssignRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
     Task<bool> RemoveRoleAsync(UserId userId, RoleId roleId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<string>> ListEffectivePermissionsAsync(UserId userId, CancellationToken cancellationToken);
 }
 
 public static class Permissions
