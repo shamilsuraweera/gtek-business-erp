@@ -82,6 +82,17 @@ public class NotificationTests
         public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, string category, CancellationToken ct) => Task.FromResult(Settings.SingleOrDefault(x => x.CompanyId == companyId && x.Category == category));
         public Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult<IReadOnlyList<NotificationRetentionSetting>>(Settings.Where(x => x.CompanyId == companyId).ToList());
         public List<string> Categories { get; } = [];
+        public List<(UserId User, string Category)> OptOuts { get; } = [];
+        public Task<IReadOnlySet<UserId>> ListEmailOptOutsAsync(IReadOnlyCollection<UserId> userIds, string category, CancellationToken ct) =>
+            Task.FromResult<IReadOnlySet<UserId>>(OptOuts.Where(o => o.Category == category && userIds.Contains(o.User)).Select(o => o.User).ToHashSet());
+        public Task<IReadOnlyList<string>> ListEmailOptOutCategoriesAsync(UserId userId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<string>>(OptOuts.Where(o => o.User == userId).Select(o => o.Category).ToList());
+        public Task SetEmailOptOutAsync(UserId userId, string category, bool optedOut, CancellationToken ct)
+        {
+            OptOuts.RemoveAll(o => o.User == userId && o.Category == category);
+            if (optedOut) OptOuts.Add((userId, category));
+            return Task.CompletedTask;
+        }
         public Task<IReadOnlyList<string>> ListCategoriesAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>(Categories);
         public Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<NotificationRetentionSetting>>(Settings.ToList());
         public Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken ct) { Settings.Add(setting); return Task.CompletedTask; }
@@ -445,5 +456,70 @@ public class NotificationTests
         var (notifier, _, users, outbox) = Setup(_ => true, EmailOn());
         await notifier.NotifyUsersAsync([users[2].Id.Value], Mail(), default);
         Assert.Equal("approver2@example.com", Assert.Single(outbox.Added).ToAddress);
+    }
+
+    [Fact]
+    public async Task A_category_opt_out_stops_email_for_that_category_only()
+    {
+        var (notifier, store, users, outbox) = Setup(_ => true, EmailOn());
+        store.OptOuts.Add((users[1].Id, "approval"));
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(), null, default);                       // category "approval"
+        Assert.Equal(4, store.Added.Count);                                                             // still told in the app
+        Assert.DoesNotContain(outbox.Added, m => m.UserId == users[1].Id);
+        Assert.Equal(3, outbox.Added.Count);
+
+        outbox.Added.Clear();
+        await notifier.NotifyUsersAsync([users[1].Id.Value], new NotificationMessage("decision", "Approved", "b", "/x", "s:2", Email: true), default);
+        Assert.Equal(users[1].Id, Assert.Single(outbox.Added).UserId);                                  // other categories are unaffected
+    }
+
+    [Fact]
+    public async Task Opt_outs_of_other_users_and_categories_do_not_matter()
+    {
+        var (notifier, store, users, outbox) = Setup(_ => true, EmailOn());
+        store.OptOuts.Add((users[1].Id, "decision"));
+        store.OptOuts.Add((users[2].Id, "other"));
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(), null, default);
+        Assert.Equal(4, outbox.Added.Count);
+    }
+
+    [Theory]
+    [InlineData("approval", false)]
+    [InlineData("Approval", false)]
+    [InlineData("decision", true)]
+    public async Task Preferences_show_each_category_and_changes_are_idempotent(string category, bool expectedEnabled)
+    {
+        var store = new FakeStore();
+        var user = MakeUser("clerk");
+        var users = DispatchProxy.Create<IUserStore, Proxy<IUserStore>>();
+        ((Proxy<IUserStore>)(object)users).Handlers["GetByIdAsync"] = _ => Task.FromResult<User?>(user);
+        var service = new UserPreferenceService(users, store, EmailOn());
+
+        var first = await service.GetAsync(user.Id, default);
+        Assert.Equal(new[] { "approval", "decision" }, first!.Categories.Select(c => c.Category));
+        Assert.All(first.Categories, c => Assert.True(c.EmailEnabled));
+
+        await service.SetEmailCategoryAsync(user.Id, "approval", false, default);
+        var again = await service.SetEmailCategoryAsync(user.Id, "approval", false, default);          // twice: still one opt-out
+        Assert.Single(store.OptOuts);
+        Assert.Equal(expectedEnabled, again!.Categories.Single(c => c.Category == category.ToLowerInvariant()).EmailEnabled);
+
+        var back = await service.SetEmailCategoryAsync(user.Id, "approval", true, default);
+        Assert.Empty(store.OptOuts);
+        Assert.All(back!.Categories, c => Assert.True(c.EmailEnabled));
+    }
+
+    [Fact]
+    public async Task An_unknown_category_the_user_opted_out_of_is_still_listed_and_bad_names_are_refused()
+    {
+        var store = new FakeStore();
+        var user = MakeUser("clerk");
+        var users = DispatchProxy.Create<IUserStore, Proxy<IUserStore>>();
+        ((Proxy<IUserStore>)(object)users).Handlers["GetByIdAsync"] = _ => Task.FromResult<User?>(user);
+        var service = new UserPreferenceService(users, store, EmailOn());
+        var result = await service.SetEmailCategoryAsync(user.Id, "custom-x", false, default);
+        Assert.Contains(result!.Categories, c => c is { Category: "custom-x", EmailEnabled: false });
+        await Assert.ThrowsAsync<DomainException>(() => service.SetEmailCategoryAsync(user.Id, "bad name", false, default));
+        await Assert.ThrowsAsync<DomainException>(() => service.SetEmailCategoryAsync(user.Id, "", false, default));
     }
 }

@@ -55,6 +55,20 @@ public sealed class NotificationStore(PlatformDbContext db) : INotificationStore
     public async Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken ct) =>
         await db.NotificationRetentionSettings.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(ct);
 
+    public async Task<IReadOnlySet<UserId>> ListEmailOptOutsAsync(IReadOnlyCollection<UserId> userIds, string category, CancellationToken ct) =>
+        (await db.UserEmailOptOuts.AsNoTracking().Where(x => x.Category == category && userIds.Contains(x.UserId)).Select(x => x.UserId).ToListAsync(ct)).ToHashSet();
+
+    public async Task<IReadOnlyList<string>> ListEmailOptOutCategoriesAsync(UserId userId, CancellationToken ct) =>
+        await db.UserEmailOptOuts.AsNoTracking().Where(x => x.UserId == userId).Select(x => x.Category).ToListAsync(ct);
+
+    public async Task SetEmailOptOutAsync(UserId userId, string category, bool optedOut, CancellationToken ct)
+    {
+        var existing = await db.UserEmailOptOuts.SingleOrDefaultAsync(x => x.UserId == userId && x.Category == category, ct);
+        if (optedOut && existing is null) db.UserEmailOptOuts.Add(new UserEmailOptOut(userId, category));
+        else if (!optedOut && existing is not null) db.UserEmailOptOuts.Remove(existing);
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<string>> ListCategoriesAsync(CompanyId companyId, CancellationToken ct) =>
         await db.Notifications.AsNoTracking().Where(x => x.CompanyId == companyId).Select(x => x.Category).Distinct().ToListAsync(ct);
 

@@ -28,6 +28,12 @@ public interface INotificationStore
     Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken cancellationToken);
     /// <summary>Every row of one company.</summary>
     Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken cancellationToken);
+    /// <summary>Which of these users have opted out of email for the category.</summary>
+    Task<IReadOnlySet<UserId>> ListEmailOptOutsAsync(IReadOnlyCollection<UserId> userIds, string category, CancellationToken cancellationToken);
+    /// <summary>The categories a user has opted out of email for.</summary>
+    Task<IReadOnlyList<string>> ListEmailOptOutCategoriesAsync(UserId userId, CancellationToken cancellationToken);
+    /// <summary>Records or removes one opt-out (idempotent) and saves.</summary>
+    Task SetEmailOptOutAsync(UserId userId, string category, bool optedOut, CancellationToken cancellationToken);
     /// <summary>The categories the company has notifications in.</summary>
     Task<IReadOnlyList<string>> ListCategoriesAsync(CompanyId companyId, CancellationToken cancellationToken);
     Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken cancellationToken);
@@ -131,7 +137,10 @@ public sealed class Notifier(
         // Email goes to the outbox in the same save as the in-app message: both happen or neither does.
         if (message.Email && emailOptions.Enabled)
         {
-            var emails = users.Where(u => u.EmailNotifications && !string.IsNullOrWhiteSpace(u.Email)).Select(u =>
+            var wanting = users.Where(u => u.EmailNotifications && !string.IsNullOrWhiteSpace(u.Email)).ToList();
+            var category = NotificationRetentionSetting.NormaliseCategory(items[0].Category);
+            var optedOut = wanting.Count == 0 ? new HashSet<UserId>() : await store.ListEmailOptOutsAsync(wanting.Select(u => u.Id).ToArray(), category, cancellationToken);
+            var emails = wanting.Where(u => !optedOut.Contains(u.Id)).Select(u =>
             {
                 var mail = EmailComposer.Compose(message, u.Email, u.UserName, emailOptions);
                 return EmailMessage.Create(Company, u.Id, mail.ToAddress, mail.ToName, mail.Subject, mail.Text, mail.Html, now);

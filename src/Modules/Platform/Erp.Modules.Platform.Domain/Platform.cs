@@ -805,6 +805,25 @@ public sealed class NotificationRetentionSetting
     }
 }
 
+/// <summary>A user's choice not to be emailed about one notification category (ADR 0028). Absence of a row means email is wanted.</summary>
+public sealed class UserEmailOptOut
+{
+    private UserEmailOptOut()
+    {
+        Category = string.Empty;
+    }
+
+    public UserEmailOptOut(UserId userId, string category)
+    {
+        UserId = userId;
+        Category = NotificationRetentionSetting.NormaliseCategory(category);
+        if (Category.Length == 0) throw new DomainException("A category is required.");
+    }
+
+    public UserId UserId { get; private set; }
+    public string Category { get; private set; }
+}
+
 public enum EmailStatus
 {
     Pending,

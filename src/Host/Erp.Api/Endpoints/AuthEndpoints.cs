@@ -39,6 +39,12 @@ public static class AuthEndpoints
             if (!currentUser.IsAuthenticated || currentUser.UserId is not UserId userId) return TypedResults.Unauthorized();
             return await preferences.SetEmailNotificationsAsync(userId, request.EmailNotifications, ct) is { } result ? TypedResults.Ok(result) : TypedResults.NotFound();
         }).RequireAuthorization().WithSummary("Turn email notifications on or off for the authenticated user");
+        group.MapPut("/me/preferences/email-categories/{category}", async Task<Results<Ok<UserPreferencesResponse>, UnauthorizedHttpResult, NotFound>>(
+            string category, UpdateEmailCategoryRequest request, ICurrentUser currentUser, IUserPreferenceService preferences, CancellationToken ct) =>
+        {
+            if (!currentUser.IsAuthenticated || currentUser.UserId is not UserId userId) return TypedResults.Unauthorized();
+            return await preferences.SetEmailCategoryAsync(userId, category, request.Enabled, ct) is { } result ? TypedResults.Ok(result) : TypedResults.NotFound();
+        }).RequireAuthorization().WithSummary("Turn email for one notification category on or off for the authenticated user");
         group.MapGet("/me/companies", async Task<Results<Ok<IReadOnlyList<CompanyResponse>>, UnauthorizedHttpResult>>(
             ICurrentUser currentUser,
             IUserCompanyAccessService access,
