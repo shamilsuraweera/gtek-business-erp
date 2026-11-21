@@ -311,6 +311,8 @@ public static class Permissions
         public const string NumberSequencesManage = "platform.number-sequences.manage";
         public const string AccountingPeriodsRead = "platform.accounting-periods.read";
         public const string AccountingPeriodsManage = "platform.accounting-periods.manage";
+        public const string NotificationRetentionRead = "platform.notification-retention.read";
+        public const string NotificationRetentionManage = "platform.notification-retention.manage";
     }
 
     public static class Finance
@@ -378,6 +380,8 @@ public static class Permissions
         (Platform.NumberSequencesManage, "Manage number sequences", "platform", "Create and configure company number sequences."),
         (Platform.AccountingPeriodsRead, "Read accounting periods", "platform", "View company accounting periods."),
         (Platform.AccountingPeriodsManage, "Manage accounting periods", "platform", "Create and manage company accounting periods."),
+        (Platform.NotificationRetentionRead, "Read notification retention", "platform", "View how long the company keeps notifications."),
+        (Platform.NotificationRetentionManage, "Manage notification retention", "platform", "Set the company's own notification retention, overriding the system default."),
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts."),
         (Finance.AccountsManage, "Manage finance accounts", "finance", "Create and manage the chart of accounts."),
         (Finance.MappingManage, "Manage account mapping", "finance", "Choose which ledger accounts sales, purchasing and inventory postings use."),
@@ -514,6 +518,7 @@ public static class PlatformModule
         services.AddScoped<INotifier, Notifier>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationRetention, NotificationRetention>();
+        services.AddScoped<INotificationRetentionSettings, NotificationRetentionSettingsService>();
         services.TryAddSingleton(new NotificationRetentionOptions());
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());

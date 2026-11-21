@@ -40,7 +40,7 @@ function Layout() {
     ] },
     { title: 'Inventory', links: [{ to: '/items', label: 'Items & stock', allowed: can(P.itemsRead) }] },
     { title: 'Finance', links: [{ to: '/finance', label: 'Ledger & reports', allowed: can(P.reportsRead) || can(P.journalsRead) || can(P.accountsRead) }] },
-    { title: 'System', links: [{ to: '/admin', label: 'Administration', allowed: can(P.periodsRead) || can(P.usersRead) || can(P.auditRead) }] },
+    { title: 'System', links: [{ to: '/admin', label: 'Administration', allowed: can(P.periodsRead) || can(P.usersRead) || can(P.auditRead) || can(P.retentionRead) }] },
   ]
 
   return (

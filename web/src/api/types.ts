@@ -53,3 +53,5 @@ export interface ToleranceRequestLine { itemId: string; sku: string; description
 export interface ToleranceRequest { id: string; number: string; purchaseOrderId: string; orderNumber: string; vendorName: string; status: 'Pending' | 'Approved' | 'Rejected' | 'Withdrawn'; reason: string; requestedById: string; requestedBy: string; requestedAt: string; decidedBy: string | null; decidedAt: string | null; decisionNote: string | null; lines: ToleranceRequestLine[] }
 
 export interface AppNotification { id: string; category: string; title: string; body: string | null; link: string | null; createdAt: string; isRead: boolean }
+
+export interface RetentionSettings { enabled: boolean; systemReadDays: number; systemUnreadDays: number; readDaysOverride: number | null; unreadDaysOverride: number | null; effectiveReadDays: number; effectiveUnreadDays: number; updatedAt: string | null; updatedBy: string | null }

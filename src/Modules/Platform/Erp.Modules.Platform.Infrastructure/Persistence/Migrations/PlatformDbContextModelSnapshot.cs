@@ -231,6 +231,33 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                     b.ToTable("Notifications", "platform");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Platform.Domain.NotificationRetentionSetting", b =>
+                {
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("ReadDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("UnreadDays")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CompanyId");
+
+                    b.ToTable("NotificationRetentionSettings", "platform", t =>
+                        {
+                            t.HasCheckConstraint("CK_NotificationRetentionSettings_ReadDays", "\"ReadDays\" IS NULL OR (\"ReadDays\" BETWEEN 1 AND 3650)");
+
+                            t.HasCheckConstraint("CK_NotificationRetentionSettings_UnreadDays", "\"UnreadDays\" IS NULL OR (\"UnreadDays\" BETWEEN 0 AND 3650)");
+                        });
+                });
+
             modelBuilder.Entity("Erp.Modules.Platform.Domain.NumberSequence", b =>
                 {
                     b.Property<Guid>("Id")

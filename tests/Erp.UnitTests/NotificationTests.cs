@@ -71,12 +71,18 @@ public class NotificationTests
         public Task<Notification?> GetAsync(CompanyId c, UserId u, Guid id, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> MarkAllReadAsync(CompanyId c, UserId u, DateTimeOffset at, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> MarkSubjectReadAsync(CompanyId c, string subject, DateTimeOffset at, CancellationToken ct) { ResolvedSubject = subject; return Task.FromResult(1); }
-        public (DateTimeOffset ReadBefore, DateTimeOffset? UnreadBefore, int Batch)? Purged { get; private set; }
-        public Task<PurgeResult> PurgeAsync(DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken ct)
+        public (DateTimeOffset ReadBefore, DateTimeOffset? UnreadBefore, int Batch)? Purged => Purges.Count == 0 ? null : (Purges[^1].ReadBefore, Purges[^1].UnreadBefore, Purges[^1].Batch);
+        public List<(PurgeScope Scope, DateTimeOffset ReadBefore, DateTimeOffset? UnreadBefore, int Batch)> Purges { get; } = [];
+        public List<NotificationRetentionSetting> Settings { get; } = [];
+        public Task<PurgeResult> PurgeAsync(PurgeScope scope, DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken ct)
         {
-            Purged = (readBefore, unreadBefore, batchSize);
+            Purges.Add((scope, readBefore, unreadBefore, batchSize));
             return Task.FromResult(new PurgeResult(2, 1));
         }
+        public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult(Settings.SingleOrDefault(x => x.CompanyId == companyId));
+        public Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<NotificationRetentionSetting>>(Settings.ToList());
+        public Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken ct) { Settings.Add(setting); return Task.CompletedTask; }
+        public void RemoveRetentionSetting(NotificationRetentionSetting setting) => Settings.Remove(setting);
         public Task SaveChangesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
@@ -190,6 +196,8 @@ public class NotificationTests
         Assert.Equal(Now.AddDays(-60), store.Purged.Value.UnreadBefore);
         Assert.Equal(250, store.Purged.Value.Batch);
         Assert.Equal((2, 1, 3), (result.Read, result.Unread, result.Total));
+        Assert.Null(store.Purges.Single().Scope.Only);          // no overrides: one purge for every company
+        Assert.Empty(store.Purges.Single().Scope.Except!);
     }
 
     [Fact]
@@ -198,5 +206,87 @@ public class NotificationTests
         var store = new FakeStore();
         await new NotificationRetention(store, new NotificationRetentionOptions { UnreadDays = 0 }, new FixedClock()).PurgeAsync(default);
         Assert.Null(store.Purged!.Value.UnreadBefore);
+    }
+
+    // ---- per-company retention ---------------------------------------------------------------------------------------
+
+    private static NotificationRetentionSetting Override(CompanyId company, int? read, int? unread)
+    {
+        var s = NotificationRetentionSetting.Create(company);
+        s.Set(read, unread, Now, null);
+        return s;
+    }
+
+    [Theory]
+    [InlineData(null, null, 30, 180)]    // inherits both
+    [InlineData(60, null, 60, 180)]
+    [InlineData(null, 365, 30, 365)]
+    [InlineData(10, 20, 10, 20)]
+    [InlineData(null, 0, 30, 0)]         // a company can keep unread messages forever
+    [InlineData(200, null, 200, 200)]    // inherited unread (180) is lifted to the longer read period
+    public void Effective_retention_uses_company_values_and_falls_back_to_the_system_defaults(int? read, int? unread, int expectedRead, int expectedUnread) =>
+        Assert.Equal((expectedRead, expectedUnread), new NotificationRetentionOptions().Effective(read, unread));
+
+    [Theory]
+    [InlineData(0, null, "Read days")]
+    [InlineData(3651, null, "Read days")]
+    [InlineData(null, -1, "Unread days")]
+    [InlineData(null, 3651, "Unread days")]
+    [InlineData(null, 10, "system default")]      // 10 < inherited read 30
+    [InlineData(200, null, "system default")]     // 200 > inherited unread 180
+    [InlineData(100, 50, "must not be shorter")]
+    public void Invalid_overrides_are_reported(int? read, int? unread, string mentions) =>
+        Assert.Contains(new NotificationRetentionOptions().ValidateOverrides(read, unread), e => e.Contains(mentions));
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(1, 1)]
+    [InlineData(3650, 3650)]
+    [InlineData(100, 0)]
+    [InlineData(null, 0)]
+    [InlineData(null, 30)]
+    public void Valid_overrides_are_accepted(int? read, int? unread) =>
+        Assert.Empty(new NotificationRetentionOptions().ValidateOverrides(read, unread));
+
+    [Fact]
+    public void An_override_row_is_kept_only_while_it_overrides_something()
+    {
+        var s = NotificationRetentionSetting.Create(Company);
+        Assert.True(s.InheritsEverything);
+        s.Set(null, 0, Now, null);
+        Assert.False(s.InheritsEverything);   // 0 is a real setting, not "unset"
+        s.Set(null, null, Now.AddHours(1), null);
+        Assert.True(s.InheritsEverything);
+    }
+
+    [Fact]
+    public async Task Companies_with_their_own_retention_are_purged_by_it_and_everyone_else_by_the_default()
+    {
+        var store = new FakeStore();
+        var a = new CompanyId(Guid.NewGuid());
+        var b = new CompanyId(Guid.NewGuid());
+        store.Settings.AddRange([Override(a, 7, 14), Override(b, null, 0)]);
+        var result = await new NotificationRetention(store, new NotificationRetentionOptions { ReadDays = 30, UnreadDays = 180 }, new FixedClock()).PurgeAsync(default);
+
+        Assert.Equal(3, store.Purges.Count);
+        var forA = store.Purges.Single(p => p.Scope.Only == a);
+        Assert.Equal((Now.AddDays(-7), (DateTimeOffset?)Now.AddDays(-14)), (forA.ReadBefore, forA.UnreadBefore));
+        var forB = store.Purges.Single(p => p.Scope.Only == b);
+        Assert.Equal((Now.AddDays(-30), (DateTimeOffset?)null), (forB.ReadBefore, forB.UnreadBefore));   // read inherited, unread kept forever
+        var rest = store.Purges.Single(p => p.Scope.Only is null);
+        Assert.Equal(new[] { a, b }.Order(Comparer<CompanyId>.Create((x, y) => x.Value.CompareTo(y.Value))), rest.Scope.Except!.Order(Comparer<CompanyId>.Create((x, y) => x.Value.CompareTo(y.Value))));
+        Assert.Equal((Now.AddDays(-30), (DateTimeOffset?)Now.AddDays(-180)), (rest.ReadBefore, rest.UnreadBefore));
+        Assert.Equal(9, result.Total);   // three purges of (2 read, 1 unread)
+    }
+
+    [Fact]
+    public async Task A_company_override_that_would_leave_unread_shorter_than_read_is_lifted_when_purging()
+    {
+        var store = new FakeStore();
+        var a = new CompanyId(Guid.NewGuid());
+        store.Settings.Add(Override(a, 200, null));          // inherits unread 180 < 200: drift the purge must not act on literally
+        await new NotificationRetention(store, new NotificationRetentionOptions(), new FixedClock()).PurgeAsync(default);
+        var forA = store.Purges.Single(p => p.Scope.Only == a);
+        Assert.Equal((Now.AddDays(-200), (DateTimeOffset?)Now.AddDays(-200)), (forA.ReadBefore, forA.UnreadBefore));
     }
 }
