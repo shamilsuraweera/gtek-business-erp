@@ -4,9 +4,9 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader, Tabs } from '../ui'
-import type { AuditPage, Period, Sequence, User } from '../api/types'
+import type { AuditPage, Period, RetentionSettings, Sequence, User } from '../api/types'
 
-type Tab = 'periods' | 'sequences' | 'users' | 'audit'
+type Tab = 'periods' | 'sequences' | 'users' | 'audit' | 'notifications'
 
 function PeriodForm({ onClose }: { onClose: () => void }) {
   const [code, setCode] = useState('')
@@ -127,6 +127,52 @@ function AuditTab() {
   )
 }
 
+/** How long this company keeps notifications: its own values, or blank to use the system default. */
+function NotificationsTab() {
+  const { can, company } = useAuth()
+  const settings = useApiQuery<RetentionSettings>('/notification-settings/retention')
+  const [read, setRead] = useState<string | null>(null)
+  const [unread, setUnread] = useState<string | null>(null)
+  const save = useApiMutation<void>(() => ({
+    path: '/notification-settings/retention', method: 'PUT',
+    body: { readDays: num(read ?? str(settings.data?.readDaysOverride ?? null)), unreadDays: num(unread ?? str(settings.data?.unreadDaysOverride ?? null)) },
+  }), () => { setRead(null); setUnread(null) })
+  const str = (n: number | null) => (n == null ? '' : String(n))
+  const num = (v: string) => (v.trim() === '' ? null : Number(v))
+  if (settings.isLoading) return <Loading />
+  const s = settings.data
+  if (!s) return <ErrorNote error={settings.error} />
+  const readValue = read ?? str(s.readDaysOverride)
+  const unreadValue = unread ?? str(s.unreadDaysOverride)
+  const manage = can(P.retentionManage)
+  const dirty = readValue !== str(s.readDaysOverride) || unreadValue !== str(s.unreadDaysOverride)
+  return (
+    <form className="card stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }} style={{ maxWidth: 640 }}>
+      <h3 style={{ margin: 0 }}>Notification retention{company ? ` — ${company.name}` : ''}</h3>
+      <p className="muted" style={{ margin: 0 }}>Notifications are deleted automatically. Leave a field blank to use the system default.</p>
+      {!s.enabled && <div className="note error">The scheduled purge is switched off for this installation, so nothing is deleted regardless of these settings.</div>}
+      <div className="form-grid">
+        <Field label="Keep read messages for (days)" hint={`Counted from when the message was read. System default: ${s.systemReadDays} days.`}>
+          <input type="number" min={1} max={3650} value={readValue} placeholder={`${s.systemReadDays} (default)`} disabled={!manage} onChange={(e) => setRead(e.target.value)} />
+        </Field>
+        <Field label="Keep unread messages for (days)" hint={`Counted from when it was sent; 0 keeps unread messages forever. System default: ${s.systemUnreadDays} days.`}>
+          <input type="number" min={0} max={3650} value={unreadValue} placeholder={`${s.systemUnreadDays} (default)`} disabled={!manage} onChange={(e) => setUnread(e.target.value)} />
+        </Field>
+      </div>
+      <p>In effect now: read messages are removed <strong>{s.effectiveReadDays} days</strong> after they are read; unread ones {s.effectiveUnreadDays === 0 ? <strong>are kept</strong> : <>after <strong>{s.effectiveUnreadDays} days</strong></>}.
+        {s.updatedAt && <span className="muted"> Last changed {formatDate(s.updatedAt)}{s.updatedBy ? ` by ${s.updatedBy}` : ''}.</span>}</p>
+      <ErrorNote error={save.error} />
+      {manage && (
+        <div className="modal-actions" style={{ justifyContent: 'flex-start' }}>
+          <button className="btn primary" disabled={!dirty || save.isPending}>{save.isPending ? 'Saving…' : 'Save'}</button>
+          <button type="button" className="btn" disabled={dirty === false && s.readDaysOverride == null && s.unreadDaysOverride == null}
+            onClick={() => { setRead(''); setUnread('') }}>Use system defaults</button>
+        </div>
+      )}
+    </form>
+  )
+}
+
 export function Admin() {
   const { can } = useAuth()
   const tabs = [
@@ -134,6 +180,7 @@ export function Admin() {
     ...(can(P.sequencesRead) ? [{ id: 'sequences' as Tab, label: 'Number sequences' }] : []),
     ...(can(P.usersRead) ? [{ id: 'users' as Tab, label: 'Users' }] : []),
     ...(can(P.auditRead) ? [{ id: 'audit' as Tab, label: 'Audit log' }] : []),
+    ...(can(P.retentionRead) ? [{ id: 'notifications' as Tab, label: 'Notifications' }] : []),
   ]
   const [tab, setTab] = useState<Tab | undefined>(tabs[0]?.id)
   return (
@@ -144,6 +191,7 @@ export function Admin() {
       {tab === 'sequences' && <SequencesTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'audit' && <AuditTab />}
+      {tab === 'notifications' && <NotificationsTab />}
     </>
   )
 }

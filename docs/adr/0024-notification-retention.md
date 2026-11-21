@@ -12,7 +12,7 @@ and give nothing back.
 
 ## Decision
 
-- A **system-wide retention policy**, configured under `Notifications:Retention` (appsettings or environment variables), not per company or user:
+- A **system-wide default retention policy**, configured under `Notifications:Retention` (appsettings or environment variables), not per company or user:
 
   | Setting | Default | Meaning |
   |---|---|---|
@@ -40,7 +40,7 @@ and give nothing back.
 ## Consequences
 
 - Deletion is permanent. The audit trail (not notifications) is the record of who requested and decided what; it is unaffected.
-- The policy is one setting for the whole installation. Different retention per company or per category is not supported.
+- The configuration is the installation's default. A company can override it (ADR 0025); per-category retention is not supported.
 - Nothing is archived or exported before deletion.
 - With `UnreadDays` at 0, a user who never opens the bell keeps every unread message indefinitely.
 - The functional-test host turns the worker off, because the purge needs a real database; it is covered by integration tests against PostgreSQL.

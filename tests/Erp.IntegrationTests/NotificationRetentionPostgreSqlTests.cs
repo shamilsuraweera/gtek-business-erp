@@ -1,3 +1,4 @@
+using Erp.Modules.Platform.Application;
 using Erp.Modules.Platform.Domain;
 using Erp.Modules.Platform.Infrastructure.Persistence;
 using Erp.SharedKernel;
@@ -116,12 +117,46 @@ public sealed class NotificationRetentionPostgreSqlTests
         finally { await CleanUpAsync(options, a); await CleanUpAsync(options, b); }
     }
 
-    private static async Task<Erp.Modules.Platform.Application.PurgeResult> PurgeAsync(
-        DbContextOptions<PlatformDbContext> options, int readDays, int unreadDays, int batch)
+    private static async Task<PurgeResult> PurgeAsync(
+        DbContextOptions<PlatformDbContext> options, int readDays, int unreadDays, int batch, PurgeScope? scope = null)
     {
         await using var context = new PlatformDbContext(options);
-        return await new NotificationStore(context).PurgeAsync(
+        return await new NotificationStore(context).PurgeAsync(scope ?? PurgeScope.AllExcept([]),
             Now.AddDays(-readDays), unreadDays == 0 ? null : Now.AddDays(-unreadDays), batch, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_scope_limits_the_purge_to_one_company_or_spares_named_companies()
+    {
+        var options = CreateOptions(RequireConnectionString());
+        var a = new CompanyId(Guid.NewGuid());
+        var b = new CompanyId(Guid.NewGuid());
+        var c = new CompanyId(Guid.NewGuid());
+        async Task Seed()
+        {
+            await using var setup = new PlatformDbContext(options);
+            foreach (var company in new[] { a, b, c })
+                setup.Notifications.AddRange(Make(company, new UserId(Guid.NewGuid()), "old read", 90, 80), Make(company, new UserId(Guid.NewGuid()), "old unread", 300), Make(company, new UserId(Guid.NewGuid()), "fresh", 1));
+            await setup.SaveChangesAsync();
+        }
+
+        await Seed();
+        try
+        {
+            await PurgeAsync(options, 30, 180, 1000, PurgeScope.Company(a));
+            Assert.Equal(["fresh"], await TitlesAsync(options, a));
+            Assert.Equal(3, (await TitlesAsync(options, b)).Count);      // other companies untouched
+            Assert.Equal(3, (await TitlesAsync(options, c)).Count);
+
+            await PurgeAsync(options, 30, 180, 1000, PurgeScope.AllExcept([b]));
+            Assert.Equal(["fresh"], await TitlesAsync(options, c));
+            Assert.Equal(3, (await TitlesAsync(options, b)).Count);      // spared company untouched
+
+            // The spared company has its own retention: read messages 60 days after reading, unread kept forever.
+            await PurgeAsync(options, 60, 0, 1000, PurgeScope.Company(b));
+            Assert.Equal(new[] { "old unread", "fresh" }.Order(), (await TitlesAsync(options, b)).Order());   // "old read" (read 80 days ago) goes; the unread one stays
+        }
+        finally { await CleanUpAsync(options, a); await CleanUpAsync(options, b); await CleanUpAsync(options, c); }
     }
 
     private static async Task<List<string>> TitlesAsync(DbContextOptions<PlatformDbContext> options, CompanyId company)

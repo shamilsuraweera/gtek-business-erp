@@ -746,3 +746,38 @@ public sealed class Notification
     private static string? Trim(string? value, int max) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length <= max ? value.Trim() : value.Trim()[..max];
 }
+
+/// <summary>
+/// A company's own notification retention (ADR 0025). A null value inherits the system default; a row with both null is never stored.
+/// </summary>
+public sealed class NotificationRetentionSetting
+{
+    private NotificationRetentionSetting()
+    {
+    }
+
+    private NotificationRetentionSetting(CompanyId companyId)
+    {
+        CompanyId = companyId;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    /// <summary>Days a message is kept after it was read; null inherits the system default.</summary>
+    public int? ReadDays { get; private set; }
+    /// <summary>Days an unread message is kept after it was sent; 0 keeps it forever; null inherits the system default.</summary>
+    public int? UnreadDays { get; private set; }
+    public DateTimeOffset UpdatedAt { get; private set; }
+    public UserId? UpdatedBy { get; private set; }
+
+    public static NotificationRetentionSetting Create(CompanyId companyId) => new(companyId);
+
+    public bool InheritsEverything => ReadDays is null && UnreadDays is null;
+
+    public void Set(int? readDays, int? unreadDays, DateTimeOffset at, UserId? by)
+    {
+        ReadDays = readDays;
+        UnreadDays = unreadDays;
+        UpdatedAt = at;
+        UpdatedBy = by;
+    }
+}

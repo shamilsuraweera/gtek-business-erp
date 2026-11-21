@@ -87,6 +87,7 @@ app.MapInventoryEndpoints();
 app.MapSalesEndpoints();
 app.MapPurchasingEndpoints();
 app.MapNotificationEndpoints();
+app.MapNotificationSettingsEndpoints();
 
 if (args.Contains("--seed"))
 {

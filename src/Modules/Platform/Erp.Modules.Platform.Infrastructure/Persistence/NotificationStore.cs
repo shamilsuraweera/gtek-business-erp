@@ -34,15 +34,32 @@ public sealed class NotificationStore(PlatformDbContext db) : INotificationStore
         db.Notifications.Where(x => x.CompanyId == companyId && x.Subject == subject && x.ReadAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.ReadAt, at), ct);
 
-    public async Task<PurgeResult> PurgeAsync(DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken ct)
+    public async Task<PurgeResult> PurgeAsync(PurgeScope scope, DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken ct)
     {
-        var read = await DeleteInBatchesAsync(
-            db.Notifications.Where(x => x.ReadAt != null && x.ReadAt < readBefore).OrderBy(x => x.ReadAt), batchSize, ct);
+        IQueryable<Notification> inScope = db.Notifications;
+        if (scope.Only is { } only) inScope = inScope.Where(x => x.CompanyId == only);
+        if (scope.Except is { Count: > 0 } except) inScope = inScope.Where(x => !except.Contains(x.CompanyId));
+
+        var read = await DeleteInBatchesAsync(inScope.Where(x => x.ReadAt != null && x.ReadAt < readBefore).OrderBy(x => x.ReadAt), batchSize, ct);
         var unread = unreadBefore is { } cutoff
-            ? await DeleteInBatchesAsync(db.Notifications.Where(x => x.ReadAt == null && x.CreatedAt < cutoff).OrderBy(x => x.CreatedAt), batchSize, ct)
+            ? await DeleteInBatchesAsync(inScope.Where(x => x.ReadAt == null && x.CreatedAt < cutoff).OrderBy(x => x.CreatedAt), batchSize, ct)
             : 0;
         return new PurgeResult(read, unread);
     }
+
+    public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, CancellationToken ct) =>
+        db.NotificationRetentionSettings.SingleOrDefaultAsync(x => x.CompanyId == companyId, ct);
+
+    public async Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken ct) =>
+        await db.NotificationRetentionSettings.AsNoTracking().ToListAsync(ct);
+
+    public Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken ct)
+    {
+        db.NotificationRetentionSettings.Add(setting);
+        return Task.CompletedTask;
+    }
+
+    public void RemoveRetentionSetting(NotificationRetentionSetting setting) => db.NotificationRetentionSettings.Remove(setting);
 
     private async Task<int> DeleteInBatchesAsync(IOrderedQueryable<Notification> due, int batchSize, CancellationToken ct)
     {

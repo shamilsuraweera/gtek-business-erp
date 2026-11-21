@@ -17,10 +17,15 @@ public interface INotificationStore
     Task<int> MarkAllReadAsync(CompanyId companyId, UserId userId, DateTimeOffset at, CancellationToken cancellationToken);
     Task<int> MarkSubjectReadAsync(CompanyId companyId, string subject, DateTimeOffset at, CancellationToken cancellationToken);
     /// <summary>
-    /// Deletes, across all companies, read notifications read before <paramref name="readBefore"/> and (if given) unread ones sent before
+    /// Deletes, within the scope, read notifications read before <paramref name="readBefore"/> and (if given) unread ones sent before
     /// <paramref name="unreadBefore"/>, in batches.
     /// </summary>
-    Task<PurgeResult> PurgeAsync(DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken cancellationToken);
+    Task<PurgeResult> PurgeAsync(PurgeScope scope, DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken cancellationToken);
+
+    Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken cancellationToken);
+    Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken cancellationToken);
+    void RemoveRetentionSetting(NotificationRetentionSetting setting);
 
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
@@ -32,13 +37,19 @@ public interface INotificationService
     Task<int> UnreadCountAsync(CancellationToken cancellationToken);
     Task<NotificationResponse?> MarkReadAsync(Guid id, CancellationToken cancellationToken);
     Task<int> MarkAllReadAsync(CancellationToken cancellationToken);
-    NotificationRetentionResponse Retention { get; }
+    /// <summary>How long the active company keeps notifications (its own setting, else the system default).</summary>
+    Task<NotificationRetentionResponse> GetRetentionAsync(CancellationToken cancellationToken);
 }
 
 public sealed class NotificationService(
     INotificationStore store, ICurrentUser currentUser, ICompanyContext companyContext, IClock clock, NotificationRetentionOptions retention) : INotificationService
 {
-    public NotificationRetentionResponse Retention => new(retention.Enabled, retention.ReadDays, retention.UnreadDays);
+    public async Task<NotificationRetentionResponse> GetRetentionAsync(CancellationToken cancellationToken)
+    {
+        var setting = await store.GetRetentionSettingAsync(Scope().Company, cancellationToken);
+        var (read, unread) = retention.Effective(setting?.ReadDays, setting?.UnreadDays);
+        return new NotificationRetentionResponse(retention.Enabled, read, unread);
+    }
 
     private (CompanyId Company, UserId User) Scope() =>
         (companyContext.HasCompany ? companyContext.CompanyId : throw new InvalidOperationException("An active company context is required."),

@@ -111,6 +111,24 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
         }
     }
 
+    public sealed class NotificationRetentionSettingConfiguration : IEntityTypeConfiguration<NotificationRetentionSetting>
+    {
+        public void Configure(EntityTypeBuilder<NotificationRetentionSetting> b)
+        {
+            b.HasKey(x => x.CompanyId);
+            b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new Erp.SharedKernel.CompanyId(x));
+            b.Property(x => x.UpdatedBy).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
+            b.Ignore(x => x.InheritsEverything);
+            b.ToTable("NotificationRetentionSettings", "platform", t =>
+            {
+                t.HasCheckConstraint("CK_NotificationRetentionSettings_ReadDays", "\"ReadDays\" IS NULL OR (\"ReadDays\" BETWEEN 1 AND 3650)");
+                t.HasCheckConstraint("CK_NotificationRetentionSettings_UnreadDays", "\"UnreadDays\" IS NULL OR (\"UnreadDays\" BETWEEN 0 AND 3650)");
+            });
+        }
+    }
+
     public sealed class UserCompanyAccessConfiguration : IEntityTypeConfiguration<UserCompanyAccess>
     {
         public void Configure(EntityTypeBuilder<UserCompanyAccess> b)
