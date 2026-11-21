@@ -19,6 +19,9 @@ public sealed class SmtpEmailSender(EmailOptions options) : IEmailSender
             message.From.Add(new MailboxAddress(options.FromName, options.FromAddress!));
             message.To.Add(new MailboxAddress(email.ToName ?? string.Empty, email.ToAddress));
             message.Subject = email.Subject;
+            // The same id on every attempt at this message, in the sender's own domain (RFC 5322 requires an @).
+            if (!string.IsNullOrWhiteSpace(email.MessageId))
+                message.MessageId = $"{email.MessageId}@{options.FromAddress!.Split('@')[^1]}";
             message.Body = new BodyBuilder { TextBody = email.Text, HtmlBody = email.Html }.ToMessageBody();
         }
         catch (Exception exception) when (exception is ParseException or ArgumentException or FormatException)

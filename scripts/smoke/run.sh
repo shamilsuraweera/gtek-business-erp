@@ -75,7 +75,7 @@ env ASPNETCORE_ENVIRONMENT=Development \
     Authentication__Jwt__SigningKey="c21va2Utc2lnbmluZy1rZXktMzItYnl0ZXMtbG9uZy0hISE=" \
     Email__Enabled=true Email__Host=127.0.0.1 Email__Port="$SMTP_PORT" Email__Security=None \
     Email__FromAddress=erp@gtek.local Email__BaseUrl=http://localhost:5173 Email__PollSeconds=2 \
-    Reminders__InitialDelaySeconds=1 Reminders__HourUtc=0 \
+    Reminders__InitialDelaySeconds=1 Reminders__Hour=0 \
     dotnet run --project src/Host/Erp.Api --no-build --no-launch-profile --urls "http://127.0.0.1:$PORT" >"$LOG" 2>&1 &
 API_PID=$!
 

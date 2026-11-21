@@ -40,6 +40,10 @@ does not learn that a tolerance request (ADR 0022) is waiting, and the requester
 
 ## Consequences
 
+- Each email carries a **stable `Message-ID`** (the outbox row id, in the sender's domain), the same on every attempt, so if a crash between the
+  server accepting a message and the database recording it makes it go out twice, the copy can be recognised as a duplicate. Delivery stays
+  at-least-once, and bounces are not processed.
+
 - Email is best effort and at-least-once from the outbox's point of view: a failure between the server accepting a message and the row being saved
   could, rarely, send it twice. Receipt is not tracked (no bounces or read receipts).
 - The SMTP password lives in configuration; keep it in an environment variable or secret store, not source control. It is never returned by the API.

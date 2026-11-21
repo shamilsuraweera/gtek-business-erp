@@ -16,7 +16,7 @@ the dashboard's "Low stock" card used a fixed rule (8 or fewer of anything), whi
   ("tell me when it runs out"). It cannot be negative. It is set on the item form (create and edit, audited) and returned on items and on stock levels.
 - Only **active, monitored** items count. On-hand is the total across locations, from the same stock ledger as everything else.
 - `LowStockReminder` (an `IReminderJob`, Inventory) uses the machinery of ADR 0029 unchanged: one summary per company per period, the same
-  `Reminders` configuration (`HourUtc`, `RepeatDays`, ...), a newer summary replaces the older one, and it clears itself when nothing is low.
+  `Reminders` configuration (`Hour`, `RepeatDays`, ...), a newer summary replaces the older one, and it clears itself when nothing is low.
   The category and subject are `low-stock`; the message is **emailed**, goes to holders of `inventory.stock.manage` (who receive and adjust stock),
   and links to `/items`. It gives the count, how many are out of stock, and the most urgent item (furthest below its level) with its quantity and level.
 - Being a category, `low-stock` gets the per-category email opt-out (ADR 0028) and per-category retention (ADR 0027) without extra work.

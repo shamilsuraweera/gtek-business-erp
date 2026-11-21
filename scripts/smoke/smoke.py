@@ -5,7 +5,7 @@ Needs only Python 3.9+ (standard library). It expects:
   * the API running at SMOKE_API (set SMOKE_WAIT_SECONDS to wait for it to come up; start this script BEFORE the API so the SMTP sink is listening
     when the API sends its first emails) (default http://127.0.0.1:5004) on a database seeded with `scripts/dev-setup.sh --seed`;
   * the API configured to send email to this script's built-in SMTP sink (SMOKE_SMTP_PORT, default 2525), with reminders firing at start-up
-    (Reminders__InitialDelaySeconds small, Reminders__HourUtc=0) -- `scripts/smoke/run.sh` sets all of that up.
+    (Reminders__InitialDelaySeconds small, Reminders__Hour=0) -- `scripts/smoke/run.sh` sets all of that up.
 
 Every check prints PASS/FAIL; the exit code is 1 if any failed. A section that raises is reported as a failure and the next one still runs.
 It only relies on data the seeder creates fresh, so run it against a fresh database, not a shared one.
@@ -16,6 +16,7 @@ import email
 import email.policy
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -73,7 +74,7 @@ async def _smtp_client(reader, writer):
             text = message.get_body(preferencelist=("plain",))
             html = message.get_body(preferencelist=("html",))
             with _mail_lock:
-                MAIL.append({"to": [r.lower() for r in rcpts], "subject": message["Subject"] or "",
+                MAIL.append({"to": [r.lower() for r in rcpts], "subject": message["Subject"] or "", "message_id": message["Message-ID"] or "",
                              "text": text.get_content() if text else "", "html": html.get_content() if html else "", "raw": message.as_string()})
             await say("250 queued")
         elif up == "RSET":
@@ -407,6 +408,10 @@ def section_final_integrity():
     status = admin("GET", "/notification-settings/email")[1]
     check("the email outbox has drained", bool(wait_for(lambda: admin("GET", "/notification-settings/email")[1]["pending"] == 0, 30)), status)
     check("only the one deliberately rejected message failed", status["failed"] == 1, status)
+    with _mail_lock:
+        ids = [m["message_id"] for m in MAIL]
+    check("every email carries a stable, unique Message-ID in the sender's domain",
+          len(ids) >= 10 and len(set(ids)) == len(ids) and all(re.fullmatch(r"<[0-9a-f]{32}@gtek\.local>", i) for i in ids), ids[:3])
     check("messages were delivered", status["sentLast24Hours"] >= 10, status)
 
 
