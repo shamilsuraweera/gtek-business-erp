@@ -524,6 +524,7 @@ public static class PlatformModule
         services.AddScoped<IEmailDelivery, EmailDelivery>();
         services.AddScoped<IEmailStatusService, EmailStatusService>();
         services.AddScoped<IUserPreferenceService, UserPreferenceService>();
+        services.AddScoped<IReminderJob, PeriodCloseReminder>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;
