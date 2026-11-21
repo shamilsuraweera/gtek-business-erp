@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Refined by ADR 0037: alerts net out what is already on order, and the dashboard no longer counts never-stocked items.
 
 ## Context
 
