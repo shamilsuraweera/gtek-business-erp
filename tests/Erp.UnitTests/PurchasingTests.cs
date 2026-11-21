@@ -189,6 +189,53 @@ public class PurchasingTests
     public void Price_tolerance_is_symmetric_and_inclusive(double order, double billed, bool expected) =>
         Assert.Equal(expected, ThreeWayMatch.WithinTolerance((decimal)order, (decimal)billed));
 
+    [Theory]
+    [InlineData(100, 104, 5, true)]       // a looser tolerance accepts what the default would reject
+    [InlineData(100, 104, 2, false)]
+    [InlineData(100, 100.01, 0, false)]   // zero means exact prices only
+    [InlineData(100, 100, 0, true)]
+    [InlineData(100, 97, 3, true)]        // inclusive at the boundary, both directions
+    public void Tolerance_can_be_set_per_line(double order, double billed, double tolerance, bool expected) =>
+        Assert.Equal(expected, ThreeWayMatch.WithinTolerance((decimal)order, (decimal)billed, (decimal)tolerance));
+
+    [Theory]
+    [InlineData(1.5, 4.0, 1.5)]       // the item wins over the vendor
+    [InlineData(0.0, 4.0, 0.0)]          // an item set to exact prices is not "unset"
+    [InlineData(null, 4.0, 4.0)]      // otherwise the vendor
+    [InlineData(null, 0.0, 0.0)]
+    [InlineData(null, null, 2.0)]     // otherwise the company default
+    public void Effective_tolerance_prefers_item_then_vendor_then_default(double? item, double? vendor, double expected) =>
+        Assert.Equal((decimal)expected, ThreeWayMatch.EffectiveTolerance((decimal?)item, (decimal?)vendor));
+
+    [Theory]
+    [InlineData(-0.01)]
+    [InlineData(100.01)]
+    public void Tolerance_outside_zero_to_one_hundred_is_rejected(double value)
+    {
+        Assert.Throws<DomainException>(() => ThreeWayMatch.ValidateTolerance((decimal)value));
+        Assert.Throws<DomainException>(() => Vendor.Create(new CompanyId(Guid.NewGuid()), "V1", "Vendor", null, null, 30, DateTimeOffset.UtcNow, (decimal)value));
+    }
+
+    [Fact]
+    public void Vendor_tolerance_is_optional_and_can_be_cleared()
+    {
+        var vendor = Vendor.Create(new CompanyId(Guid.NewGuid()), "V1", "Vendor", null, null, 30, DateTimeOffset.UtcNow);
+        Assert.Null(vendor.PriceTolerancePercent);
+        vendor.Update("Vendor", null, null, 30, 5m);
+        Assert.Equal(5m, vendor.PriceTolerancePercent);
+        vendor.Update("Vendor", null, null, 30, null);
+        Assert.Null(vendor.PriceTolerancePercent);
+    }
+
+    [Fact]
+    public void Bill_line_keeps_the_tolerance_it_was_matched_against()
+    {
+        var line = new VendorBillLine(ItemA, "A", "Item A", 10m, orderUnitCost: 100m, unitCost: 104m, tolerancePercent: 5m);
+        Assert.Equal(5m, line.TolerancePercent);
+        Assert.True(line.WithinTolerance);
+        Assert.False(new VendorBillLine(ItemA, "A", "Item A", 10m, 100m, 104m).WithinTolerance); // default 2%
+    }
+
     [Fact]
     public void Variance_percent_is_relative_to_the_order_price() =>
         Assert.Equal(5m, ThreeWayMatch.VariancePercent(200m, 210m));

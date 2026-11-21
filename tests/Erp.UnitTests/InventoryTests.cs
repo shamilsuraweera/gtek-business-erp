@@ -48,4 +48,17 @@ public class InventoryTests
     [Fact]
     public void Location_code_is_normalized() =>
         Assert.Equal("MAIN", Location.Create(Company, " main ", "Main").Code);
+
+    [Fact]
+    public void Item_price_tolerance_is_optional_validated_and_updatable()
+    {
+        var item = Item.Create(Company, "T-1", "Tolerant", "EA", 10m, 5m, DateTimeOffset.UtcNow);
+        Assert.Null(item.PriceTolerancePercent);
+        item.Update("Tolerant", "EA", 10m, 5m, null, 0m);
+        Assert.Equal(0m, item.PriceTolerancePercent); // zero is a real setting (exact prices), not "unset"
+        item.Update("Tolerant", "EA", 10m, 5m, null, null);
+        Assert.Null(item.PriceTolerancePercent);
+        Assert.Throws<DomainException>(() => item.Update("Tolerant", "EA", 10m, 5m, null, 100.5m));
+        Assert.Throws<DomainException>(() => Item.Create(Company, "T-2", "N", "EA", 1m, 1m, DateTimeOffset.UtcNow, null, -1m));
+    }
 }

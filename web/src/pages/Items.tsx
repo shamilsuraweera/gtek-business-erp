@@ -16,14 +16,16 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
   const [price, setPrice] = useState(String(item?.unitPrice ?? ''))
   const [cost, setCost] = useState(String(item?.unitCost ?? ''))
   const [taxCode, setTaxCode] = useState(item?.taxCode ?? '')
+  const [tolerance, setTolerance] = useState(item?.priceTolerancePercent == null ? '' : String(item.priceTolerancePercent))
+  const toleranceValue = tolerance.trim() === '' ? null : Number(tolerance)
   const { can } = useAuth()
   const taxCodes = useApiQuery<TaxCode[]>('/finance/tax-codes', { enabled: can(P.accountsRead) })
   // Keep the item's current code selectable even if it was deactivated since.
   const options = (taxCodes.data ?? []).filter((t) => t.isActive || t.code === item?.taxCode)
   const save = useApiMutation<void>(
     () => item
-      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null } }
-      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null } },
+      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue } }
+      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue } },
     onClose,
   )
   return (
@@ -41,6 +43,9 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
           </Field>
           <Field label="Selling price"><input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} required /></Field>
           <Field label="Standard cost" hint="Used to value stock issues (COGS)."><input type="number" min={0} step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} required /></Field>
+          <Field label="Price tolerance (%)" hint="How far a vendor's billed price may differ from the order for this item. Blank defers to the vendor's tolerance, then the company default (2%); 0 means exact prices only.">
+            <input type="number" min={0} max={100} step="0.01" value={tolerance} placeholder="Default" onChange={(e) => setTolerance(e.target.value)} />
+          </Field>
         </div>
         <ErrorNote error={save.error} />
         <div className="modal-actions">
@@ -130,7 +135,7 @@ export function Items() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No items match.</Empty> : (
             <table className="data">
-              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">Tolerance</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map((item) => {
                   const s = level(item.id)
@@ -139,6 +144,7 @@ export function Items() {
                       <td>{item.sku}</td><td>{item.name}</td>
                       <td className="num">{formatMoney(item.unitPrice)}</td><td className="num">{formatMoney(item.unitCost)}</td>
                       <td>{item.taxCode ?? <span className="muted">—</span>}</td>
+                      <td className="num">{item.priceTolerancePercent == null ? <span className="muted">—</span> : `${item.priceTolerancePercent}%`}</td>
                       <td className="num">{s ? <Badge value={`${formatNumber(s.onHand)} ${item.unitOfMeasure}`} tone={s.onHand <= 0 ? 'bad' : s.onHand <= 8 ? 'warn' : 'neutral'} /> : '—'}</td>
                       <td className="num">{s ? formatMoney(s.value) : '—'}</td>
                       <td><Badge value={item.isActive ? 'Active' : 'Inactive'} /></td>

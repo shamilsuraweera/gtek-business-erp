@@ -204,6 +204,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<decimal?>("PriceTolerancePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Code")
@@ -649,6 +653,12 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                             b1.Property<decimal>("TaxRate")
                                 .HasPrecision(7, 4)
                                 .HasColumnType("numeric(7,4)");
+
+                            b1.Property<decimal>("TolerancePercent")
+                                .ValueGeneratedOnAdd()
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)")
+                                .HasDefaultValue(2m);
 
                             b1.Property<decimal>("UnitCost")
                                 .HasPrecision(19, 4)

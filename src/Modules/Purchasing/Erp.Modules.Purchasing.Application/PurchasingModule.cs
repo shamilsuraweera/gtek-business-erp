@@ -4,15 +4,16 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.Modules.Purchasing.Application;
 
-public sealed record VendorResponse(Guid Id, string Code, string Name, string? Email, string? Phone, int PaymentTermsDays, bool IsActive);
-public sealed record CreateVendorRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays);
-public sealed record UpdateVendorRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays);
+public sealed record VendorResponse(Guid Id, string Code, string Name, string? Email, string? Phone, int PaymentTermsDays, bool IsActive, decimal? PriceTolerancePercent);
+public sealed record CreateVendorRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null);
+public sealed record UpdateVendorRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null);
 
 public sealed record PurchaseLineRequest(Guid ItemId, decimal Quantity, decimal? UnitCost);
 public sealed record CreatePurchaseOrderRequest(Guid VendorId, DateOnly? OrderDate, string? Notes, IReadOnlyList<PurchaseLineRequest> Lines);
 public sealed record PurchaseOrderLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitCost, decimal LineTotal,
-    decimal QuantityReceived, decimal QuantityBilled, decimal QuantityReturned, decimal QuantityDebited, decimal DebitableQuantity);
+    decimal QuantityReceived, decimal QuantityBilled, decimal QuantityReturned, decimal QuantityDebited, decimal DebitableQuantity,
+    decimal? PriceTolerancePercent = null);
 public sealed record ReceiptSummary(Guid Id, string Number, DateOnly ReceiptDate, string Reference, decimal Total, string JournalNumber);
 public sealed record ReturnSummary(Guid Id, string Number, DateOnly ReturnDate, string Reason, string Reference, decimal Total, string JournalNumber);
 public sealed record BillSummary(Guid Id, string Number, DateOnly BillDate, decimal Total, decimal PriceVariance, BillStatus Status);
@@ -34,7 +35,7 @@ public sealed record CreateBillRequest(DateOnly? Date, string? VendorReference, 
 public sealed record BillLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost,
     decimal LineTotal, decimal PriceVariance, string MatchStatus, decimal QuantityDebited,
-    string? TaxCode, decimal TaxRate, decimal TaxAmount);
+    string? TaxCode, decimal TaxRate, decimal TaxAmount, decimal TolerancePercent);
 public sealed record BillResponse(
     Guid Id, string Number, string? VendorReference, Guid PurchaseOrderId, Guid VendorId, string VendorName,
     DateOnly BillDate, DateOnly DueDate, decimal Subtotal, decimal TaxTotal, decimal Total, decimal AmountPaid, decimal AmountDebited, decimal Balance, BillStatus Status,

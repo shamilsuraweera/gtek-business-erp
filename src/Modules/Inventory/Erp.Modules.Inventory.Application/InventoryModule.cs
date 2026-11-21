@@ -5,9 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.Modules.Inventory.Application;
 
-public sealed record ItemResponse(Guid Id, string Sku, string Name, string UnitOfMeasure, decimal UnitPrice, decimal UnitCost, bool IsActive, string? TaxCode);
-public sealed record CreateItemRequest(string Sku, string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null);
-public sealed record UpdateItemRequest(string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null);
+public sealed record ItemResponse(Guid Id, string Sku, string Name, string UnitOfMeasure, decimal UnitPrice, decimal UnitCost, bool IsActive, string? TaxCode, decimal? PriceTolerancePercent);
+public sealed record CreateItemRequest(string Sku, string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null, decimal? PriceTolerancePercent = null);
+public sealed record UpdateItemRequest(string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null, decimal? PriceTolerancePercent = null);
 
 public sealed record LocationResponse(Guid Id, string Code, string Name, bool IsActive);
 public sealed record CreateLocationRequest(string Code, string Name);

@@ -40,16 +40,24 @@ public sealed class Item : AggregateRoot<ItemId>
     public decimal UnitCost { get; private set; }
     /// <summary>The tax code applied when this item is sold or bought; none means the item carries no tax. Prices are tax-exclusive.</summary>
     public string? TaxCode { get; private set; }
+    /// <summary>Price tolerance for matching vendor bills of this item to the purchase order; none defers to the vendor, then the company default.</summary>
+    public decimal? PriceTolerancePercent { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Item Create(CompanyId companyId, string sku, string name, string unitOfMeasure,
-        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null)
+        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null)
     {
         var item = new Item(new ItemId(Guid.NewGuid()), companyId, sku, name, unitOfMeasure, unitPrice, unitCost, createdAt);
         item.TaxCode = NormalizeTaxCode(taxCode);
+        item.PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
         return item;
     }
+
+    public static decimal? ValidateTolerance(decimal? tolerancePercent) =>
+        tolerancePercent is null ? null
+        : tolerancePercent is < 0 or > 100 ? throw new DomainException("Price tolerance must be between 0 and 100%.")
+        : decimal.Round(tolerancePercent.Value, 4);
 
     public static string? NormalizeTaxCode(string? taxCode) =>
         string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
@@ -57,9 +65,10 @@ public sealed class Item : AggregateRoot<ItemId>
     public static string NormalizeSku(string sku) =>
         string.IsNullOrWhiteSpace(sku) ? throw new DomainException("Item SKU is required.") : sku.Trim().ToUpperInvariant();
 
-    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null)
+    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null)
     {
         TaxCode = NormalizeTaxCode(taxCode);
+        PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
         Name = NormalizeName(name);
         UnitOfMeasure = NormalizeUom(unitOfMeasure);
         UnitPrice = RequireNonNegative(unitPrice, "Unit price");
