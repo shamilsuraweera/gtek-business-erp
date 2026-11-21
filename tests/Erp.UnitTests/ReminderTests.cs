@@ -24,14 +24,14 @@ public class ReminderTests
     {
         var o = new ReminderOptions();
         Assert.Empty(o.Validate());
-        Assert.Equal((true, 8, 1), (o.Enabled, o.HourUtc, o.RepeatDays));
+        Assert.Equal((true, 8, 1, 3), (o.Enabled, o.HourUtc, o.RepeatDays, o.PeriodCloseGraceDays));
     }
 
     [Fact]
     public void Every_bad_value_is_reported_with_its_key()
     {
-        var errors = new ReminderOptions { HourUtc = 24, RepeatDays = 0, IntervalMinutes = 0, InitialDelaySeconds = -1 }.Validate();
-        Assert.Equal(4, errors.Count);
+        var errors = new ReminderOptions { HourUtc = 24, RepeatDays = 0, IntervalMinutes = 0, InitialDelaySeconds = -1, PeriodCloseGraceDays = 61 }.Validate();
+        Assert.Equal(5, errors.Count);
         Assert.All(errors, e => Assert.StartsWith("Reminders:", e));
     }
 
@@ -264,6 +264,88 @@ public class ReminderTests
         Assert.Empty(earlyNotifier.Sent);
     }
 
+    // ---- period close ---------------------------------------------------------------------------------------------
+
+    private static Erp.Modules.Platform.Domain.AccountingPeriod Period(string code, DateOnly start, DateOnly end, bool close = false)
+    {
+        var period = Erp.Modules.Platform.Domain.AccountingPeriod.Create(Company, code, "Period " + code, start, end, Now, null);
+        if (close) period.Close(null, Now);
+        return period;
+    }
+
+    private static (PeriodCloseReminder Job, FakeNotifier Notifier) PeriodJob(Erp.Modules.Platform.Domain.AccountingPeriod[] periods, ReminderOptions? options = null)
+    {
+        var notifier = new FakeNotifier();
+        var store = Stub<IAccountingPeriodStore>("ListAsync", _ => Task.FromResult<IReadOnlyList<Erp.Modules.Platform.Domain.AccountingPeriod>>(periods));
+        return (new PeriodCloseReminder(store, notifier, new FixedCompany(), new FixedClock(), options ?? new ReminderOptions()), notifier);
+    }
+
+    private static readonly Erp.Modules.Platform.Domain.AccountingPeriod[] Mixed =
+    [
+        Period("2026-08", new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31), close: true),     // closed: fine
+        Period("2026-09", new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30)),                  // ended long ago, open
+        Period("2026-10", new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31)),                // ended, open
+        Period("2026-11a", new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 17)),               // ended 4 days ago: past the 3-day grace
+        Period("2026-11b", new DateOnly(2026, 11, 18), new DateOnly(2026, 11, 19)),              // ended 2 days ago: still in the grace
+        Period("2026-12", new DateOnly(2026, 11, 20), new DateOnly(2026, 12, 31))                // not ended
+    ];
+
+    [Fact]
+    public async Task Ended_open_periods_past_the_grace_are_summarised_for_the_people_who_manage_periods()
+    {
+        var (job, notifier) = PeriodJob(Mixed);
+        Assert.Equal(1, await job.RunAsync(default));
+
+        var (permission, message) = Assert.Single(notifier.Sent);
+        Assert.Equal(Permissions.Platform.AccountingPeriodsManage, permission);
+        Assert.Equal(("period-close", "period-close", "/admin", true), (message.Category, message.Subject, message.Link, message.Email));
+        Assert.Equal("3 accounting periods are still open", message.Title);       // 09, 10 and 11a
+        Assert.Contains("The oldest, Period 2026-09, ended 2026-09-30 (52 days ago).", message.Body);
+        Assert.StartsWith("They have ended but not been closed.", message.Body);
+        Assert.Equal(["period-close"], notifier.Resolved);
+    }
+
+    [Fact]
+    public async Task One_open_period_reads_naturally()
+    {
+        var (job, notifier) = PeriodJob([Period("2026-10", new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 20))]);
+        await job.RunAsync(default);
+        var message = notifier.Sent.Single().Message;
+        Assert.Equal("1 accounting period is still open", message.Title);
+        Assert.StartsWith("It has ended but not been closed.", message.Body);
+    }
+
+    [Fact]
+    public async Task The_grace_is_configurable()
+    {
+        var (strict, strictNotifier) = PeriodJob(Mixed, new ReminderOptions { PeriodCloseGraceDays = 0 });
+        await strict.RunAsync(default);
+        Assert.Equal("4 accounting periods are still open", strictNotifier.Sent.Single().Message.Title);   // 11b counts too
+
+        var (relaxed, relaxedNotifier) = PeriodJob(Mixed, new ReminderOptions { PeriodCloseGraceDays = 45 });
+        await relaxed.RunAsync(default);
+        Assert.Equal("1 accounting period is still open", relaxedNotifier.Sent.Single().Message.Title);    // only September
+    }
+
+    [Fact]
+    public async Task Everything_closed_or_not_yet_ended_sends_nothing_and_clears_the_old_summary()
+    {
+        var (job, notifier) = PeriodJob([Mixed[0], Mixed[4], Mixed[5]]);
+        Assert.Equal(0, await job.RunAsync(default));
+        Assert.Empty(notifier.Sent);
+        Assert.Equal(["period-close"], notifier.Resolved);
+    }
+
+    [Fact]
+    public async Task A_period_summary_is_not_repeated_within_the_period()
+    {
+        var (job, notifier) = PeriodJob(Mixed);
+        notifier.Last = At(0, 8);
+        Assert.Equal(0, await job.RunAsync(default));
+        Assert.Empty(notifier.Sent);
+        Assert.Empty(notifier.Resolved);
+    }
+
     // ---- wiring ---------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -275,5 +357,6 @@ public class ReminderTests
         Assert.Contains(OverdueBillReminder.Category, NotificationCategories.Known);
         Assert.Equal(Permissions.Inventory.StockManage, LowStockReminder.Recipients);
         Assert.Contains(LowStockReminder.Category, NotificationCategories.Known);
+        Assert.Contains(PeriodCloseReminder.Category, NotificationCategories.Known);
     }
 }

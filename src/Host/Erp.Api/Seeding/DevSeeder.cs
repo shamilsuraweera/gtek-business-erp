@@ -46,6 +46,7 @@ public static class DevSeeder
         await SeedPurchasingAsync(sp, log, ct);
         await SeedVendorReturnsAsync(sp, log, ct);
         await SeedToleranceWorkflowAsync(sp, adminId, log, ct);
+        await ClosePastPeriodsAsync(sp, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
     }
@@ -104,6 +105,24 @@ public static class DevSeeder
         }
 
         if (created > 0) log.LogInformation("Created {Count} accounting periods.", created);
+    }
+
+    /// <summary>
+    /// Closes the months before the demo's first business documents, as a finance team would have by now, so the period-close reminder
+    /// (ADR 0031) shows the two most recent ended months rather than the whole year. It runs last because the opening balances post into January.
+    /// </summary>
+    private static async Task ClosePastPeriodsAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var periods = sp.GetRequiredService<IAccountingPeriodService>();
+        var cutoff = new DateOnly(2026, 9, 1);
+        var closed = 0;
+        foreach (var period in (await periods.ListAsync(ct)).Where(x => x.Status == Erp.Modules.Platform.Domain.AccountingPeriodStatus.Open && x.EndDate < cutoff))
+        {
+            await periods.ChangeStatusAsync(new AccountingPeriodId(period.Id), Erp.Modules.Platform.Domain.AccountingPeriodStatus.Closed, ct);
+            closed++;
+        }
+
+        if (closed > 0) log.LogInformation("Closed {Count} past accounting periods.", closed);
     }
 
     public static readonly (string Code, string Name, AccountType Type)[] ChartOfAccounts =

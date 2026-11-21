@@ -92,6 +92,8 @@ public sealed class ReminderOptions
     public int RepeatDays { get; set; } = 1;
     public int IntervalMinutes { get; set; } = 60;
     public int InitialDelaySeconds { get; set; } = 120;
+    /// <summary>Days after an accounting period ends before it is reminded about as still open: time to finish the month's postings.</summary>
+    public int PeriodCloseGraceDays { get; set; } = 3;
 
     public IReadOnlyList<string> Validate()
     {
@@ -100,6 +102,7 @@ public sealed class ReminderOptions
         if (RepeatDays is < 1 or > 90) errors.Add($"{Section}:RepeatDays must be between 1 and 90 (was {RepeatDays}).");
         if (IntervalMinutes is < 1 or > 1440) errors.Add($"{Section}:IntervalMinutes must be between 1 and 1440 (was {IntervalMinutes}).");
         if (InitialDelaySeconds is < 0 or > 3600) errors.Add($"{Section}:InitialDelaySeconds must be between 0 and 3600 (was {InitialDelaySeconds}).");
+        if (PeriodCloseGraceDays is < 0 or > 60) errors.Add($"{Section}:PeriodCloseGraceDays must be between 0 and 60 (was {PeriodCloseGraceDays}).");
         return errors;
     }
 
