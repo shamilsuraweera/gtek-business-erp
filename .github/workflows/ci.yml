@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PGPASSWORD: gtek_dev
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gtek
+          POSTGRES_PASSWORD: gtek_dev
+          POSTGRES_DB: gtek_erp_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gtek" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 10.*
+      - name: Build
+        run: dotnet build --nologo -v q
+      - name: Migrate the integration-test database
+        run: bash scripts/dev-setup.sh
+        env:
+          ERP_DATABASE_CONNECTION: Host=localhost;Port=5432;Database=gtek_erp_test;Username=gtek;Password=gtek_dev
+      - name: Test
+        run: dotnet test --no-build --nologo
+        env:
+          ERP_TEST_DATABASE_CONNECTION: Host=localhost;Port=5432;Database=gtek_erp_test;Username=gtek;Password=gtek_dev
+
+  web:
+    name: Web app
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  smoke:
+    name: Smoke test (live API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gtek
+          POSTGRES_PASSWORD: gtek_dev
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gtek" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version 10.*
+      - name: Build
+        run: dotnet build src/Host/Erp.Api --nologo -v q
+      - name: Smoke test
+        run: bash scripts/smoke/run.sh
+        env:
+          SMOKE_NO_BUILD: "1"
+          SMOKE_PG_ADMIN: postgresql://gtek:gtek_dev@localhost:5432/postgres
+      - name: API log
+        if: failure()
+        run: tail -n 200 "${TMPDIR:-/tmp}/gtek-smoke-api.log" || true

@@ -283,6 +283,24 @@ dotnet test .\tests\Erp.ArchitectureTests\Erp.ArchitectureTests.csproj
 dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
 ```
 
+## Smoke test and CI
+
+`scripts/smoke/run.sh` runs the business flows against a **real API, real PostgreSQL and a real SMTP conversation** (ADR 0033): it creates
+a throwaway database, migrates and seeds it, starts the API with email and reminders switched on, and runs `scripts/smoke/smoke.py` (Python
+standard library only, with a built-in SMTP sink). It covers sign-in and permissions, order to cash, three-way match, the tolerance approval
+workflow and its emails, email preferences, the scheduled reminders, account-change notices, a rejected address not failing an operation,
+retention settings, and that the ledger still balances.
+
+```bash
+scripts/smoke/run.sh               # all sections (about two minutes)
+scripts/smoke/run.sh reminders     # only sections whose title contains the word
+SMOKE_KEEP=1 scripts/smoke/run.sh  # keep the database and the API log (/tmp/gtek-smoke-api.log) afterwards
+```
+
+It needs the .NET SDK, the `dotnet-ef` tool, `psql`, `python3` and a PostgreSQL server you can create databases on
+(`SMOKE_PG_ADMIN`, default `postgresql://gtek:gtek_dev@localhost:5432/postgres`). `.github/workflows/ci.yml` runs it, the unit,
+architecture, integration and functional tests, and the web build on every push and pull request.
+
 ## Architecture and boundaries
 
 This is a modular monolith:

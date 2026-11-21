@@ -34,7 +34,8 @@ public sealed class EmailOutboxStore(PlatformDbContext db) : IEmailOutboxStore
 
     public async Task<EmailOutboxStatus> StatusAsync(CompanyId companyId, DateTimeOffset now, CancellationToken ct)
     {
-        var rows = db.EmailMessages.AsNoTracking().Where(x => x.CompanyId == companyId);
+        // This company's messages, plus the installation-wide ones that belong to no company (account notices, ADR 0032), so none can fail unseen.
+        var rows = db.EmailMessages.AsNoTracking().Where(x => x.CompanyId == companyId || x.CompanyId == null);
         var since = now.AddHours(-24);
         var pending = await rows.CountAsync(x => x.Status == EmailStatus.Pending, ct);
         var failed = await rows.CountAsync(x => x.Status == EmailStatus.Failed, ct);

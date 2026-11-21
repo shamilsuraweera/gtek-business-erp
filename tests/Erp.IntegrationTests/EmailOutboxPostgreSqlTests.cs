@@ -162,6 +162,31 @@ public sealed class EmailOutboxPostgreSqlTests
         finally { await CleanUpAsync(options, a); await CleanUpAsync(options, b); }
     }
 
+    [Fact]
+    public async Task Status_also_counts_messages_that_belong_to_no_company()
+    {
+        var options = Options();
+        var a = new CompanyId(Guid.NewGuid());
+        var user = new UserId(Guid.NewGuid());
+        var failedNotice = EmailMessage.Create(null, user, "someone@example.com", "Someone", "Your access was removed", "text", "<p>text</p>", Now);
+        failedNotice.MarkFailed("550 no such user", true, Now, 5, null);
+        var sentNotice = EmailMessage.Create(null, user, "someone@example.com", "Someone", "Your account was created", "text", "<p>text</p>", Now);
+        sentNotice.MarkSent(Now.AddMinutes(-5));
+        await SeedAsync(options, failedNotice, sentNotice);
+        try
+        {
+            await using var context = new PlatformDbContext(options);
+            var status = await new EmailOutboxStore(context).StatusAsync(a, Now, default);   // a company with no messages of its own
+            Assert.Equal((0, 1, 1), (status.Pending, status.Failed, status.SentLast24Hours));
+            Assert.Equal("550 no such user", status.LastError);
+        }
+        finally
+        {
+            await using var cleanup = new PlatformDbContext(options);
+            await cleanup.EmailMessages.Where(x => x.UserId == user).ExecuteDeleteAsync();
+        }
+    }
+
     private static async Task SeedAsync(DbContextOptions<PlatformDbContext> options, params EmailMessage[] mails)
     {
         await using var context = new PlatformDbContext(options);

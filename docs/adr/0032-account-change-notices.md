@@ -23,6 +23,8 @@ account deactivated. Today an administrator can do any of that and the person fi
   waits for the mail server, as in ADR 0026. The services take it as an optional dependency, so nothing else that builds them changes.
 - **Not sent** when email is switched off for the installation, when the person turned email off (ADR 0026) or opted out of the `account`
   category (ADR 0028), when the administrator acts on themself, or for the very first (bootstrap) administrator, who has nobody to tell.
+- The email status shown in Administration (ADR 0026) counts these company-less messages in every company's totals, so a failed account
+  notice is visible there like any other.
 - Being a category, `account` gets the per-category opt-out and per-category retention lists. It is shown as "Changes to my account and
   access" in the bell panel.
 
