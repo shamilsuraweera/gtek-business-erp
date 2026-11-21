@@ -5,9 +5,10 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader, Tabs } from '../ui'
-import type { Account, AccountMapping, AccountType, Journal, TrialBalance } from '../api/types'
+import { formatRate } from '../tax'
+import type { Account, AccountMapping, AccountType, Journal, TaxCode, TaxSummary, TrialBalance } from '../api/types'
 
-type Tab = 'tb' | 'accounts' | 'journals' | 'mapping'
+type Tab = 'tb' | 'accounts' | 'journals' | 'mapping' | 'tax'
 const TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']
 
 function TrialBalanceTab() {
@@ -145,6 +146,96 @@ function MappingTab() {
   )
 }
 
+function TaxCodeForm({ taxCode, onClose }: { taxCode?: TaxCode; onClose: () => void }) {
+  const [code, setCode] = useState(taxCode?.code ?? '')
+  const [name, setName] = useState(taxCode?.name ?? '')
+  const [rate, setRate] = useState(String(taxCode?.ratePercent ?? ''))
+  const save = useApiMutation<void>(
+    () => taxCode
+      ? { path: `/finance/tax-codes/${taxCode.id}`, method: 'PUT', body: { name, ratePercent: Number(rate) } }
+      : { path: '/finance/tax-codes', body: { code, name, ratePercent: Number(rate) } },
+    onClose,
+  )
+  return (
+    <Modal title={taxCode ? `Edit ${taxCode.code}` : 'New tax code'} onClose={onClose}>
+      <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }}>
+        <div className="form-grid">
+          {!taxCode && <Field label="Code"><input value={code} onChange={(e) => setCode(e.target.value)} required autoFocus maxLength={20} placeholder="e.g. VAT18" /></Field>}
+          <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. VAT 18%" /></Field>
+          <Field label="Rate (%)" hint={taxCode ? 'A new rate applies to documents issued from now on; posted documents keep the rate they were issued at.' : 'Use 0 for zero-rated goods.'}>
+            <input type="number" min={0} max={100} step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} required />
+          </Field>
+        </div>
+        <ErrorNote error={save.error} />
+        <div className="modal-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={save.isPending}>Save</button></div>
+      </form>
+    </Modal>
+  )
+}
+
+function TaxTab() {
+  const { can } = useAuth()
+  const codes = useApiQuery<TaxCode[]>('/finance/tax-codes')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const query = [from && `from=${from}`, to && `to=${to}`].filter(Boolean).join('&')
+  const summary = useApiQuery<TaxSummary>(`/finance/tax-summary${query ? `?${query}` : ''}`, { enabled: can(P.reportsRead) })
+  const [dialog, setDialog] = useState<'new' | TaxCode | null>(null)
+  const toggle = useApiMutation<TaxCode>((t) => ({ path: `/finance/tax-codes/${t.id}/${t.isActive ? 'deactivate' : 'activate'}` }))
+  const s = summary.data
+  return (
+    <>
+      {can(P.reportsRead) && (
+        <section className="card" style={{ marginBottom: 16 }}>
+          <h3>Tax summary</h3>
+          <div className="row" style={{ marginBottom: 12 }}>
+            <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+            <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+          </div>
+          <ErrorNote error={summary.error} />
+          {summary.isLoading ? <Loading /> : s && (
+            <>
+              <table className="data">
+                <tbody>
+                  <tr><td>Output tax charged on sales{s.outputAccountCode ? <span className="muted"> · account {s.outputAccountCode}</span> : ''}</td><td className="num">{formatMoney(s.outputTax)}</td></tr>
+                  <tr><td>Input tax paid on purchases{s.inputAccountCode ? <span className="muted"> · account {s.inputAccountCode}</span> : ''}</td><td className="num">−{formatMoney(s.inputTax)}</td></tr>
+                </tbody>
+                <tfoot><tr><td>{s.netPayable >= 0 ? 'Net tax payable to the tax authority' : 'Net tax refundable'}</td><td className="num">{formatMoney(Math.abs(s.netPayable))}</td></tr></tfoot>
+              </table>
+              {s.notes.map((n) => <div className="note error" key={n}>{n}</div>)}
+              <p className="hint">Credit notes and debit notes are netted off. Figures come straight from the ledger accounts the tax roles are mapped to.</p>
+            </>
+          )}
+        </section>
+      )}
+      {can(P.taxCodesManage) && <div style={{ marginBottom: 12 }}><button className="btn primary" onClick={() => setDialog('new')}>New tax code</button></div>}
+      <ErrorNote error={codes.error ?? toggle.error} />
+      {codes.isLoading ? <Loading /> : (
+        <div className="card flush scroll-x">
+          {(codes.data ?? []).length === 0 ? <Empty>No tax codes yet. Items without a tax code carry no tax.</Empty> : (
+            <table className="data">
+              <thead><tr><th>Code</th><th>Name</th><th className="num">Rate</th><th>Status</th><th /></tr></thead>
+              <tbody>{codes.data!.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.code}</td><td>{t.name}</td><td className="num">{formatRate(t.ratePercent)}</td>
+                  <td><Badge value={t.isActive ? 'Active' : 'Inactive'} /></td>
+                  <td><div className="row" style={{ justifyContent: 'flex-end' }}>
+                    {can(P.taxCodesManage) && <button className="btn small" onClick={() => setDialog(t)}>Edit</button>}
+                    {can(P.taxCodesManage) && <button className="btn small" onClick={() => toggle.mutate(t)}>{t.isActive ? 'Deactivate' : 'Activate'}</button>}
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      )}
+      <p className="hint" style={{ marginTop: 12 }}>Prices are tax-exclusive. Assign a tax code to each item; invoices charge output tax and vendor bills record input tax at the item's rate.</p>
+      {dialog === 'new' && <TaxCodeForm onClose={() => setDialog(null)} />}
+      {dialog && dialog !== 'new' && <TaxCodeForm taxCode={dialog} onClose={() => setDialog(null)} />}
+    </>
+  )
+}
+
 interface DraftLine { key: number; accountCode: string; debit: string; credit: string; description: string }
 
 function JournalForm({ accounts, onClose }: { accounts: Account[]; onClose: () => void }) {
@@ -263,6 +354,7 @@ export function Finance() {
     ...(can(P.journalsRead) ? [{ id: 'journals' as Tab, label: 'Journals' }] : []),
     ...(can(P.accountsRead) ? [{ id: 'accounts' as Tab, label: 'Chart of accounts' }] : []),
     ...(can(P.accountsRead) ? [{ id: 'mapping' as Tab, label: 'Account mapping' }] : []),
+    ...(can(P.accountsRead) ? [{ id: 'tax' as Tab, label: 'Tax' }] : []),
   ]
   const requested = params.get('tab') as Tab | null
   const tab = tabs.find((t) => t.id === requested)?.id ?? tabs[0]?.id
@@ -274,6 +366,7 @@ export function Finance() {
       {tab === 'journals' && <JournalsTab />}
       {tab === 'accounts' && <AccountsTab />}
       {tab === 'mapping' && <MappingTab />}
+      {tab === 'tax' && <TaxTab />}
     </>
   )
 }

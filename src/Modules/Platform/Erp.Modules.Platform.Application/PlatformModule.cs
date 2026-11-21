@@ -317,6 +317,7 @@ public static class Permissions
         public const string AccountsRead = "finance.accounts.read";
         public const string AccountsManage = "finance.accounts.manage";
         public const string MappingManage = "finance.account-mapping.manage";
+        public const string TaxCodesManage = "finance.tax-codes.manage";
         public const string JournalsRead = "finance.journals.read";
         public const string JournalsPost = "finance.journals.post";
         public const string ReportsRead = "finance.reports.read";
@@ -378,6 +379,7 @@ public static class Permissions
         (Finance.AccountsRead, "Read finance accounts", "finance", "View finance accounts."),
         (Finance.AccountsManage, "Manage finance accounts", "finance", "Create and manage the chart of accounts."),
         (Finance.MappingManage, "Manage account mapping", "finance", "Choose which ledger accounts sales, purchasing and inventory postings use."),
+        (Finance.TaxCodesManage, "Manage tax codes", "finance", "Create tax codes and change their rates."),
         (Finance.JournalsRead, "Read journals", "finance", "View general journals."),
         (Finance.JournalsPost, "Post journals", "finance", "Post and reverse general journals."),
         (Finance.ReportsRead, "Read finance reports", "finance", "View the trial balance and finance reports."),

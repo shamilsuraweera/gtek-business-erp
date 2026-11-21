@@ -1,5 +1,6 @@
 using Erp.Application.Abstractions;
 using Erp.Modules.Finance.Contracts;
+using Erp.Modules.Inventory.Contracts;
 using Erp.Modules.Purchasing.Domain;
 using Erp.SharedKernel;
 
@@ -8,6 +9,8 @@ namespace Erp.Modules.Purchasing.Application;
 /// <summary>Vendor bills (Dr GRNI / Cr Payables) and payments (Dr Payables / Cr Cash or Bank).</summary>
 public sealed class BillService(
     IPurchasingStore store,
+    IInventoryCatalog catalog,
+    ITaxCatalog taxCatalog,
     IFinancePosting finance,
     IPostingPeriodGuard periodGuard,
     IDocumentNumberGenerator numbers,
@@ -38,6 +41,7 @@ public sealed class BillService(
             var requested = request.Lines is { Count: > 0 }
                 ? request.Lines.ToList()
                 : order.ReceivedNotBilled().Select(x => new BillLineRequest(x.Key, x.Value, null)).ToList();
+            var taxes = await ResolveTaxAsync(order, ct);
             var billLines = new List<VendorBillLine>();
             var overTolerance = new List<string>();
             foreach (var r in requested)
@@ -45,7 +49,10 @@ public sealed class BillService(
                 var line = order.LineFor(r.ItemId);
                 var quantity = r.Quantity ?? line.ReceivedNotBilled;
                 var unitCost = r.UnitCost ?? line.UnitCost;
-                billLines.Add(new VendorBillLine(line.ItemId, line.Sku, line.Description, quantity, line.UnitCost, unitCost));
+                var (taxCode, taxRate) = taxes[line.ItemId];
+                var net = decimal.Round(quantity * unitCost, 2);
+                billLines.Add(new VendorBillLine(line.ItemId, line.Sku, line.Description, quantity, line.UnitCost, unitCost,
+                    taxCode, taxRate, TaxMath.Tax(net, taxRate)));
                 if (!ThreeWayMatch.WithinTolerance(line.UnitCost, unitCost))
                     overTolerance.Add($"{line.Sku}: billed {unitCost:N2} vs order {line.UnitCost:N2} ({ThreeWayMatch.VariancePercent(line.UnitCost, unitCost):+0.##;-0.##}%)");
             }
@@ -68,13 +75,15 @@ public sealed class BillService(
             var number = await numbers.NextAsync(BillSequence, "BILL-", ct);
 
             var accrued = billLines.Sum(l => l.AccruedTotal);
-            var total = billLines.Sum(l => l.LineTotal);
-            var variance = total - accrued;
+            var subtotal = billLines.Sum(l => l.LineTotal);
+            var tax = billLines.Sum(l => l.TaxAmount);
+            var variance = subtotal - accrued;
             var journalLines = new List<PostJournalLine>
             {
                 PostJournalLine.ForRole(AccountRole.GoodsReceivedNotInvoiced, accrued, 0, $"Bill {number}"),
-                PostJournalLine.ForRole(AccountRole.AccountsPayable, 0, total, $"Bill {number}")
+                PostJournalLine.ForRole(AccountRole.AccountsPayable, 0, subtotal + tax, $"Bill {number}")
             };
+            if (tax > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.TaxReceivable, tax, 0, $"Input tax {number}"));
             if (variance > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, variance, 0, $"Price variance {number}"));
             else if (variance < 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, 0, -variance, $"Price variance {number}"));
 
@@ -97,7 +106,7 @@ public sealed class BillService(
 
             await audit.RecordAsync("Purchasing", varianceApproved ? "bill.created.variance-override" : "bill.created", "VendorBill",
                 bill.Id.Value.ToString(), bill.Number, true,
-                new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = bill.Total, ["PriceVariance"] = bill.PriceVariance, ["Journal"] = journal.Number }, ct);
+                new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = bill.Total, ["Tax"] = bill.TaxTotal, ["PriceVariance"] = bill.PriceVariance, ["Journal"] = journal.Number }, ct);
             return Map(bill, vendor.Name, DebitedQuantities([]));
         }, cancellationToken);
     }
@@ -175,6 +184,24 @@ public sealed class BillService(
             p, bills.GetValueOrDefault(p.BillId, string.Empty), vendors.GetValueOrDefault(p.VendorId, string.Empty))).ToArray();
     }
 
+    /// <summary>The tax code and rate each ordered item carries today. An item with no code is untaxed; a code that is missing or inactive blocks billing.</summary>
+    private async Task<Dictionary<Guid, (string? Code, decimal Rate)>> ResolveTaxAsync(PurchaseOrder order, CancellationToken ct)
+    {
+        var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
+        var rates = await taxCatalog.GetAsync(items.Values.Select(x => x.TaxCode).OfType<string>(), ct);
+        var result = new Dictionary<Guid, (string?, decimal)>();
+        foreach (var line in order.Lines)
+        {
+            var code = items.GetValueOrDefault(line.ItemId)?.TaxCode;
+            if (code is null) { result[line.ItemId] = (null, 0m); continue; }
+            if (!rates.TryGetValue(code, out var info) || !info.IsActive)
+                throw new DomainException($"Item '{line.Sku}' uses tax code '{code}', which is missing or inactive. Fix the item's tax code before entering the bill.");
+            result[line.ItemId] = (info.Code, info.RatePercent);
+        }
+
+        return result;
+    }
+
     private async Task ReverseQuietlyAsync(PostedJournal journal, string reason, CancellationToken ct)
     {
         try { await finance.ReverseJournalAsync(journal.JournalId, reason, ct); }
@@ -189,13 +216,13 @@ public sealed class BillService(
 
     private BillResponse Map(VendorBill b, string vendorName, IReadOnlyDictionary<(Guid Bill, Guid Item), decimal> debited) => new(
         b.Id.Value, b.Number, b.VendorReference, b.PurchaseOrderId.Value, b.VendorId.Value, vendorName, b.BillDate, b.DueDate,
-        b.Total, b.AmountPaid, b.AmountDebited, b.Balance, b.Status,
+        b.Subtotal, b.TaxTotal, b.Total, b.AmountPaid, b.AmountDebited, b.Balance, b.Status,
         b.Status == BillStatus.Open && b.DueDate < DateOnly.FromDateTime(clock.UtcNow.UtcDateTime),
         b.JournalNumber, b.PriceVariance, b.VarianceOverridden,
         b.Lines.Select(l => new BillLineResponse(
             l.ItemId, l.Sku, l.Description, l.Quantity, l.OrderUnitCost, l.UnitCost, l.LineTotal, l.PriceVariance,
             l.PriceVariance == 0 ? "Matched" : ThreeWayMatch.WithinTolerance(l.OrderUnitCost, l.UnitCost) ? "Within tolerance" : "Variance approved",
-            debited.GetValueOrDefault((b.Id.Value, l.ItemId)))).ToArray());
+            debited.GetValueOrDefault((b.Id.Value, l.ItemId)), l.TaxCode, l.TaxRate, l.TaxAmount)).ToArray());
 
     private static VendorPaymentResponse MapPayment(VendorPayment p, string billNumber, string vendorName) => new(
         p.Id.Value, p.Number, p.BillId.Value, billNumber, p.VendorId.Value, vendorName,

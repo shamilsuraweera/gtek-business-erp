@@ -169,8 +169,13 @@ public sealed class SalesOrder : AggregateRoot<SalesOrderId>
 
 public sealed record SalesInvoiceLine
 {
-    public SalesInvoiceLine(Guid itemId, string sku, string description, decimal quantity, decimal unitPrice, decimal unitCost)
+    public SalesInvoiceLine(Guid itemId, string sku, string description, decimal quantity, decimal unitPrice, decimal unitCost,
+        string? taxCode = null, decimal taxRate = 0m, decimal taxAmount = 0m)
     {
+        if (taxAmount < 0) throw new DomainException("Line tax cannot be negative.");
+        TaxCode = taxCode;
+        TaxRate = taxRate;
+        TaxAmount = taxAmount;
         ItemId = itemId;
         Sku = sku;
         Description = description;
@@ -185,7 +190,13 @@ public sealed record SalesInvoiceLine
     public decimal Quantity { get; }
     public decimal UnitPrice { get; }
     public decimal UnitCost { get; }
+    /// <summary>The tax code the item carried when invoiced (none = untaxed) and the rate that applied then.</summary>
+    public string? TaxCode { get; }
+    public decimal TaxRate { get; }
+    public decimal TaxAmount { get; }
+    /// <summary>The line amount before tax.</summary>
     public decimal LineTotal => decimal.Round(Quantity * UnitPrice, 2);
+    public decimal LineGross => LineTotal + TaxAmount;
 }
 
 public sealed class SalesInvoice : AggregateRoot<SalesInvoiceId>
@@ -226,7 +237,11 @@ public sealed class SalesInvoice : AggregateRoot<SalesInvoiceId>
     public InvoiceStatus Status { get; private set; } = InvoiceStatus.Open;
     public DateTimeOffset CreatedAt { get; private set; }
     public IReadOnlyCollection<SalesInvoiceLine> Lines => _lines.AsReadOnly();
-    public decimal Total => _lines.Sum(x => x.LineTotal);
+    /// <summary>The invoice before tax; this is the revenue.</summary>
+    public decimal Subtotal => _lines.Sum(x => x.LineTotal);
+    public decimal TaxTotal => _lines.Sum(x => x.TaxAmount);
+    /// <summary>What the customer owes: subtotal plus tax.</summary>
+    public decimal Total => Subtotal + TaxTotal;
     public decimal Balance => Total - AmountPaid - AmountCredited;
     public decimal CostOfGoods => decimal.Round(_lines.Sum(x => x.Quantity * x.UnitCost), 2);
 
@@ -313,9 +328,13 @@ public sealed class Payment : AggregateRoot<PaymentId>
 
 public sealed record CreditNoteLine
 {
-    public CreditNoteLine(Guid itemId, string sku, string description, decimal quantity, decimal unitPrice, decimal unitCost, bool returnedToStock)
+    public CreditNoteLine(Guid itemId, string sku, string description, decimal quantity, decimal unitPrice, decimal unitCost, bool returnedToStock,
+        decimal taxRate = 0m, decimal taxAmount = 0m)
     {
         if (quantity <= 0) throw new DomainException("Credited quantity must be positive.");
+        if (taxAmount < 0) throw new DomainException("Line tax cannot be negative.");
+        TaxRate = taxRate;
+        TaxAmount = taxAmount;
         ItemId = itemId;
         Sku = sku;
         Description = description;
@@ -334,7 +353,11 @@ public sealed record CreditNoteLine
     /// <summary>The cost the goods left stock at when invoiced; returns re-enter stock at this cost.</summary>
     public decimal UnitCost { get; }
     public bool ReturnedToStock { get; }
+    /// <summary>The invoice line's rate, and this credit's share of the tax originally charged on it.</summary>
+    public decimal TaxRate { get; }
+    public decimal TaxAmount { get; }
     public decimal LineTotal => decimal.Round(Quantity * UnitPrice, 2);
+    public decimal LineGross => LineTotal + TaxAmount;
     public decimal ReturnedCost => ReturnedToStock ? decimal.Round(Quantity * UnitCost, 2) : 0m;
 }
 
@@ -381,7 +404,9 @@ public sealed class CreditNote : AggregateRoot<CreditNoteId>
     public decimal AmountRefunded { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public IReadOnlyCollection<CreditNoteLine> Lines => _lines.AsReadOnly();
-    public decimal Total => _lines.Sum(x => x.LineTotal);
+    public decimal Subtotal => _lines.Sum(x => x.LineTotal);
+    public decimal TaxTotal => _lines.Sum(x => x.TaxAmount);
+    public decimal Total => Subtotal + TaxTotal;
     public decimal ReturnedCost => _lines.Sum(x => x.ReturnedCost);
     /// <summary>What the company still owes the customer for this credit (credit beyond the invoice balance, not yet refunded).</summary>
     public decimal RefundDue => Total - AmountApplied - AmountRefunded;

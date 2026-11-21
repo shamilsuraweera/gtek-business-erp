@@ -5,6 +5,7 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney, formatNumber, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader } from '../ui'
+import { formatRate, round2, taxPortion } from '../tax'
 import type { Bill, DebitNote, PurchaseOrder, VendorPayment } from '../api/types'
 
 function BillPaymentForm({ bill, onClose }: { bill: Bill; onClose: () => void }) {
@@ -41,7 +42,7 @@ function BillPaymentForm({ bill, onClose }: { bill: Bill; onClose: () => void })
   )
 }
 
-function DebitNoteDialog({ bill, order, onClose }: { bill: Bill; order: PurchaseOrder; onClose: () => void }) {
+function DebitNoteDialog({ bill, order, notes, onClose }: { bill: Bill; order: PurchaseOrder; notes: DebitNote[]; onClose: () => void }) {
   // Per item: no more than this bill charged (less earlier debits) and no more than the billed goods that were returned.
   const rows = bill.lines.map((l) => {
     const orderLine = order.lines.find((x) => x.itemId === l.itemId)
@@ -52,8 +53,16 @@ function DebitNoteDialog({ bill, order, onClose }: { bill: Bill; order: Purchase
   const [reason, setReason] = useState('')
   const [date, setDate] = useState(today())
 
-  const chosen = rows.map((r) => ({ ...r, quantity: Number(qty[r.l.itemId] || 0) })).filter((r) => r.quantity > 0)
-  const total = chosen.reduce((s, r) => s + Math.round(r.quantity * r.l.unitCost * 100) / 100, 0)
+  // The input tax given back is this quantity's share of what the bill charged on the line (the API does the same sum).
+  const taxBefore = (itemId: string) => notes.flatMap((n) => n.lines).filter((x) => x.itemId === itemId).reduce((s, x) => s + x.taxAmount, 0)
+  const chosen = rows.map((r) => {
+    const quantity = Number(qty[r.l.itemId] || 0)
+    const net = round2(quantity * r.l.unitCost)
+    return { ...r, quantity, net, tax: quantity > 0 ? round2(taxPortion(r.l.taxAmount, r.l.quantity, r.l.quantityDebited, taxBefore(r.l.itemId), quantity)) : 0 }
+  }).filter((r) => r.quantity > 0)
+  const subtotal = chosen.reduce((s, r) => s + r.net, 0)
+  const tax = chosen.reduce((s, r) => s + r.tax, 0)
+  const total = subtotal + tax
   const applied = Math.min(total, bill.balance)
   const refundDue = total - applied
   const save = useApiMutation<void>(
@@ -69,7 +78,7 @@ function DebitNoteDialog({ bill, order, onClose }: { bill: Bill; order: Purchase
           <Field label="Debit note date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
         </div>
         <div className="scroll-x"><table className="data">
-          <thead><tr><th>Item</th><th className="num">Billed</th><th className="num">Returned, awaiting debit</th><th style={{ width: 120 }}>Debit qty</th><th className="num">Credit at billed price</th></tr></thead>
+          <thead><tr><th>Item</th><th className="num">Billed</th><th className="num">Returned, awaiting debit</th><th style={{ width: 120 }}>Debit qty</th><th className="num">Credit at billed price</th><th className="num">Tax</th></tr></thead>
           <tbody>{rows.map((r) => {
             const q = Number(qty[r.l.itemId] || 0)
             return (
@@ -78,14 +87,17 @@ function DebitNoteDialog({ bill, order, onClose }: { bill: Bill; order: Purchase
                 <td className="num">{formatNumber(r.l.quantity)}</td><td className="num">{formatNumber(r.cap)}</td>
                 <td><input type="number" min="0" max={r.cap} step="any" value={qty[r.l.itemId] ?? ''} aria-label={`Quantity to debit for ${r.l.sku}`}
                   onChange={(e) => setQty({ ...qty, [r.l.itemId]: e.target.value })} /></td>
-                <td className="num">{q > 0 ? formatMoney(q * r.l.unitCost) : '—'}</td>
+                <td className="num">{q > 0 ? formatMoney(round2(q * r.l.unitCost)) : '—'}</td>
+                <td className="num">{q > 0 && r.l.taxCode ? formatMoney(chosen.find((c) => c.l.itemId === r.l.itemId)?.tax ?? 0) : '—'}</td>
               </tr>
             )
           })}</tbody>
           <tfoot>
-            <tr><td colSpan={4}>Debit total</td><td className="num">{formatMoney(total)}</td></tr>
-            <tr><td colSpan={4}>Reduces the bill balance</td><td className="num">{formatMoney(applied)}</td></tr>
-            {refundDue > 0 && <tr><td colSpan={4}>Owed back by the vendor (refund)</td><td className="num">{formatMoney(refundDue)}</td></tr>}
+            {tax > 0 && <tr><td colSpan={4}>Subtotal</td><td className="num" colSpan={2}>{formatMoney(subtotal)}</td></tr>}
+            {tax > 0 && <tr><td colSpan={4}>Input tax returned</td><td className="num" colSpan={2}>{formatMoney(tax)}</td></tr>}
+            <tr><td colSpan={4}>Debit total</td><td className="num" colSpan={2}>{formatMoney(total)}</td></tr>
+            <tr><td colSpan={4}>Reduces the bill balance</td><td className="num" colSpan={2}>{formatMoney(applied)}</td></tr>
+            {refundDue > 0 && <tr><td colSpan={4}>Owed back by the vendor (refund)</td><td className="num" colSpan={2}>{formatMoney(refundDue)}</td></tr>}
           </tfoot>
         </table></div>
         <p className="hint">The vendor credits what it billed: Dr Accounts Payable / Cr Goods Received Not Invoiced (at the order price), with any price difference reversed from Purchase Price Variance.</p>
@@ -163,19 +175,22 @@ export function BillDetail() {
         </>} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Debited</th><th className="num">Order cost</th><th className="num">Billed cost</th><th>Match</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Debited</th><th className="num">Order cost</th><th className="num">Billed cost</th><th>Match</th><th className="num">Amount</th><th className="num">Tax</th></tr></thead>
           <tbody>{i.lines.map((l, index) => (
             <tr key={index}><td>{l.sku}</td><td>{l.description}</td><td className="num">{l.quantity}</td>
               <td className="num">{l.quantityDebited > 0 ? <Badge value={formatNumber(l.quantityDebited)} tone="info" /> : '—'}</td>
               <td className="num">{formatMoney(l.orderUnitCost)}</td><td className="num">{formatMoney(l.unitCost)}</td>
               <td><Badge value={l.matchStatus} tone={l.matchStatus === 'Matched' ? 'ok' : l.matchStatus === 'Variance approved' ? 'bad' : 'warn'} /></td>
-              <td className="num">{formatMoney(l.lineTotal)}</td></tr>
+              <td className="num">{formatMoney(l.lineTotal)}</td>
+              <td className="num">{l.taxCode ? <>{formatMoney(l.taxAmount)}<div className="muted">{l.taxCode} {formatRate(l.taxRate)}</div></> : '—'}</td></tr>
           ))}</tbody>
           <tfoot>
-            <tr><td colSpan={7}>Total</td><td className="num">{formatMoney(i.total)}</td></tr>
-            {i.amountDebited > 0 && <tr><td colSpan={7}>Debited</td><td className="num">−{formatMoney(i.amountDebited)}</td></tr>}
-            <tr><td colSpan={7}>Paid</td><td className="num">{formatMoney(i.amountPaid)}</td></tr>
-            <tr><td colSpan={7}>Balance payable</td><td className="num">{formatMoney(i.balance)}</td></tr>
+            {i.taxTotal > 0 && <tr><td colSpan={7}>Subtotal</td><td className="num" colSpan={2}>{formatMoney(i.subtotal)}</td></tr>}
+            {i.taxTotal > 0 && <tr><td colSpan={7}>Input tax</td><td className="num" colSpan={2}>{formatMoney(i.taxTotal)}</td></tr>}
+            <tr><td colSpan={7}>Total</td><td className="num" colSpan={2}>{formatMoney(i.total)}</td></tr>
+            {i.amountDebited > 0 && <tr><td colSpan={7}>Debited</td><td className="num" colSpan={2}>−{formatMoney(i.amountDebited)}</td></tr>}
+            <tr><td colSpan={7}>Paid</td><td className="num" colSpan={2}>{formatMoney(i.amountPaid)}</td></tr>
+            <tr><td colSpan={7}>Balance payable</td><td className="num" colSpan={2}>{formatMoney(i.balance)}</td></tr>
           </tfoot>
         </table>
       </section>
@@ -189,11 +204,11 @@ export function BillDetail() {
       <div className="card flush scroll-x" style={{ marginBottom: 16 }}>
         {myNotes.length === 0 ? <Empty>No debit notes.</Empty> : (
           <table className="data">
-            <thead><tr><th>Debit note</th><th>Date</th><th>Reason</th><th className="num">Total</th><th className="num">Applied</th><th className="num">Refunded</th><th className="num">Vendor owes</th><th /></tr></thead>
+            <thead><tr><th>Debit note</th><th>Date</th><th>Reason</th><th className="num">Total</th><th className="num">Tax</th><th className="num">Applied</th><th className="num">Refunded</th><th className="num">Vendor owes</th><th /></tr></thead>
             <tbody>{myNotes.map((n) => (
               <tr key={n.id}>
                 <td>{n.number}<div className="muted">{n.journalNumber}</div></td><td>{formatDate(n.debitDate)}</td><td>{n.reason}</td>
-                <td className="num">{formatMoney(n.total)}</td><td className="num">{formatMoney(n.amountApplied)}</td>
+                <td className="num">{formatMoney(n.total)}</td><td className="num">{n.taxTotal ? formatMoney(n.taxTotal) : '—'}</td><td className="num">{formatMoney(n.amountApplied)}</td>
                 <td className="num">{n.amountRefunded ? formatMoney(n.amountRefunded) : '—'}</td>
                 <td className="num">{n.refundDue > 0 ? <Badge value={formatMoney(n.refundDue)} tone="warn" /> : '—'}</td>
                 <td className="right">{can(P.vendorRefundsRecord) && n.refundDue > 0 && <button className="btn small" onClick={() => setDialog({ refund: n })}>Record refund</button>}</td>
@@ -215,7 +230,7 @@ export function BillDetail() {
         )}
       </div>
       {dialog === 'pay' && <BillPaymentForm bill={i} onClose={close} />}
-      {dialog === 'debit' && order.data && <DebitNoteDialog bill={i} order={order.data} onClose={close} />}
+      {dialog === 'debit' && order.data && <DebitNoteDialog bill={i} order={order.data} notes={myNotes} onClose={close} />}
       {typeof dialog === 'object' && dialog && <VendorRefundDialog note={dialog.refund} onClose={close} />}
     </>
   )

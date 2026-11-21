@@ -475,6 +475,14 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                                 .HasMaxLength(60)
                                 .HasColumnType("character varying(60)");
 
+                            b1.Property<decimal>("TaxAmount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("TaxRate")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
+
                             b1.Property<decimal>("UnitCost")
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
@@ -629,6 +637,18 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                                 .IsRequired()
                                 .HasMaxLength(60)
                                 .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal>("TaxAmount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)");
+
+                            b1.Property<string>("TaxCode")
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)");
+
+                            b1.Property<decimal>("TaxRate")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
 
                             b1.Property<decimal>("UnitCost")
                                 .HasPrecision(19, 4)

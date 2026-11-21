@@ -52,7 +52,7 @@ export function NewPurchaseOrder() {
         </section>
         <section className="card flush scroll-x">
           <table className="data">
-            <thead><tr><th style={{ width: '40%' }}>Item</th><th className="num">On hand</th><th>Quantity</th><th>Unit cost</th><th className="num">Line total</th><th /></tr></thead>
+            <thead><tr><th style={{ width: '40%' }}>Item</th><th className="num">On hand</th><th>Quantity</th><th>Unit cost</th><th className="num">Line total (excl. tax)</th><th /></tr></thead>
             <tbody>
               {lines.map((l) => (
                 <tr key={l.key}>

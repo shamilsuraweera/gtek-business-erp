@@ -15,6 +15,7 @@ public static class FinanceInfrastructure
         services.AddScoped<IAccountStore, AccountStore>();
         services.AddScoped<IJournalStore, JournalStore>();
         services.AddScoped<IAccountMappingStore, AccountMappingStore>();
+        services.AddScoped<ITaxCodeStore, TaxCodeStore>();
         return services;
     }
 }

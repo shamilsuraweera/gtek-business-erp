@@ -33,23 +33,25 @@ public sealed record BillLineRequest(Guid ItemId, decimal? Quantity, decimal? Un
 public sealed record CreateBillRequest(DateOnly? Date, string? VendorReference, IReadOnlyList<BillLineRequest>? Lines, bool OverrideVariance = false);
 public sealed record BillLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost,
-    decimal LineTotal, decimal PriceVariance, string MatchStatus, decimal QuantityDebited);
+    decimal LineTotal, decimal PriceVariance, string MatchStatus, decimal QuantityDebited,
+    string? TaxCode, decimal TaxRate, decimal TaxAmount);
 public sealed record BillResponse(
     Guid Id, string Number, string? VendorReference, Guid PurchaseOrderId, Guid VendorId, string VendorName,
-    DateOnly BillDate, DateOnly DueDate, decimal Total, decimal AmountPaid, decimal AmountDebited, decimal Balance, BillStatus Status,
+    DateOnly BillDate, DateOnly DueDate, decimal Subtotal, decimal TaxTotal, decimal Total, decimal AmountPaid, decimal AmountDebited, decimal Balance, BillStatus Status,
     bool IsOverdue, string JournalNumber, decimal PriceVariance, bool VarianceOverridden, IReadOnlyList<BillLineResponse> Lines);
 
 public sealed record DebitNoteLineRequest(Guid ItemId, decimal Quantity);
 public sealed record CreateDebitNoteRequest(DateOnly? Date, string Reason, IReadOnlyList<DebitNoteLineRequest> Lines);
 public sealed record DebitNoteLineResponse(
-    Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost, decimal LineTotal, decimal PriceVariance);
+    Guid ItemId, string Sku, string Description, decimal Quantity, decimal OrderUnitCost, decimal UnitCost, decimal LineTotal, decimal PriceVariance,
+    decimal TaxRate, decimal TaxAmount);
 public sealed record VendorRefundRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);
 public sealed record VendorRefundResponse(
     Guid Id, string Number, Guid DebitNoteId, string DebitNoteNumber, Guid VendorId, string VendorName,
     DateOnly RefundDate, decimal Amount, PaymentMethod Method, string Reference, string JournalNumber);
 public sealed record DebitNoteResponse(
     Guid Id, string Number, Guid PurchaseOrderId, Guid BillId, string BillNumber, Guid VendorId, string VendorName, DateOnly DebitDate,
-    string Reason, decimal Total, decimal AmountApplied, decimal AmountRefunded, decimal RefundDue, decimal PriceVariance,
+    string Reason, decimal Subtotal, decimal TaxTotal, decimal Total, decimal AmountApplied, decimal AmountRefunded, decimal RefundDue, decimal PriceVariance,
     string JournalNumber, IReadOnlyList<DebitNoteLineResponse> Lines, IReadOnlyList<VendorRefundResponse> Refunds);
 
 public sealed record PayBillRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);

@@ -29,7 +29,7 @@ export function Orders() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No orders in this view.</Empty> : (
             <table className="data">
-              <thead><tr><th>Number</th><th>Customer</th><th>Date</th><th>Status</th><th className="num">Total</th></tr></thead>
+              <thead><tr><th>Number</th><th>Customer</th><th>Date</th><th>Status</th><th className="num">Total (excl. tax)</th></tr></thead>
               <tbody>{rows.map((o) => (
                 <tr key={o.id} className="click" onClick={() => navigate(`/orders/${o.id}`)}>
                   <td><Link to={`/orders/${o.id}`} onClick={(e) => e.stopPropagation()}>{o.number}</Link></td>

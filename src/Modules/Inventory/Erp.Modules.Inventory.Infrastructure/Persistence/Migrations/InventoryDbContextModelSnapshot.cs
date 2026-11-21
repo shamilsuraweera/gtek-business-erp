@@ -47,6 +47,10 @@ namespace Erp.Modules.Inventory.Infrastructure.Persistence.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<string>("TaxCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<decimal>("UnitCost")
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");

@@ -57,9 +57,15 @@ public interface IJournalService : IFinancePosting
     Task<JournalResponse?> ReverseAsync(JournalId id, ReverseJournalRequest request, CancellationToken cancellationToken);
 }
 
+/// <summary>Tax for a period, read from the ledger accounts the tax roles map to. <c>NetPayable</c> is what is owed to (positive) or by (negative) the tax authority.</summary>
+public sealed record TaxSummaryResponse(
+    DateOnly? From, DateOnly? To, string? OutputAccountCode, string? InputAccountCode,
+    decimal OutputTax, decimal InputTax, decimal NetPayable, IReadOnlyList<string> Notes);
+
 public interface IFinanceReportService
 {
     Task<TrialBalanceResponse> TrialBalanceAsync(DateOnly? asOf, CancellationToken cancellationToken);
+    Task<TaxSummaryResponse> TaxSummaryAsync(DateOnly? from, DateOnly? to, CancellationToken cancellationToken);
 }
 
 public static class FinanceModule
@@ -72,6 +78,9 @@ public static class FinanceModule
         services.AddScoped<IJournalService>(sp => sp.GetRequiredService<JournalService>());
         services.AddScoped<IFinancePosting>(sp => sp.GetRequiredService<JournalService>());
         services.AddScoped<IFinanceReportService, FinanceReportService>();
+        services.AddScoped<TaxCodeService>();
+        services.AddScoped<ITaxCodeService>(sp => sp.GetRequiredService<TaxCodeService>());
+        services.AddScoped<ITaxCatalog>(sp => sp.GetRequiredService<TaxCodeService>());
         return services;
     }
 }

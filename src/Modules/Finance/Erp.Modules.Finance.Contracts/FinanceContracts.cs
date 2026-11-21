@@ -17,7 +17,11 @@ public enum AccountRole
     /// <summary>Contra-revenue: credit notes debit this so gross sales stay visible.</summary>
     SalesReturns,
     CostOfGoodsSold,
-    PurchasePriceVariance
+    PurchasePriceVariance,
+    /// <summary>Tax charged on sales, owed to the tax authority (credited on invoices, debited by credit notes).</summary>
+    TaxPayable,
+    /// <summary>Tax paid on purchases, recoverable from the tax authority (debited on vendor bills, credited by debit notes).</summary>
+    TaxReceivable
 }
 
 /// <summary>A posting line: either an explicit account code (manual journals) or a role resolved through the account mapping.</summary>
@@ -44,4 +48,13 @@ public interface IFinancePosting
 
     /// <summary>Posts a mirror journal that reverses a previously posted one (used to compensate failed multi-module operations).</summary>
     Task<PostedJournal> ReverseJournalAsync(Guid journalId, string reason, CancellationToken cancellationToken);
+}
+
+public sealed record TaxCodeInfo(string Code, string Name, decimal RatePercent, bool IsActive);
+
+/// <summary>Cross-module read access to tax codes (rates are applied by the module that issues the document).</summary>
+public interface ITaxCatalog
+{
+    /// <summary>The tax codes that exist for the active company, keyed by code (case-insensitive). Unknown codes are absent.</summary>
+    Task<IReadOnlyDictionary<string, TaxCodeInfo>> GetAsync(IEnumerable<string> codes, CancellationToken cancellationToken);
 }

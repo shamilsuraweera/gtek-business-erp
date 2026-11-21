@@ -37,6 +37,7 @@ public static class DevSeeder
         await SeedPeriodsAsync(sp, log, ct);
         await SeedClerkAsync(sp, company, log, ct);
         await SeedAccountsAsync(sp, log, ct);
+        await SeedTaxCodesAsync(sp, log, ct);
         await SeedOpeningBalancesAsync(sp, log, ct);
         await SeedInventoryAsync(sp, log, ct);
         await SeedSalesAsync(sp, log, ct);
@@ -109,8 +110,10 @@ public static class DevSeeder
         ("1010", "Bank - Current Account", AccountType.Asset),
         ("1100", "Accounts Receivable", AccountType.Asset),
         ("1200", "Inventory", AccountType.Asset),
+        ("1300", "Input Tax Recoverable", AccountType.Asset),
         ("2000", "Accounts Payable", AccountType.Liability),
         ("2100", "Goods Received Not Invoiced", AccountType.Liability),
+        ("2200", "Output Tax Payable", AccountType.Liability),
         ("3000", "Owner's Equity", AccountType.Equity),
         ("3100", "Retained Earnings", AccountType.Equity),
         ("4000", "Sales Revenue", AccountType.Revenue),
@@ -129,6 +132,29 @@ public static class DevSeeder
         foreach (var (code, name, type) in ChartOfAccounts.Where(x => !existing.Contains(x.Code)))
             await accounts.CreateAsync(new CreateAccountRequest(code, name, type), ct);
         log.LogInformation("Chart of accounts ready ({Count} accounts).", ChartOfAccounts.Length);
+    }
+
+    private static readonly (string Code, string Name, decimal Rate)[] TaxCodes =
+    [
+        ("VAT18", "VAT 18%", 18m),
+        ("ZERO", "Zero-rated", 0m)
+    ];
+
+    /// <summary>Most goods carry VAT; cable is zero-rated (still reported, no tax); mice are left untaxed to show items without a tax code.</summary>
+    private static string? TaxCodeFor(string sku) => sku switch
+    {
+        "CBL-CAT6" => "ZERO",
+        "MOU-001" => null,
+        _ => "VAT18"
+    };
+
+    private static async Task SeedTaxCodesAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
+    {
+        var service = sp.GetRequiredService<ITaxCodeService>();
+        var existing = (await service.ListAsync(ct)).Select(x => x.Code).ToHashSet();
+        foreach (var (code, name, rate) in TaxCodes.Where(x => !existing.Contains(x.Code)))
+            await service.CreateAsync(new CreateTaxCodeRequest(code, name, rate), ct);
+        log.LogInformation("Tax codes ready ({Count}).", TaxCodes.Length);
     }
 
     private static async Task SeedOpeningBalancesAsync(IServiceProvider sp, ILogger log, CancellationToken ct)
@@ -177,7 +203,14 @@ public static class DevSeeder
         {
             if (!existing.TryGetValue(sku, out var item))
             {
-                item = await itemService.CreateAsync(new CreateItemRequest(sku, name, uom, price, cost), ct);
+                item = await itemService.CreateAsync(new CreateItemRequest(sku, name, uom, price, cost, TaxCodeFor(sku)), ct);
+                existing[sku] = item;
+            }
+            else if (item.TaxCode is null && TaxCodeFor(sku) is { } taxCode)
+            {
+                // Databases seeded before tax support: add the code (affects documents issued from now on only).
+                item = (await itemService.UpdateAsync(new Erp.Modules.Inventory.Domain.ItemId(item.Id),
+                    new UpdateItemRequest(item.Name, item.UnitOfMeasure, item.UnitPrice, item.UnitCost, taxCode), ct))!;
                 existing[sku] = item;
             }
 

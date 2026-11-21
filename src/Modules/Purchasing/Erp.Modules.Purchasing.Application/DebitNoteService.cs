@@ -44,7 +44,9 @@ public sealed class DebitNoteService(
                 throw new DomainException("Each item can appear only once on a debit note.");
 
             // Per-bill limit: never debit more than this bill charged, counting earlier debit notes against it.
-            var already = BillService.DebitedQuantities(await store.ListDebitNotesForBillAsync(companyId, bill.Id, ct));
+            var priorNotes = await store.ListDebitNotesForBillAsync(companyId, bill.Id, ct);
+            var already = BillService.DebitedQuantities(priorNotes);
+            var taxAlready = priorNotes.SelectMany(p => p.Lines).GroupBy(l => l.ItemId).ToDictionary(g => g.Key, g => g.Sum(l => l.TaxAmount));
             var lines = new List<DebitNoteLine>();
             foreach (var r in request.Lines)
             {
@@ -55,7 +57,11 @@ public sealed class DebitNoteService(
                 if (r.Quantity > remaining)
                     throw new DomainException($"Cannot debit {r.Quantity:0.####} of '{billLine.Sku}': only {remaining:0.####} remain on {bill.Number}.");
                 // The vendor credits at the price it billed; the accrual being cleared is at the order price.
-                lines.Add(new DebitNoteLine(billLine.ItemId, billLine.Sku, billLine.Description, r.Quantity, billLine.OrderUnitCost, billLine.UnitCost));
+                // The input tax given back is this quantity's share of what the bill charged on the line; the last debit takes the remainder.
+                var lineTax = TaxMath.Portion(billLine.TaxAmount, billLine.Quantity,
+                    already.GetValueOrDefault((bill.Id.Value, r.ItemId)), taxAlready.GetValueOrDefault(r.ItemId), r.Quantity);
+                lines.Add(new DebitNoteLine(billLine.ItemId, billLine.Sku, billLine.Description, r.Quantity, billLine.OrderUnitCost, billLine.UnitCost,
+                    billLine.TaxRate, lineTax));
             }
 
             var date = request.Date ?? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
@@ -64,14 +70,17 @@ public sealed class DebitNoteService(
             order.RecordDebit(lines.Select(l => (l.ItemId, l.Quantity)).ToList());
             var number = await numbers.NextAsync(DebitNoteSequence, "DN-", ct);
 
-            var total = lines.Sum(l => l.LineTotal);
+            var subtotal = lines.Sum(l => l.LineTotal);
+            var tax = lines.Sum(l => l.TaxAmount);
+            var total = subtotal + tax;
             var accrued = lines.Sum(l => l.AccruedTotal);
-            var variance = total - accrued;
+            var variance = subtotal - accrued;
             var journalLines = new List<PostJournalLine>
             {
                 PostJournalLine.ForRole(AccountRole.AccountsPayable, total, 0, $"Debit note {number}"),
                 PostJournalLine.ForRole(AccountRole.GoodsReceivedNotInvoiced, 0, accrued, $"Debit note {number}")
             };
+            if (tax > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.TaxReceivable, 0, tax, $"Input tax reversal {number}"));
             if (variance > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, 0, variance, $"Price variance reversal {number}"));
             else if (variance < 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.PurchasePriceVariance, -variance, 0, $"Price variance reversal {number}"));
 
@@ -96,7 +105,7 @@ public sealed class DebitNoteService(
             await audit.RecordAsync("Purchasing", "debit-note.created", "DebitNote", note.Id.Value.ToString(), note.Number, true,
                 new Dictionary<string, object?>
                 {
-                    ["Bill"] = bill.Number, ["Total"] = note.Total, ["Applied"] = note.AmountApplied,
+                    ["Bill"] = bill.Number, ["Total"] = note.Total, ["Tax"] = note.TaxTotal, ["Applied"] = note.AmountApplied,
                     ["RefundDue"] = note.RefundDue, ["PriceVariance"] = note.PriceVariance, ["Journal"] = journal.Number
                 }, ct);
             return Map(note, bill.Number, vendor.Name, []);
@@ -181,8 +190,8 @@ public sealed class DebitNoteService(
 
     private static DebitNoteResponse Map(DebitNote n, string billNumber, string vendorName, IReadOnlyList<VendorRefundResponse> refunds) => new(
         n.Id.Value, n.Number, n.PurchaseOrderId.Value, n.VendorBillId.Value, billNumber, n.VendorId.Value, vendorName, n.DebitDate, n.Reason,
-        n.Total, n.AmountApplied, n.AmountRefunded, n.RefundDue, n.PriceVariance, n.JournalNumber,
-        n.Lines.Select(l => new DebitNoteLineResponse(l.ItemId, l.Sku, l.Description, l.Quantity, l.OrderUnitCost, l.UnitCost, l.LineTotal, l.PriceVariance)).ToArray(),
+        n.Subtotal, n.TaxTotal, n.Total, n.AmountApplied, n.AmountRefunded, n.RefundDue, n.PriceVariance, n.JournalNumber,
+        n.Lines.Select(l => new DebitNoteLineResponse(l.ItemId, l.Sku, l.Description, l.Quantity, l.OrderUnitCost, l.UnitCost, l.LineTotal, l.PriceVariance, l.TaxRate, l.TaxAmount)).ToArray(),
         refunds);
 
     private static VendorRefundResponse MapRefund(VendorRefund r, string debitNoteNumber, string vendorName) => new(

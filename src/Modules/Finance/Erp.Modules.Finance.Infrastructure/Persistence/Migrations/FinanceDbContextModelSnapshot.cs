@@ -184,6 +184,42 @@ namespace Erp.Modules.Finance.Infrastructure.Persistence.Migrations
                     b.ToTable("LedgerEntries", "finance");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Finance.Domain.TaxCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("RatePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("TaxCodes", "finance");
+                });
+
             modelBuilder.Entity("Erp.Modules.Finance.Domain.AccountMapping", b =>
                 {
                     b.HasOne("Erp.Modules.Finance.Domain.Account", null)

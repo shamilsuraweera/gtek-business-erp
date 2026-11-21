@@ -38,18 +38,28 @@ public sealed class Item : AggregateRoot<ItemId>
     public decimal UnitPrice { get; private set; }
     /// <summary>Standard cost used to value stock issues (COGS).</summary>
     public decimal UnitCost { get; private set; }
+    /// <summary>The tax code applied when this item is sold or bought; none means the item carries no tax. Prices are tax-exclusive.</summary>
+    public string? TaxCode { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Item Create(CompanyId companyId, string sku, string name, string unitOfMeasure,
-        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt) =>
-        new(new ItemId(Guid.NewGuid()), companyId, sku, name, unitOfMeasure, unitPrice, unitCost, createdAt);
+        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null)
+    {
+        var item = new Item(new ItemId(Guid.NewGuid()), companyId, sku, name, unitOfMeasure, unitPrice, unitCost, createdAt);
+        item.TaxCode = NormalizeTaxCode(taxCode);
+        return item;
+    }
+
+    public static string? NormalizeTaxCode(string? taxCode) =>
+        string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
 
     public static string NormalizeSku(string sku) =>
         string.IsNullOrWhiteSpace(sku) ? throw new DomainException("Item SKU is required.") : sku.Trim().ToUpperInvariant();
 
-    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost)
+    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null)
     {
+        TaxCode = NormalizeTaxCode(taxCode);
         Name = NormalizeName(name);
         UnitOfMeasure = NormalizeUom(unitOfMeasure);
         UnitPrice = RequireNonNegative(unitPrice, "Unit price");

@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Erp.Modules.Inventory.Domain\Erp.Modules.Inventory.Domain.csproj" />
     <ProjectReference Include="..\Erp.Modules.Inventory.Contracts\Erp.Modules.Inventory.Contracts.csproj" />
+    <ProjectReference Include="..\..\Finance\Erp.Modules.Finance.Contracts\Erp.Modules.Finance.Contracts.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\Erp.Application.Abstractions\Erp.Application.Abstractions.csproj" />
   </ItemGroup>
 

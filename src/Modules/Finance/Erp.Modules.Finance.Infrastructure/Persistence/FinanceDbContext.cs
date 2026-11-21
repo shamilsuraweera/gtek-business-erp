@@ -7,6 +7,7 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
 {
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<AccountMapping> AccountMappings => Set<AccountMapping>();
+    public DbSet<TaxCode> TaxCodes => Set<TaxCode>();
     public DbSet<GeneralJournal> Journals => Set<GeneralJournal>();
     public DbSet<GeneralLedgerEntry> LedgerEntries => Set<GeneralLedgerEntry>();
 

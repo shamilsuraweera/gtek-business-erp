@@ -162,8 +162,9 @@ function BillDialog({ order, onClose, onCreated }: { order: PurchaseOrder; onClo
               </tr>
             )
           })}</tbody>
-          <tfoot><tr><td colSpan={4}>Bill total {variance !== 0 && <span className="muted"> · price variance {formatMoney(variance)}</span>}</td><td className="num" colSpan={2}>{formatMoney(total)}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={4}>Bill total (excl. tax) {variance !== 0 && <span className="muted"> · price variance {formatMoney(variance)}</span>}</td><td className="num" colSpan={2}>{formatMoney(total)}</td></tr></tfoot>
         </table></div>
+        <p className="hint">Prices exclude tax. Input tax is added from each item's tax code when the bill is posted.</p>
         {outside && (
           <div className="note error">
             Price differs from the order by more than {TOLERANCE}%. {can(P.billsOverride)
@@ -207,7 +208,7 @@ export function PurchaseOrderDetail() {
       <ErrorNote error={act.error} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Billed</th><th className="num">Returned</th><th className="num">Unit cost</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Billed</th><th className="num">Returned</th><th className="num">Unit cost</th><th className="num">Amount</th></tr></thead>
           <tbody>{o.lines.map((l) => (
             <tr key={l.itemId}>
               <td>{l.sku}</td><td>{l.description}</td><td className="num">{formatNumber(l.quantity)}</td>
@@ -217,7 +218,7 @@ export function PurchaseOrderDetail() {
               <td className="num">{formatMoney(l.unitCost)}</td><td className="num">{formatMoney(l.lineTotal)}</td>
             </tr>
           ))}</tbody>
-          <tfoot><tr><td colSpan={7}>Total</td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={7}>Total <span className="muted">(excl. tax — added when billed)</span></td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
         </table>
       </section>
       {o.notes && <p className="muted" style={{ marginTop: 12 }}>Notes: {o.notes}</p>}
