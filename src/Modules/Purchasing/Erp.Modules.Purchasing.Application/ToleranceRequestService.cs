@@ -2,6 +2,7 @@ using Erp.Application.Abstractions;
 using Erp.Modules.Inventory.Contracts;
 using Erp.Modules.Purchasing.Domain;
 using Erp.SharedKernel;
+using Microsoft.Extensions.Logging;
 
 namespace Erp.Modules.Purchasing.Application;
 
@@ -53,9 +54,16 @@ public sealed class ToleranceRequestService(
     IUserDirectory users,
     IDocumentNumberGenerator numbers,
     IClock clock,
-    IAuditRecorder audit) : IToleranceRequestService
+    IAuditRecorder audit,
+    INotifier notifier,
+    ILogger<ToleranceRequestService> logger) : IToleranceRequestService
 {
     public const string RequestSequence = "TOL";
+
+    /// <summary>The permission that approves requests (Platform's purchasing.orders.override-tolerance); a unit test keeps the two in step.</summary>
+    public const string ApprovePermission = "purchasing.orders.override-tolerance";
+
+    private static string Subject(Guid requestId) => $"tolerance-request:{requestId}";
 
     private Guid CurrentUserId() =>
         currentUser.UserId?.Value ?? throw new DomainException("A signed-in user is required.");
@@ -64,7 +72,7 @@ public sealed class ToleranceRequestService(
     {
         var companyId = PurchasingCompany.Require(companyContext);
         var userId = CurrentUserId();
-        return await store.InLockedTransactionAsync<ToleranceRequestResponse?>(companyId, $"order:{orderId.Value}", async ct =>
+        var created = await store.InLockedTransactionAsync<ToleranceRequestResponse?>(companyId, $"order:{orderId.Value}", async ct =>
         {
             var order = await store.GetOrderAsync(companyId, orderId, ct);
             if (order is null) return null;
@@ -85,6 +93,14 @@ public sealed class ToleranceRequestService(
                 new Dictionary<string, object?> { ["Order"] = order.Number, ["Reason"] = entity.Reason, ["Lines"] = entity.Lines.Count }, ct);
             return (await MapAsync([entity], ct))[0];
         }, cancellationToken);
+
+        // After the request is committed: tell the approvers. Best effort; a notification problem never undoes the request.
+        if (created is not null)
+            await NotifySafelyAsync(() => notifier.NotifyPermissionHoldersAsync(ApprovePermission, new NotificationMessage(
+                "approval", $"Tolerance request {created.Number} needs a decision",
+                $"{created.RequestedBy} asked to change tolerances on {created.OrderNumber} ({created.VendorName}): {created.Reason}",
+                "/tolerance-requests", Subject(created.Id)), userId, cancellationToken));
+        return created;
     }
 
     public async Task<IReadOnlyList<ToleranceRequestResponse>> ListAsync(
@@ -127,7 +143,7 @@ public sealed class ToleranceRequestService(
         // The decision changes the order, so it is serialized with every other operation on that order.
         var orderId = await store.GetToleranceRequestOrderIdAsync(companyId, id, cancellationToken);
         if (orderId is null) return null;
-        return await store.InLockedTransactionAsync<ToleranceRequestResponse?>(companyId, $"order:{orderId.Value.Value}", async ct =>
+        var decided = await store.InLockedTransactionAsync<ToleranceRequestResponse?>(companyId, $"order:{orderId.Value.Value}", async ct =>
         {
             var entity = await store.GetToleranceRequestAsync(companyId, id, ct);
             var order = await store.GetOrderAsync(companyId, orderId.Value, ct);
@@ -139,6 +155,25 @@ public sealed class ToleranceRequestService(
                 new Dictionary<string, object?> { ["Order"] = order.Number, ["Note"] = entity.DecisionNote, ["OrderStatus"] = order.Status.ToString() }, ct);
             return (await MapAsync([entity], ct))[0];
         }, cancellationToken);
+
+        if (decided is not null)
+        {
+            // The request no longer needs anyone's attention, then the requester hears the outcome (unless they withdrew it themselves).
+            await NotifySafelyAsync(() => notifier.ResolveSubjectAsync(Subject(decided.Id), cancellationToken));
+            if (decided.Status is ToleranceRequestStatus.Approved or ToleranceRequestStatus.Rejected)
+                await NotifySafelyAsync(() => notifier.NotifyUsersAsync([decided.RequestedById], new NotificationMessage(
+                    "decision", $"Tolerance request {decided.Number} {outcome}",
+                    $"{decided.DecidedBy} {outcome} your request for {decided.OrderNumber}" + (decided.DecisionNote is null ? "." : $": {decided.DecisionNote}"),
+                    $"/purchase-orders/{decided.PurchaseOrderId}", Subject(decided.Id)), cancellationToken));
+        }
+
+        return decided;
+    }
+
+    private async Task NotifySafelyAsync(Func<Task> notify)
+    {
+        try { await notify(); }
+        catch (Exception ex) { logger.LogWarning(ex, "A notification could not be delivered."); }
     }
 
     private async Task<IReadOnlyList<ToleranceRequestResponse>> MapAsync(IReadOnlyList<ToleranceRequest> requests, CancellationToken ct)

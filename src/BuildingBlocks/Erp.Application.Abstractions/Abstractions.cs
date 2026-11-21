@@ -56,6 +56,23 @@ public interface IUserDirectory
     Task<IReadOnlyDictionary<Guid, string>> GetUserNamesAsync(IEnumerable<Guid> userIds, CancellationToken cancellationToken);
 }
 
+/// <param name="Category">A short grouping such as "approval" or "decision".</param>
+/// <param name="Link">An in-app path the notification opens, e.g. "/tolerance-requests".</param>
+/// <param name="Subject">Identifies what the notification is about (e.g. "tolerance-request:{id}"), so it can be resolved later.</param>
+public sealed record NotificationMessage(string Category, string Title, string? Body, string? Link, string? Subject = null);
+
+/// <summary>Delivers in-app notifications to users of the active company without referencing Platform.</summary>
+public interface INotifier
+{
+    Task NotifyUsersAsync(IEnumerable<Guid> userIds, NotificationMessage message, CancellationToken cancellationToken);
+
+    /// <summary>Notifies every active user of the active company who holds the permission, except one user (typically the actor).</summary>
+    Task NotifyPermissionHoldersAsync(string permissionCode, NotificationMessage message, Guid? exceptUserId, CancellationToken cancellationToken);
+
+    /// <summary>Marks every notification about a subject as read for everyone: it no longer needs anyone's attention.</summary>
+    Task ResolveSubjectAsync(string subject, CancellationToken cancellationToken);
+}
+
 /// <summary>Records audit history for business modules without referencing Platform.</summary>
 public interface IAuditRecorder
 {

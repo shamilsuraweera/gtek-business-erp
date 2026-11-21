@@ -510,6 +510,8 @@ public static class PlatformModule
         services.AddScoped<IDocumentNumberGenerator, DocumentNumberGenerator>();
         services.AddScoped<IAuditRecorder, AuditRecorder>();
         services.AddScoped<IUserDirectory, UserDirectory>();
+        services.AddScoped<INotifier, Notifier>();
+        services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

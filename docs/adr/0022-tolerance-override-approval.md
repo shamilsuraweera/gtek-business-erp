@@ -37,5 +37,5 @@ no record of the ask, the reason, or who agreed.
 
 - The direct path remains for approvers, so the workflow controls the people who lack the permission, not the approvers themselves.
   Both paths are audited, but only requests record a separate reason.
-- Pending requests are not time-limited and nobody is notified; approvers find them in the inbox.
-- Not covered: multi-level or amount-based approval chains, delegation, expiry, notifications, and requesting overrides at order creation.
+- Pending requests are not time-limited. Approvers and requesters are told about requests and decisions by in-app notifications (ADR 0023).
+- Not covered: multi-level or amount-based approval chains, delegation, expiry, and requesting overrides at order creation.

@@ -92,6 +92,25 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
         }
     }
 
+    public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notification>
+    {
+        public void Configure(EntityTypeBuilder<Notification> b)
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new Erp.SharedKernel.CompanyId(x)).IsRequired();
+            b.Property(x => x.UserId).HasConversion(x => x.Value, x => new Erp.SharedKernel.UserId(x)).IsRequired();
+            b.Property(x => x.Category).HasMaxLength(50).IsRequired();
+            b.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            b.Property(x => x.Body).HasMaxLength(1000);
+            b.Property(x => x.Link).HasMaxLength(300);
+            b.Property(x => x.Subject).HasMaxLength(200);
+            b.Ignore(x => x.IsRead);
+            b.HasIndex(x => new { x.CompanyId, x.UserId, x.ReadAt, x.CreatedAt });
+            b.HasIndex(x => new { x.CompanyId, x.Subject });
+            b.ToTable("Notifications", "platform");
+        }
+    }
+
     public sealed class UserCompanyAccessConfiguration : IEntityTypeConfiguration<UserCompanyAccess>
     {
         public void Configure(EntityTypeBuilder<UserCompanyAccess> b)

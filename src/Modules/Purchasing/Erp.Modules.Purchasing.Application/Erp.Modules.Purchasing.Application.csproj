@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\Finance\Erp.Modules.Finance.Contracts\Erp.Modules.Finance.Contracts.csproj" />
     <ProjectReference Include="..\..\Inventory\Erp.Modules.Inventory.Contracts\Erp.Modules.Inventory.Contracts.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <PropertyGroup>

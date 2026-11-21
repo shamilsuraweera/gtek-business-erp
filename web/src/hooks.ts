@@ -3,12 +3,13 @@ import { api } from './api/client'
 import { useAuth } from './auth'
 
 /** GET a company-scoped resource. The company id is part of the key so switching company refetches. */
-export function useApiQuery<T>(path: string, options: { enabled?: boolean } = {}) {
+export function useApiQuery<T>(path: string, options: { enabled?: boolean; refetchInterval?: number } = {}) {
   const { company } = useAuth()
   return useQuery({
     queryKey: [company?.id ?? 'none', path],
     queryFn: () => api<T>(path),
     enabled: !!company && (options.enabled ?? true),
+    refetchInterval: options.refetchInterval,
   })
 }
 

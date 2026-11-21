@@ -20,6 +20,7 @@ import { Bills } from './pages/Bills'
 import { BillDetail } from './pages/BillDetail'
 import { Finance } from './pages/Finance'
 import { Admin } from './pages/Admin'
+import { NotificationBell } from './Notifications'
 
 function Layout() {
   const { user, company, companies, can, logout, selectCompany } = useAuth()
@@ -67,6 +68,7 @@ function Layout() {
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
+          {company && <NotificationBell />}
           <span className="muted">{user?.userName}</span>
           <button className="btn small" onClick={logout}>Sign out</button>
         </div>
