@@ -5,13 +5,16 @@
 #   scripts/smoke/run.sh               # everything
 #   scripts/smoke/run.sh reminders     # only sections whose title contains the word(s)
 #
-# Needs: .NET SDK, the dotnet-ef tool, psql, python3, and a PostgreSQL server you can create databases on.
+# After the API checks it also runs the browser flows (web/e2e, Playwright) against the same API through the Vite dev server.
+# Needs: .NET SDK, the dotnet-ef tool, psql, python3, Node 20+ with web/ dependencies installed, and a PostgreSQL server you can create databases on.
 # Environment (all optional):
 #   SMOKE_PG_ADMIN   connection URL used to create/drop the database  (default postgresql://gtek:gtek_dev@localhost:5432/postgres)
 #   SMOKE_DB         database name                                   (default gtek_erp_smoke; dropped first and again at the end)
 #   SMOKE_PORT       API port (default 5004)      SMOKE_SMTP_PORT  SMTP sink port (default 2525)
 #   SMOKE_KEEP=1     keep the database and the API log afterwards
 #   SMOKE_NO_BUILD=1 skip the build (CI builds first)
+#   SMOKE_BROWSER=0  skip the browser flows (they need `npm ci` in web/ and a Playwright browser: `npx playwright install chromium`,
+#                    or E2E_CHROMIUM=/path/to/chrome); SMOKE_WEB_PORT is the dev server port (default 5173)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -19,6 +22,8 @@ PG_ADMIN="${SMOKE_PG_ADMIN:-postgresql://gtek:gtek_dev@localhost:5432/postgres}"
 DB="${SMOKE_DB:-gtek_erp_smoke}"
 PORT="${SMOKE_PORT:-5004}"
 SMTP_PORT="${SMOKE_SMTP_PORT:-2525}"
+WEB_PORT="${SMOKE_WEB_PORT:-5173}"
+BROWSER="${SMOKE_BROWSER:-1}"
 # Same user, password, host and port as the admin URL, other database.
 DB_URL="${PG_ADMIN%/*}/$DB"
 CONN="$(python3 - "$DB_URL" "$DB" <<'PY'
@@ -29,9 +34,11 @@ PY
 )"
 LOG="${TMPDIR:-/tmp}/gtek-smoke-api.log"
 API_PID=""
+WEB_PID=""
 
 cleanup() {
   [[ -n "${SMOKE_PID:-}" ]] && kill "$SMOKE_PID" 2>/dev/null || true
+  [[ -n "$WEB_PID" ]] && kill "$WEB_PID" 2>/dev/null || true
   [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
   [[ -n "$API_PID" ]] && wait "$API_PID" 2>/dev/null || true
   if [[ -z "${SMOKE_KEEP:-}" ]]; then psql "$PG_ADMIN" -qc "DROP DATABASE IF EXISTS \"$DB\" WITH (FORCE)" >/dev/null 2>&1 || true; fi
@@ -39,6 +46,10 @@ cleanup() {
 trap cleanup EXIT
 
 if ss -ltn 2>/dev/null | grep -q ":$PORT "; then echo "Port $PORT is already in use; stop that API or set SMOKE_PORT." >&2; exit 2; fi
+if [[ "$BROWSER" != "0" ]]; then
+  if ss -ltn 2>/dev/null | grep -q ":$WEB_PORT "; then echo "Port $WEB_PORT is already in use; stop that dev server or set SMOKE_WEB_PORT." >&2; exit 2; fi
+  [[ -x web/node_modules/.bin/playwright ]] || { echo "The browser flows need the web dependencies: (cd web && npm ci && npx playwright install chromium). Or set SMOKE_BROWSER=0." >&2; exit 2; }
+fi
 
 echo "==> Fresh database $DB"
 psql "$PG_ADMIN" -qc "DROP DATABASE IF EXISTS \"$DB\" WITH (FORCE)" -c "CREATE DATABASE \"$DB\"" >/dev/null
@@ -77,5 +88,24 @@ while kill -0 "$SMOKE_PID" 2>/dev/null; do
   sleep 1
 done
 if [[ $status -eq 0 ]]; then wait "$SMOKE_PID" || status=$?; fi
+
+# The browser flows run against the same API (and database) through the Vite dev server, which proxies /api to it.
+if [[ "$BROWSER" != "0" ]] && kill -0 "$API_PID" 2>/dev/null; then
+  echo
+  echo "==> Browser flows (Playwright) via the dev server on :$WEB_PORT"
+  (cd web && VITE_API_TARGET="http://127.0.0.1:$PORT" VITE_PORT="$WEB_PORT" exec ./node_modules/.bin/vite --host 127.0.0.1 --strictPort) >"${TMPDIR:-/tmp}/gtek-smoke-web.log" 2>&1 &
+  WEB_PID=$!
+  for _ in $(seq 1 40); do
+    curl -sf -o /dev/null "http://127.0.0.1:$WEB_PORT/api/v1/health" && break
+    kill -0 "$WEB_PID" 2>/dev/null || break
+    sleep 1
+  done
+  if curl -sf -o /dev/null "http://127.0.0.1:$WEB_PORT/api/v1/health"; then
+    (cd web && E2E_BASE_URL="http://127.0.0.1:$WEB_PORT" npx playwright test) || status=$?
+  else
+    echo "The dev server did not come up:" >&2; tail -n 20 "${TMPDIR:-/tmp}/gtek-smoke-web.log" >&2; status=1
+  fi
+fi
+
 if [[ $status -ne 0 ]]; then echo "--- API log (last 40 lines) ---" >&2; tail -n 40 "$LOG" >&2; fi
 exit $status

@@ -23,6 +23,11 @@ checked by hand-run scripts that were ordered, partly stale, and not in the repo
   it creates an open accounting period for today if the seeded periods have run out.
 - `.github/workflows/ci.yml` runs three jobs on push and pull request: **build and test** (all test projects, with a PostgreSQL service migrated for
   the integration tests), **web** (`npm ci`, type-check and build), and **smoke** (the script above against a PostgreSQL service).
+- **Browser flows** (added after the first version): `web/e2e` holds ten Playwright tests (`@playwright/test`, pinned, one worker, in file order).
+  `run.sh` starts the Vite dev server against the smoke API (`VITE_API_TARGET`, `VITE_PORT`) once the API checks have run, then `npx playwright test`; both
+  results count towards the exit code. They use the seeded data and create their own purchase orders (unique names) through the API, so they can be
+  re-run on the same database. A fixture fails every test on an uncaught page error or a 5xx from the API. The CI job installs Chromium and uploads
+  the Playwright report and traces when something fails. `SMOKE_BROWSER=0` skips them.
 - It found two real problems when first run, and both were fixed: the email status shown to administrators did not count the company-less
   account notices (ADR 0032 now says so and it does), and the runner had to start before the API.
 
@@ -31,8 +36,10 @@ checked by hand-run scripts that were ordered, partly stale, and not in the repo
 - A change that breaks a flow across modules, the email path or a scheduled reminder fails CI instead of being found by hand.
   It was checked to fail by deliberately breaking a reminder's recipient permission.
 - It takes about two minutes and needs `psql`, `dotnet-ef` and Python, which the workflow installs (`psql`, `dotnet-ef`) or the runner provides (Python).
-- It is a smoke test: it checks that the main paths work and the numbers add up, not every rule (those are unit tests). It does not drive the
-  browser; the web app is built and type-checked only.
+- It is a smoke test: it checks that the main paths work and the numbers add up, not every rule (those are unit tests). The browser flows cover the
+  main screens and what is new in the UI, not every page; there is no visual-regression or cross-browser testing (Chromium only).
+- The browser tests assert on structure and the flows, not exact seeded counts, and avoid views that other tests change: for example the dashboard's
+  Low stock card shows only the six lowest items, so the tests check the same rule on the Items page, where it is deterministic.
 - The seeded dates are in 2026, so the checks use "at least"/"is reported" style conditions that stay true as time passes, not exact counts.
-- Not covered: the browser flows (Playwright), load or concurrency beyond the unit and integration tests, upgrades from an older database, and the retention purge
+- Not covered: load or concurrency beyond the unit and integration tests, upgrades from an older database, and the retention purge
   (covered by the PostgreSQL integration tests), because it waits for a daily schedule.

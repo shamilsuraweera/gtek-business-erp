@@ -291,13 +291,23 @@ standard library only, with a built-in SMTP sink). It covers sign-in and permiss
 workflow and its emails, email preferences, the scheduled reminders, account-change notices, a rejected address not failing an operation,
 retention settings, and that the ledger still balances.
 
+It then runs the **browser flows** (`web/e2e`, Playwright, ten tests) against the same API through the dev server: signing in and
+role-dependent navigation, creating an order and invoicing and paying it in the UI, the reminders in the notification bell, a tolerance
+request raised by a clerk and rejected and approved by an approver, notifications and the per-category email switches, per-category retention,
+and reorder levels. A browser test fails on any uncaught page error or 5xx response, whatever its assertions.
+
 ```bash
 scripts/smoke/run.sh               # all sections (about two minutes)
 scripts/smoke/run.sh reminders     # only sections whose title contains the word
 SMOKE_KEEP=1 scripts/smoke/run.sh  # keep the database and the API log (/tmp/gtek-smoke-api.log) afterwards
+SMOKE_BROWSER=0 scripts/smoke/run.sh   # API checks only
 ```
 
-It needs the .NET SDK, the `dotnet-ef` tool, `psql`, `python3` and a PostgreSQL server you can create databases on
+The browser flows need the web dependencies and a browser once: `cd web && npm ci && npx playwright install chromium` (or point
+`E2E_CHROMIUM` at an installed Chrome). To run or debug them on their own against a running API and dev server:
+`cd web && npx playwright test` (add `--ui` or `--headed` to watch).
+
+It needs the .NET SDK, the `dotnet-ef` tool, `psql`, `python3`, Node 20+ and a PostgreSQL server you can create databases on
 (`SMOKE_PG_ADMIN`, default `postgresql://gtek:gtek_dev@localhost:5432/postgres`). `.github/workflows/ci.yml` runs it, the unit,
 architecture, integration and functional tests, and the web build on every push and pull request.
 

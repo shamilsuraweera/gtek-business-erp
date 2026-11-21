@@ -8,3 +8,7 @@ appsettings.Development.json
 *.local.json
 .env
 __pycache__/
+
+# Playwright
+/web/e2e/.results/
+/web/e2e/.report/
