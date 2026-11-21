@@ -195,6 +195,23 @@ def section_auth():
     check("the clerk is refused what they lack (403)", clerk("POST", "/finance/tax-codes", {"code": "SMK", "name": "x", "ratePercent": 1})[0] == 403)
 
 
+def section_preconditions():
+    """What the later sections rely on, checked up front so a wrong setup fails here with an explanation instead of as an obscure assertion."""
+    hint = "(the smoke test needs a freshly seeded database: scripts/smoke/run.sh creates one)"
+    today = datetime.date.today().isoformat()
+    stock = {s["sku"]: s for s in admin("GET", "/inventory/stock")[1]}
+    check(f"the seeded items exist, the mouse well stocked and the printer below its reorder level {hint}",
+          {"MOU-001", "PRN-100"} <= set(stock) and stock["MOU-001"]["onHand"] >= 10 and stock["PRN-100"]["isLow"], {k: stock.get(k) for k in ("MOU-001", "PRN-100")})
+    check(f"the seeded customers exist {hint}", len(admin("GET", "/sales/customers")[1]) > 0)
+    check(f"the seeded data has overdue invoices and bills for the reminders to report {hint}",
+          any(i["isOverdue"] for i in admin("GET", "/sales/invoices?take=500")[1]) and any(b["isOverdue"] for b in admin("GET", "/purchasing/bills?take=500")[1]))
+    check(f"the seeded data has an accounting period that has ended but is still open {hint}",
+          any(p["status"] == "Open" and p["endDate"] < today for p in admin("GET", "/accounting-periods")[1]))
+    users = call("GET", "/users", admin.token)[1]
+    check(f"no earlier smoke run left its users behind: the database is fresh {hint}", not any(u["userName"].startswith(("smoke", "reject", "quiet")) for u in users),
+          [u["userName"] for u in users if u["userName"].startswith(("smoke", "reject", "quiet"))])
+
+
 def section_period():
     today = datetime.date.today()
     periods = admin("GET", "/accounting-periods")[1]
@@ -298,6 +315,7 @@ def section_approval_workflow_and_email():
     mail = wait_for(lambda: mails("admin@gtek.local", number))
     check("the approver is emailed the request", len(mail) == 1 and "needs a decision" in mail[0]["subject"], [m["subject"] for m in mails("admin@gtek.local")])
     check("the email links back into the app with an absolute URL", bool(mail) and "/tolerance-requests" in mail[0]["text"] and "http" in mail[0]["text"])
+    check("the sender's display name came from a secret file, not the defaults", bool(mail) and "From: Smoke Mailer <erp@gtek.local>" in mail[0]["raw"], mail[0]["raw"][:300] if mail else "")
     check("the requester is not emailed about their own request", not mails("apclerk@gtek.local", number))
     check("the approver also has an in-app notification", admin("GET", "/notifications/unread-count")[1]["count"] > admin_before)
 
@@ -348,6 +366,11 @@ def section_reminders():
           {n["category"] for n in clerk("GET", "/notifications?take=100")[1] if n["category"].startswith(("overdue", "low", "period"))} <= {"overdue-bill"})
     stock = {s["sku"]: s for s in admin("GET", "/inventory/stock")[1]}
     check("the printer is below its reorder level and flagged", stock["PRN-100"]["isLow"] and stock["PRN-100"]["reorderLevel"] == 10, stock["PRN-100"])
+    check("a stocked item is marked as having been stocked", stock["PRN-100"]["everStocked"])
+    never = [s for s in stock.values() if s["sku"].startswith(("SMIA-", "SMIO-"))]       # created by earlier sections, never given stock
+    received = [s for s in stock.values() if s["sku"].startswith("SMIM-")]                 # created, then goods received against an order
+    check("items that were created but never stocked say so, so they are not counted as low", bool(never) and all(not s["everStocked"] for s in never), never[:1])
+    check("an item that has had goods received says it has been stocked", bool(received) and all(s["everStocked"] for s in received), received[:1])
 
 
 def section_account_notices():
@@ -399,6 +422,9 @@ def section_retention_settings():
     check("the company-wide values are untouched", admin("GET", path)[1]["readDaysOverride"] is None)
     check("an invalid value is refused", admin("PUT", f"{path}/categories/approval", {"readDays": 0, "unreadDays": None})[0] == 400)
     check("a read period longer than the inherited unread period is refused", admin("PUT", f"{path}/categories/approval", {"readDays": 3000, "unreadDays": None})[0] == 400)
+    policy = admin("GET", "/notifications/retention")[1]
+    check("users are told which categories are exceptions to the company's retention",
+          [(c["category"], c["readDays"]) for c in policy["categories"]] == [("approval", 7)], policy)
     check("clearing the rule restores inheritance",
           admin("PUT", f"{path}/categories/approval", {"readDays": None, "unreadDays": None})[0] == 200 and approval()["readDaysOverride"] is None)
 
@@ -417,6 +443,7 @@ def section_final_integrity():
 
 SECTIONS = [
     ("Sign-in and permissions", section_auth),
+    ("Seed preconditions", section_preconditions),
     ("Accounting period", section_period),
     ("Order to cash", section_order_to_cash),
     ("Purchasing and three-way match", section_purchasing_and_match),

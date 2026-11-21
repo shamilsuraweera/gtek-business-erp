@@ -35,10 +35,12 @@ PY
 LOG="${TMPDIR:-/tmp}/gtek-smoke-api.log"
 API_PID=""
 WEB_PID=""
+SECRETS_DIR=""
 
 cleanup() {
   [[ -n "${SMOKE_PID:-}" ]] && kill "$SMOKE_PID" 2>/dev/null || true
   [[ -n "$WEB_PID" ]] && kill "$WEB_PID" 2>/dev/null || true
+  [[ -n "$SECRETS_DIR" ]] && rm -rf "$SECRETS_DIR"
   [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
   [[ -n "$API_PID" ]] && wait "$API_PID" 2>/dev/null || true
   if [[ -z "${SMOKE_KEEP:-}" ]]; then psql "$PG_ADMIN" -qc "DROP DATABASE IF EXISTS \"$DB\" WITH (FORCE)" >/dev/null 2>&1 || true; fi
@@ -68,8 +70,12 @@ SMOKE_API="http://127.0.0.1:$PORT" SMOKE_SMTP_PORT="$SMTP_PORT" SMOKE_WAIT_SECON
 SMOKE_PID=$!
 sleep 1
 
+# One setting is supplied as a secret file (the way Docker/Kubernetes secrets arrive), to prove that path works end to end; the smoke test checks it.
+SECRETS_DIR="$(mktemp -d)"
+printf 'Smoke Mailer' > "$SECRETS_DIR/Email__FromName"
+
 echo "==> Start the API on :$PORT (log: $LOG)"
-env ASPNETCORE_ENVIRONMENT=Development \
+env ASPNETCORE_ENVIRONMENT=Development ERP_SECRETS_DIR="$SECRETS_DIR" \
     ConnectionStrings__Erp="$CONN" \
     Authentication__BootstrapSecret="smoke-bootstrap-secret" \
     Authentication__Jwt__SigningKey="c21va2Utc2lnbmluZy1rZXktMzItYnl0ZXMtbG9uZy0hISE=" \

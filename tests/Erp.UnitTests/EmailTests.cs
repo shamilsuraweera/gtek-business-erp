@@ -346,4 +346,39 @@ public class EmailTests
         u.SetEmailNotifications(false);
         Assert.False(u.EmailNotifications);
     }
+
+    [Fact]
+    public void Secrets_can_be_supplied_as_files_named_like_the_setting_and_win_over_other_sources()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "erp-secrets-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "Email__Password"), "s3cret-from-file\n");        // a trailing newline, as editors and `echo` leave
+            File.WriteAllText(Path.Combine(dir, "Email__Username"), "mailer");
+            var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Email:Enabled"] = "true", ["Email:Host"] = "smtp.test", ["Email:Password"] = "from-appsettings" })
+                .AddKeyPerFile(dir, optional: false)                                                 // added last, as Program.cs does
+                .Build();
+
+            var options = configuration.GetSection(EmailOptions.Section).Get<EmailOptions>()!;
+
+            Assert.Equal("s3cret-from-file", options.Password);                                      // the file wins, and the newline is gone
+            Assert.Equal("mailer", options.Username);
+            Assert.Equal("smtp.test", options.Host);                                                 // other sources still supply the rest
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_missing_secrets_folder_is_not_an_error()
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddKeyPerFile(Path.Combine(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N")), optional: true)
+            .Build();
+        Assert.Null(configuration["Email:Password"]);
+    }
 }

@@ -17,6 +17,12 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Finance\Erp.Modules.Finance.Infrastructure\Erp.Modules.Finance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Domain\Erp.Modules.Sales.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Application\Erp.Modules.Sales.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Infrastructure\Erp.Modules.Sales.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Domain\Erp.Modules.Purchasing.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Application\Erp.Modules.Purchasing.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Infrastructure\Erp.Modules.Purchasing.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Application\Erp.Modules.Platform.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj" />
   </ItemGroup>

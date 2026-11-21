@@ -423,3 +423,13 @@ The API refuses to start with a clear list of problems if email is enabled but i
 `RetryMinutes` (`[1, 5, 30, 120, 720]`), `KeepSentDays` (14) and `KeepFailedDays` (90). Each user can turn emails off from the notification bell, and
 Administration → Notifications shows what is waiting or has failed. See ADR 0026. For local testing, point `Host` at any SMTP catcher
 (for example `127.0.0.1:1025` with `Security` set to `None`).
+
+**Keeping the SMTP password out of configuration.** Besides appsettings and environment variables, any setting can be supplied as a **secret
+file**: a file named like the setting with `__` for `:` whose content is the value, in `/run/secrets` (where Docker and Kubernetes mount secrets)
+or in the folder named by `ERP_SECRETS_DIR`. For example `/run/secrets/Email__Password`. Secret files are read last, so they win over every
+other source; a trailing newline is ignored, and a missing folder is fine (ADR 0038).
+
+Other email behaviour worth knowing: scheduled reminders follow `Reminders:TimeZone` and `Reminders:Hour` (ADR 0036) and are protected against two
+API instances sending twice (ADR 0035); emails about changes to your own account and access are security notices that cannot be switched off
+(ADR 0034); each email carries a stable `Message-ID` so a rare resend can be recognised; low-stock alerts do not count an item whose shortfall is
+already covered by released purchase orders (ADR 0037).

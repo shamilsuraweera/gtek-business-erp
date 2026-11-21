@@ -16,7 +16,7 @@ public sealed record ReceiveStockRequest(Guid ItemId, decimal Quantity, decimal?
 public sealed record AdjustStockRequest(Guid ItemId, decimal Quantity, string Reason, DateOnly? Date, Guid? LocationId);
 
 public sealed record StockLevelResponse(
-    Guid ItemId, string Sku, string ItemName, string UnitOfMeasure, decimal OnHand, decimal UnitCost, decimal Value, decimal? ReorderLevel, bool IsLow);
+    Guid ItemId, string Sku, string ItemName, string UnitOfMeasure, decimal OnHand, decimal UnitCost, decimal Value, decimal? ReorderLevel, bool IsLow, bool EverStocked);
 public sealed record StockLedgerEntryResponse(
     Guid Id, Guid ItemId, string Sku, Guid LocationId, decimal Quantity, decimal UnitCost,
     DateOnly PostingDate, DateTimeOffset PostedAt, string SourceType, string SourceReference);

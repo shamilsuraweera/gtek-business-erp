@@ -60,9 +60,17 @@ public sealed class NotificationService(
 {
     public async Task<NotificationRetentionResponse> GetRetentionAsync(CancellationToken cancellationToken)
     {
-        var setting = await store.GetRetentionSettingAsync(Scope().Company, NotificationRetentionSetting.CompanyWide, cancellationToken);
-        var (read, unread) = retention.Effective(setting?.ReadDays, setting?.UnreadDays);
-        return new NotificationRetentionResponse(retention.Enabled, read, unread);
+        var rows = await store.ListRetentionSettingsAsync(Scope().Company, cancellationToken);
+        var company = rows.SingleOrDefault(x => x.IsCompanyWide);
+        var (read, unread) = retention.Effective(company?.ReadDays, company?.UnreadDays);
+        // Only the categories that really differ, so the panel mentions exceptions and nothing else.
+        var different = rows.Where(x => !x.IsCompanyWide)
+            .Select(x => (x.Category, Effective: retention.EffectiveFor(company, x)))
+            .Where(x => x.Effective != (read, unread))
+            .OrderBy(x => x.Category)
+            .Select(x => new CategoryRetentionSummary(x.Category, x.Effective.ReadDays, x.Effective.UnreadDays))
+            .ToList();
+        return new NotificationRetentionResponse(retention.Enabled, read, unread, different);
     }
 
     private (CompanyId Company, UserId User) Scope() =>
