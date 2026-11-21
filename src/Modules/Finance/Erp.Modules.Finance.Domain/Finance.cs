@@ -6,6 +6,7 @@ public readonly record struct AccountId(Guid Value);
 public readonly record struct JournalId(Guid Value);
 public readonly record struct LedgerEntryId(Guid Value);
 public readonly record struct AccountMappingId(Guid Value);
+public readonly record struct TaxCodeId(Guid Value);
 
 public enum AccountType { Asset, Liability, Equity, Revenue, Expense }
 
@@ -212,4 +213,52 @@ public sealed class AccountMapping : AggregateRoot<AccountMappingId>
         ModifiedAt = at;
         ModifiedBy = by;
     }
+}
+
+/// <summary>A named tax rate (e.g. VAT18 = 18%). Documents record the rate they were issued at, so changing a rate affects new documents only.</summary>
+public sealed class TaxCode : AggregateRoot<TaxCodeId>
+{
+    private TaxCode()
+    {
+        Code = string.Empty;
+        Name = string.Empty;
+    }
+
+    private TaxCode(TaxCodeId id, CompanyId companyId, string code, string name, decimal ratePercent, DateTimeOffset createdAt) : base(id)
+    {
+        CompanyId = companyId;
+        Code = NormalizeCode(code);
+        Name = NormalizeName(name);
+        RatePercent = ValidateRate(ratePercent);
+        IsActive = true;
+        CreatedAt = createdAt;
+    }
+
+    public CompanyId CompanyId { get; private set; }
+    public string Code { get; private set; }
+    public string Name { get; private set; }
+    public decimal RatePercent { get; private set; }
+    public bool IsActive { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+
+    public static TaxCode Create(CompanyId companyId, string code, string name, decimal ratePercent, DateTimeOffset createdAt) =>
+        new(new TaxCodeId(Guid.NewGuid()), companyId, code, name, ratePercent, createdAt);
+
+    public static string NormalizeCode(string code) =>
+        string.IsNullOrWhiteSpace(code) ? throw new DomainException("Tax code is required.") : code.Trim().ToUpperInvariant();
+
+    public void Update(string name, decimal ratePercent)
+    {
+        Name = NormalizeName(name);
+        RatePercent = ValidateRate(ratePercent);
+    }
+
+    public void Activate() => IsActive = true;
+    public void Deactivate() => IsActive = false;
+
+    private static string NormalizeName(string name) =>
+        string.IsNullOrWhiteSpace(name) ? throw new DomainException("Tax code name is required.") : name.Trim();
+
+    private static decimal ValidateRate(decimal rate) =>
+        rate is < 0 or > 100 ? throw new DomainException("A tax rate must be between 0% and 100%.") : decimal.Round(rate, 4);
 }

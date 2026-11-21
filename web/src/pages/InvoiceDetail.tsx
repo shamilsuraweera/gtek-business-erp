@@ -5,6 +5,7 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney, formatNumber, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader } from '../ui'
+import { formatRate, round2, taxPortion } from '../tax'
 import type { CreditNote, Invoice, Payment } from '../api/types'
 
 function PaymentForm({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
@@ -41,15 +42,23 @@ function PaymentForm({ invoice, onClose }: { invoice: Invoice; onClose: () => vo
   )
 }
 
-function CreditNoteDialog({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+function CreditNoteDialog({ invoice, notes, onClose }: { invoice: Invoice; notes: CreditNote[]; onClose: () => void }) {
   const creditable = invoice.lines.filter((l) => l.quantity - l.quantityCredited > 0)
   const [qty, setQty] = useState<Record<string, string>>({})
   const [returned, setReturned] = useState<Record<string, boolean>>(Object.fromEntries(creditable.map((l) => [l.itemId, true])))
   const [reason, setReason] = useState('')
   const [date, setDate] = useState(today())
 
-  const rows = creditable.map((l) => ({ l, quantity: Number(qty[l.itemId] || 0) })).filter((r) => r.quantity > 0)
-  const total = rows.reduce((s, r) => s + Math.round(r.quantity * r.l.unitPrice * 100) / 100, 0)
+  // The tax credited is this quantity's share of what the invoice charged on the line (the API does the same sum).
+  const taxBefore = (itemId: string) => notes.flatMap((n) => n.lines).filter((x) => x.itemId === itemId).reduce((s, x) => s + x.taxAmount, 0)
+  const rows = creditable.map((l) => {
+    const quantity = Number(qty[l.itemId] || 0)
+    const net = round2(quantity * l.unitPrice)
+    return { l, quantity, net, tax: quantity > 0 ? round2(taxPortion(l.taxAmount, l.quantity, l.quantityCredited, taxBefore(l.itemId), quantity)) : 0 }
+  }).filter((r) => r.quantity > 0)
+  const subtotal = rows.reduce((s, r) => s + r.net, 0)
+  const tax = rows.reduce((s, r) => s + r.tax, 0)
+  const total = subtotal + tax
   const applied = Math.min(total, invoice.balance)
   const refundDue = total - applied
 
@@ -69,7 +78,7 @@ function CreditNoteDialog({ invoice, onClose }: { invoice: Invoice; onClose: () 
           <Field label="Credit date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
         </div>
         <div className="scroll-x"><table className="data">
-          <thead><tr><th>Item</th><th className="num">Invoiced</th><th className="num">Creditable</th><th style={{ width: 120 }}>Credit qty</th><th>Goods</th><th className="num">Credit</th></tr></thead>
+          <thead><tr><th>Item</th><th className="num">Invoiced</th><th className="num">Creditable</th><th style={{ width: 120 }}>Credit qty</th><th>Goods</th><th className="num">Credit (excl. tax)</th><th className="num">Tax</th></tr></thead>
           <tbody>{creditable.map((l) => {
             const remaining = l.quantity - l.quantityCredited
             const q = Number(qty[l.itemId] || 0)
@@ -81,14 +90,17 @@ function CreditNoteDialog({ invoice, onClose }: { invoice: Invoice; onClose: () 
                   onChange={(e) => setQty({ ...qty, [l.itemId]: e.target.value })} /></td>
                 <td><label className="row"><input type="checkbox" style={{ width: 'auto' }} checked={!!returned[l.itemId]} disabled={q <= 0}
                   onChange={(e) => setReturned({ ...returned, [l.itemId]: e.target.checked })} /> Returned to stock</label></td>
-                <td className="num">{q > 0 ? formatMoney(q * l.unitPrice) : '—'}</td>
+                <td className="num">{q > 0 ? formatMoney(round2(q * l.unitPrice)) : '—'}</td>
+                <td className="num">{q > 0 && l.taxCode ? formatMoney(rows.find((r) => r.l.itemId === l.itemId)?.tax ?? 0) : '—'}</td>
               </tr>
             )
           })}</tbody>
           <tfoot>
-            <tr><td colSpan={5}>Credit total</td><td className="num">{formatMoney(total)}</td></tr>
-            <tr><td colSpan={5}>Reduces the invoice balance</td><td className="num">{formatMoney(applied)}</td></tr>
-            {refundDue > 0 && <tr><td colSpan={5}>Owed back to the customer (refund)</td><td className="num">{formatMoney(refundDue)}</td></tr>}
+            {tax > 0 && <tr><td colSpan={5}>Subtotal</td><td className="num" colSpan={2}>{formatMoney(subtotal)}</td></tr>}
+            {tax > 0 && <tr><td colSpan={5}>Tax credited</td><td className="num" colSpan={2}>{formatMoney(tax)}</td></tr>}
+            <tr><td colSpan={5}>Credit total</td><td className="num" colSpan={2}>{formatMoney(total)}</td></tr>
+            <tr><td colSpan={5}>Reduces the invoice balance</td><td className="num" colSpan={2}>{formatMoney(applied)}</td></tr>
+            {refundDue > 0 && <tr><td colSpan={5}>Owed back to the customer (refund)</td><td className="num" colSpan={2}>{formatMoney(refundDue)}</td></tr>}
           </tfoot>
         </table></div>
         <p className="hint">Revenue is reversed to Sales Returns. Goods marked as returned go back into stock at the cost they left at (Dr Inventory / Cr COGS); untick it for a price allowance where the customer keeps the goods.</p>
@@ -163,17 +175,20 @@ export function InvoiceDetail() {
         </>} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Credited</th><th className="num">Unit price</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Credited</th><th className="num">Unit price</th><th className="num">Amount</th><th className="num">Tax</th></tr></thead>
           <tbody>{i.lines.map((l, index) => (
             <tr key={index}><td>{l.sku}</td><td>{l.description}</td><td className="num">{l.quantity}</td>
               <td className="num">{l.quantityCredited > 0 ? <Badge value={formatNumber(l.quantityCredited)} tone="info" /> : '—'}</td>
-              <td className="num">{formatMoney(l.unitPrice)}</td><td className="num">{formatMoney(l.lineTotal)}</td></tr>
+              <td className="num">{formatMoney(l.unitPrice)}</td><td className="num">{formatMoney(l.lineTotal)}</td>
+              <td className="num">{l.taxCode ? <>{formatMoney(l.taxAmount)}<div className="muted">{l.taxCode} {formatRate(l.taxRate)}</div></> : '—'}</td></tr>
           ))}</tbody>
           <tfoot>
-            <tr><td colSpan={5}>Total</td><td className="num">{formatMoney(i.total)}</td></tr>
-            {i.amountCredited > 0 && <tr><td colSpan={5}>Credited</td><td className="num">−{formatMoney(i.amountCredited)}</td></tr>}
-            <tr><td colSpan={5}>Paid</td><td className="num">{formatMoney(i.amountPaid)}</td></tr>
-            <tr><td colSpan={5}>Balance due</td><td className="num">{formatMoney(i.balance)}</td></tr>
+            {i.taxTotal > 0 && <tr><td colSpan={5}>Subtotal</td><td className="num" colSpan={2}>{formatMoney(i.subtotal)}</td></tr>}
+            {i.taxTotal > 0 && <tr><td colSpan={5}>Tax</td><td className="num" colSpan={2}>{formatMoney(i.taxTotal)}</td></tr>}
+            <tr><td colSpan={5}>Total</td><td className="num" colSpan={2}>{formatMoney(i.total)}</td></tr>
+            {i.amountCredited > 0 && <tr><td colSpan={5}>Credited</td><td className="num" colSpan={2}>−{formatMoney(i.amountCredited)}</td></tr>}
+            <tr><td colSpan={5}>Paid</td><td className="num" colSpan={2}>{formatMoney(i.amountPaid)}</td></tr>
+            <tr><td colSpan={5}>Balance due</td><td className="num" colSpan={2}>{formatMoney(i.balance)}</td></tr>
           </tfoot>
         </table>
       </section>
@@ -183,12 +198,12 @@ export function InvoiceDetail() {
       <div className="card flush scroll-x" style={{ marginBottom: 16 }}>
         {myNotes.length === 0 ? <Empty>No credit notes.</Empty> : (
           <table className="data">
-            <thead><tr><th>Credit note</th><th>Date</th><th>Reason</th><th className="num">Total</th><th className="num">Applied</th><th className="num">Refunded</th><th className="num">Refund due</th><th /></tr></thead>
+            <thead><tr><th>Credit note</th><th>Date</th><th>Reason</th><th className="num">Total</th><th className="num">Tax</th><th className="num">Applied</th><th className="num">Refunded</th><th className="num">Refund due</th><th /></tr></thead>
             <tbody>{myNotes.map((n) => (
               <tr key={n.id}>
                 <td>{n.number}<div className="muted">{n.returnedCost > 0 ? 'Goods returned' : 'Allowance'}</div></td>
                 <td>{formatDate(n.creditDate)}</td><td>{n.reason}</td>
-                <td className="num">{formatMoney(n.total)}</td><td className="num">{formatMoney(n.amountApplied)}</td>
+                <td className="num">{formatMoney(n.total)}</td><td className="num">{n.taxTotal ? formatMoney(n.taxTotal) : '—'}</td><td className="num">{formatMoney(n.amountApplied)}</td>
                 <td className="num">{n.amountRefunded ? formatMoney(n.amountRefunded) : '—'}</td>
                 <td className="num">{n.refundDue > 0 ? <Badge value={formatMoney(n.refundDue)} tone="warn" /> : '—'}</td>
                 <td className="right">{can(P.refundsRecord) && n.refundDue > 0 && <button className="btn small" onClick={() => setDialog({ refund: n })}>Refund</button>}</td>
@@ -210,7 +225,7 @@ export function InvoiceDetail() {
         )}
       </div>
       {dialog === 'pay' && <PaymentForm invoice={i} onClose={close} />}
-      {dialog === 'credit' && <CreditNoteDialog invoice={i} onClose={close} />}
+      {dialog === 'credit' && <CreditNoteDialog invoice={i} notes={myNotes} onClose={close} />}
       {typeof dialog === 'object' && dialog && <RefundDialog note={dialog.refund} onClose={close} />}
     </>
   )

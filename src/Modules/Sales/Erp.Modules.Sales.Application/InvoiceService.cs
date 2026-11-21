@@ -14,6 +14,8 @@ namespace Erp.Modules.Sales.Application;
 public sealed class InvoiceService(
     ISalesStore store,
     IInventoryStock inventory,
+    IInventoryCatalog catalog,
+    ITaxCatalog taxCatalog,
     IFinancePosting finance,
     IPostingPeriodGuard periodGuard,
     IDocumentNumberGenerator numbers,
@@ -40,6 +42,7 @@ public sealed class InvoiceService(
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
             var number = await numbers.NextAsync(InvoiceSequence, "INV-", ct);
 
+            var taxes = await ResolveTaxAsync(order, ct);
             var issued = new List<(SalesOrderLine Line, StockMovementResult Result)>();
             PostedJournal? journal = null;
             SalesInvoice invoice;
@@ -52,13 +55,24 @@ public sealed class InvoiceService(
                     issued.Add((line, result));
                 }
 
-                var revenue = order.Total;
+                var invoiceLines = issued
+                    .Select(x =>
+                    {
+                        var (code, rate) = taxes[x.Line.ItemId];
+                        return new SalesInvoiceLine(x.Line.ItemId, x.Line.Sku, x.Line.Description, x.Line.Quantity, x.Line.UnitPrice,
+                            x.Result.UnitCost, code, rate, TaxMath.Tax(x.Line.LineTotal, rate));
+                    })
+                    .ToArray();
+
+                var revenue = invoiceLines.Sum(l => l.LineTotal);
+                var tax = invoiceLines.Sum(l => l.TaxAmount);
                 var cost = decimal.Round(issued.Sum(x => x.Result.TotalCost), 2);
                 var lines = new List<PostJournalLine>
                 {
-                    PostJournalLine.ForRole(AccountRole.AccountsReceivable, revenue, 0, $"Invoice {number}"),
+                    PostJournalLine.ForRole(AccountRole.AccountsReceivable, revenue + tax, 0, $"Invoice {number}"),
                     PostJournalLine.ForRole(AccountRole.SalesRevenue, 0, revenue, $"Invoice {number}")
                 };
+                if (tax > 0) lines.Add(PostJournalLine.ForRole(AccountRole.TaxPayable, 0, tax, $"Tax {number}"));
                 if (cost > 0)
                 {
                     lines.Add(PostJournalLine.ForRole(AccountRole.CostOfGoodsSold, cost, 0, $"COGS {number}"));
@@ -68,9 +82,6 @@ public sealed class InvoiceService(
                 journal = await finance.PostJournalAsync(new PostJournalCommand(
                     "Sales", number, date, $"Sales invoice {number} - {customer.Name}", lines), ct);
 
-                var invoiceLines = issued
-                    .Select(x => new SalesInvoiceLine(x.Line.ItemId, x.Line.Sku, x.Line.Description, x.Line.Quantity, x.Line.UnitPrice, x.Result.UnitCost))
-                    .ToArray();
                 invoice = SalesInvoice.Create(companyId, number, order, date, customer.PaymentTermsDays,
                     invoiceLines, journal.JournalId, journal.Number, clock.UtcNow);
                 order.MarkInvoiced(invoice.Id);
@@ -85,7 +96,7 @@ public sealed class InvoiceService(
 
             // Committed from here on: never compensate for a failure after this point.
             await audit.RecordAsync("Sales", "invoice.created", "SalesInvoice", invoice.Id.Value.ToString(), invoice.Number, true,
-                new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = invoice.Total, ["Journal"] = journal.Number }, ct);
+                new Dictionary<string, object?> { ["Order"] = order.Number, ["Total"] = invoice.Total, ["Tax"] = invoice.TaxTotal, ["Journal"] = journal.Number }, ct);
             return Map(invoice, customer.Name, CreditedQuantities([]));
         }, cancellationToken);
     }
@@ -162,6 +173,24 @@ public sealed class InvoiceService(
             p, invoices.GetValueOrDefault(p.InvoiceId, string.Empty), customers.GetValueOrDefault(p.CustomerId, string.Empty))).ToArray();
     }
 
+    /// <summary>The tax code and rate each ordered item carries today. An item with no code is untaxed; a code that is missing or inactive blocks invoicing.</summary>
+    private async Task<Dictionary<Guid, (string? Code, decimal Rate)>> ResolveTaxAsync(SalesOrder order, CancellationToken ct)
+    {
+        var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
+        var rates = await taxCatalog.GetAsync(items.Values.Select(x => x.TaxCode).OfType<string>(), ct);
+        var result = new Dictionary<Guid, (string?, decimal)>();
+        foreach (var line in order.Lines)
+        {
+            var code = items.GetValueOrDefault(line.ItemId)?.TaxCode;
+            if (code is null) { result[line.ItemId] = (null, 0m); continue; }
+            if (!rates.TryGetValue(code, out var info) || !info.IsActive)
+                throw new DomainException($"Item '{line.Sku}' uses tax code '{code}', which is missing or inactive. Fix the item's tax code before invoicing.");
+            result[line.ItemId] = (info.Code, info.RatePercent);
+        }
+
+        return result;
+    }
+
     private async Task CompensateAsync(
         List<(SalesOrderLine Line, StockMovementResult Result)> issued, PostedJournal? journal, string number, CancellationToken ct)
     {
@@ -188,11 +217,12 @@ public sealed class InvoiceService(
 
     private InvoiceResponse Map(SalesInvoice i, string customerName, IReadOnlyDictionary<(Guid Invoice, Guid Item), decimal> credited) => new(
         i.Id.Value, i.Number, i.SalesOrderId.Value, i.CustomerId.Value, customerName, i.InvoiceDate, i.DueDate,
-        i.Total, i.AmountPaid, i.AmountCredited, i.Balance, i.Status,
+        i.Subtotal, i.TaxTotal, i.Total, i.AmountPaid, i.AmountCredited, i.Balance, i.Status,
         i.Status == InvoiceStatus.Open && i.DueDate < DateOnly.FromDateTime(clock.UtcNow.UtcDateTime),
         i.JournalNumber,
         i.Lines.Select(l => new InvoiceLineResponse(
-            l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitPrice, l.LineTotal, credited.GetValueOrDefault((i.Id.Value, l.ItemId)))).ToArray());
+            l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitPrice, l.LineTotal, credited.GetValueOrDefault((i.Id.Value, l.ItemId)),
+            l.TaxCode, l.TaxRate, l.TaxAmount)).ToArray());
 
     private static PaymentResponse MapPayment(Payment p, string invoiceNumber, string customerName) => new(
         p.Id.Value, p.Number, p.InvoiceId.Value, invoiceNumber, p.CustomerId.Value, customerName,

@@ -4,7 +4,8 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney, formatNumber, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader } from '../ui'
-import type { Item, StockLedgerEntry, StockLevel } from '../api/types'
+import { formatRate } from '../tax'
+import type { Item, StockLedgerEntry, StockLevel, TaxCode } from '../api/types'
 
 type Dialog = { kind: 'new' } | { kind: 'edit' | 'receive' | 'adjust' | 'ledger'; item: Item } | null
 
@@ -14,10 +15,15 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
   const [uom, setUom] = useState(item?.unitOfMeasure ?? 'EA')
   const [price, setPrice] = useState(String(item?.unitPrice ?? ''))
   const [cost, setCost] = useState(String(item?.unitCost ?? ''))
+  const [taxCode, setTaxCode] = useState(item?.taxCode ?? '')
+  const { can } = useAuth()
+  const taxCodes = useApiQuery<TaxCode[]>('/finance/tax-codes', { enabled: can(P.accountsRead) })
+  // Keep the item's current code selectable even if it was deactivated since.
+  const options = (taxCodes.data ?? []).filter((t) => t.isActive || t.code === item?.taxCode)
   const save = useApiMutation<void>(
     () => item
-      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost) } }
-      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost) } },
+      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null } }
+      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null } },
     onClose,
   )
   return (
@@ -27,6 +33,12 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
           {!item && <Field label="SKU"><input value={sku} onChange={(e) => setSku(e.target.value)} required autoFocus /></Field>}
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
           <Field label="Unit of measure"><input value={uom} onChange={(e) => setUom(e.target.value)} required maxLength={20} /></Field>
+          <Field label="Tax code" hint="Prices exclude tax; this code adds it when the item is invoiced or billed.">
+            <select value={taxCode} onChange={(e) => setTaxCode(e.target.value)} disabled={!can(P.accountsRead)}>
+              <option value="">No tax</option>
+              {options.map((t) => <option key={t.code} value={t.code}>{t.code} — {t.name} ({formatRate(t.ratePercent)}){t.isActive ? '' : ' — inactive'}</option>)}
+            </select>
+          </Field>
           <Field label="Selling price"><input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} required /></Field>
           <Field label="Standard cost" hint="Used to value stock issues (COGS)."><input type="number" min={0} step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} required /></Field>
         </div>
@@ -118,7 +130,7 @@ export function Items() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No items match.</Empty> : (
             <table className="data">
-              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map((item) => {
                   const s = level(item.id)
@@ -126,6 +138,7 @@ export function Items() {
                     <tr key={item.id}>
                       <td>{item.sku}</td><td>{item.name}</td>
                       <td className="num">{formatMoney(item.unitPrice)}</td><td className="num">{formatMoney(item.unitCost)}</td>
+                      <td>{item.taxCode ?? <span className="muted">—</span>}</td>
                       <td className="num">{s ? <Badge value={`${formatNumber(s.onHand)} ${item.unitOfMeasure}`} tone={s.onHand <= 0 ? 'bad' : s.onHand <= 8 ? 'warn' : 'neutral'} /> : '—'}</td>
                       <td className="num">{s ? formatMoney(s.value) : '—'}</td>
                       <td><Badge value={item.isActive ? 'Active' : 'Inactive'} /></td>

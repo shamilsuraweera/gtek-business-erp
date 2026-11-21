@@ -83,3 +83,26 @@ public sealed class AccountMappingStore(FinanceDbContext db) : IAccountMappingSt
 
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
 }
+
+public sealed class TaxCodeStore(FinanceDbContext db) : ITaxCodeStore
+{
+    public async Task<IReadOnlyList<TaxCode>> ListAsync(CompanyId companyId, CancellationToken cancellationToken) =>
+        await db.TaxCodes.Where(x => x.CompanyId == companyId).OrderBy(x => x.Code).ToListAsync(cancellationToken);
+
+    public Task<TaxCode?> GetAsync(CompanyId companyId, TaxCodeId id, CancellationToken cancellationToken) =>
+        db.TaxCodes.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
+
+    public Task<TaxCode?> GetByCodeAsync(CompanyId companyId, string code, CancellationToken cancellationToken)
+    {
+        var normalized = TaxCode.NormalizeCode(code);
+        return db.TaxCodes.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Code == normalized, cancellationToken);
+    }
+
+    public Task AddAsync(TaxCode taxCode, CancellationToken cancellationToken)
+    {
+        db.TaxCodes.Add(taxCode);
+        return Task.CompletedTask;
+    }
+
+    public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
+}

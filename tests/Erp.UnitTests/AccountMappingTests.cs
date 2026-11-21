@@ -73,6 +73,7 @@ public class AccountMappingTests
             ["1000"] = AccountType.Asset, ["1010"] = AccountType.Asset, ["1100"] = AccountType.Asset, ["1200"] = AccountType.Asset,
             ["2000"] = AccountType.Liability, ["2100"] = AccountType.Liability, ["4000"] = AccountType.Revenue,
             ["4100"] = AccountType.Revenue, ["5000"] = AccountType.Expense, ["5100"] = AccountType.Expense,
+            ["2200"] = AccountType.Liability, ["1300"] = AccountType.Asset,
         };
         foreach (var info in AccountRoleCatalog.All)
             Assert.Contains(seeded[info.DefaultCode], info.AllowedTypes);

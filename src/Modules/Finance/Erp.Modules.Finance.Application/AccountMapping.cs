@@ -26,6 +26,8 @@ public static class AccountRoleCatalog
         new(AccountRole.SalesReturns, "Sales returns & allowances", "Contra-revenue debited by credit notes (gross sales stay visible).", "4100", [AccountType.Revenue, AccountType.Expense]),
         new(AccountRole.CostOfGoodsSold, "Cost of goods sold", "Cost of stock issued on invoices, reversed by returned goods.", "5000", [AccountType.Expense]),
         new(AccountRole.PurchasePriceVariance, "Purchase price variance", "Difference between the billed price and the order price.", "5100", [AccountType.Expense, AccountType.Revenue]),
+        new(AccountRole.TaxPayable, "Output tax payable", "Tax charged to customers, owed to the tax authority.", "2200", Liability),
+        new(AccountRole.TaxReceivable, "Input tax recoverable", "Tax paid to vendors, recoverable from the tax authority.", "1300", Asset),
     ];
 
     public static AccountRoleInfo Get(AccountRole role) => All.Single(x => x.Role == role);

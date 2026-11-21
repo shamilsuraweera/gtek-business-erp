@@ -35,6 +35,27 @@ public static class FinanceEndpoints
         mappings.MapDelete("/{role}", async (string role, IAccountMappingService service, CancellationToken ct) =>
             TypedResults.Ok(await service.ResetAsync(role, ct))).RequirePermission(Permissions.Finance.MappingManage);
 
+        var taxCodes = endpoints.MapGroup("/api/v1/finance/tax-codes").WithTags("Finance").RequireCompanyContext();
+        taxCodes.MapGet("/", async (ITaxCodeService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(ct))).RequirePermission(Permissions.Finance.AccountsRead);
+        taxCodes.MapPost("/", async (CreateTaxCodeRequest request, ITaxCodeService service, CancellationToken ct) =>
+        {
+            var result = await service.CreateAsync(request, ct);
+            return TypedResults.Created($"/api/v1/finance/tax-codes/{result.Id}", result);
+        }).RequirePermission(Permissions.Finance.TaxCodesManage);
+        taxCodes.MapPut("/{id:guid}", async Task<Results<Ok<TaxCodeResponse>, NotFound>>(
+            Guid id, UpdateTaxCodeRequest request, ITaxCodeService service, CancellationToken ct) =>
+        {
+            var result = await service.UpdateAsync(new TaxCodeId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Finance.TaxCodesManage);
+        taxCodes.MapPost("/{id:guid}/activate", SetTaxActive(true)).RequirePermission(Permissions.Finance.TaxCodesManage);
+        taxCodes.MapPost("/{id:guid}/deactivate", SetTaxActive(false)).RequirePermission(Permissions.Finance.TaxCodesManage);
+
+        endpoints.MapGet("/api/v1/finance/tax-summary", async (DateOnly? from, DateOnly? to, IFinanceReportService service, CancellationToken ct) =>
+                TypedResults.Ok(await service.TaxSummaryAsync(from, to, ct)))
+            .WithTags("Finance").RequireCompanyContext().RequirePermission(Permissions.Finance.ReportsRead);
+
         var journals = endpoints.MapGroup("/api/v1/finance/journals").WithTags("Finance").RequireCompanyContext();
         journals.MapGet("/", async (int? take, IJournalService service, CancellationToken ct) =>
             TypedResults.Ok(await service.ListAsync(take ?? 50, ct))).RequirePermission(Permissions.Finance.JournalsRead);
@@ -66,6 +87,13 @@ public static class FinanceEndpoints
         async Task<Results<Ok<AccountResponse>, NotFound>>(Guid id, IAccountService service, CancellationToken ct) =>
         {
             var result = await service.SetActiveAsync(new AccountId(id), active, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        };
+
+    private static Delegate SetTaxActive(bool active) =>
+        async Task<Results<Ok<TaxCodeResponse>, NotFound>>(Guid id, ITaxCodeService service, CancellationToken ct) =>
+        {
+            var result = await service.SetActiveAsync(new TaxCodeId(id), active, ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
         };
 }

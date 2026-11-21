@@ -359,9 +359,14 @@ public static class ThreeWayMatch
 
 public sealed record VendorBillLine
 {
-    public VendorBillLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost)
+    public VendorBillLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost,
+        string? taxCode = null, decimal taxRate = 0m, decimal taxAmount = 0m)
     {
         if (quantity <= 0) throw new DomainException("Billed quantity must be positive.");
+        if (taxAmount < 0) throw new DomainException("Line tax cannot be negative.");
+        TaxCode = taxCode;
+        TaxRate = taxRate;
+        TaxAmount = taxAmount;
         if (unitCost < 0) throw new DomainException("Billed unit cost cannot be negative.");
         ItemId = itemId;
         Sku = sku;
@@ -379,8 +384,15 @@ public sealed record VendorBillLine
     public decimal OrderUnitCost { get; }
     /// <summary>The price the vendor billed.</summary>
     public decimal UnitCost { get; }
+    /// <summary>The item's tax code and rate when the bill was entered, and the input tax on this line (charged on the billed price).</summary>
+    public string? TaxCode { get; }
+    public decimal TaxRate { get; }
+    public decimal TaxAmount { get; }
+    /// <summary>The billed amount before tax.</summary>
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
+    public decimal LineGross => LineTotal + TaxAmount;
     public decimal AccruedTotal => decimal.Round(Quantity * OrderUnitCost, 2);
+    /// <summary>Billed price against order price, before tax.</summary>
     public decimal PriceVariance => LineTotal - AccruedTotal;
 }
 
@@ -428,10 +440,14 @@ public sealed class VendorBill : AggregateRoot<VendorBillId>
     public bool VarianceOverridden { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public IReadOnlyCollection<VendorBillLine> Lines => _lines.AsReadOnly();
-    public decimal Total => _lines.Sum(x => x.LineTotal);
+    /// <summary>The billed amount before tax.</summary>
+    public decimal Subtotal => _lines.Sum(x => x.LineTotal);
+    public decimal TaxTotal => _lines.Sum(x => x.TaxAmount);
+    /// <summary>What we owe the vendor: subtotal plus input tax.</summary>
+    public decimal Total => Subtotal + TaxTotal;
     /// <summary>The part of the bill that clears the goods-received accrual.</summary>
     public decimal AccruedTotal => _lines.Sum(x => x.AccruedTotal);
-    public decimal PriceVariance => Total - AccruedTotal;
+    public decimal PriceVariance => Subtotal - AccruedTotal;
     public decimal Balance => Total - AmountPaid - AmountDebited;
 
     public static VendorBill Create(CompanyId companyId, string number, string? vendorReference, PurchaseOrder order,
@@ -594,9 +610,13 @@ public sealed class VendorReturn : AggregateRoot<VendorReturnId>
 
 public sealed record DebitNoteLine
 {
-    public DebitNoteLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost)
+    public DebitNoteLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost,
+        decimal taxRate = 0m, decimal taxAmount = 0m)
     {
         if (quantity <= 0) throw new DomainException("Debited quantity must be positive.");
+        if (taxAmount < 0) throw new DomainException("Line tax cannot be negative.");
+        TaxRate = taxRate;
+        TaxAmount = taxAmount;
         ItemId = itemId;
         Sku = sku;
         Description = description;
@@ -613,7 +633,11 @@ public sealed record DebitNoteLine
     public decimal OrderUnitCost { get; }
     /// <summary>The price the vendor billed, which is what the vendor now credits.</summary>
     public decimal UnitCost { get; }
+    /// <summary>The bill line's rate, and this debit's share of the input tax charged on it.</summary>
+    public decimal TaxRate { get; }
+    public decimal TaxAmount { get; }
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
+    public decimal LineGross => LineTotal + TaxAmount;
     public decimal AccruedTotal => decimal.Round(Quantity * OrderUnitCost, 2);
     public decimal PriceVariance => LineTotal - AccruedTotal;
 }
@@ -664,9 +688,11 @@ public sealed class DebitNote : AggregateRoot<DebitNoteId>
     public decimal AmountRefunded { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public IReadOnlyCollection<DebitNoteLine> Lines => _lines.AsReadOnly();
-    public decimal Total => _lines.Sum(x => x.LineTotal);
+    public decimal Subtotal => _lines.Sum(x => x.LineTotal);
+    public decimal TaxTotal => _lines.Sum(x => x.TaxAmount);
+    public decimal Total => Subtotal + TaxTotal;
     public decimal AccruedTotal => _lines.Sum(x => x.AccruedTotal);
-    public decimal PriceVariance => Total - AccruedTotal;
+    public decimal PriceVariance => Subtotal - AccruedTotal;
     /// <summary>What the vendor still owes us for this note (credit beyond the bill balance, not yet refunded).</summary>
     public decimal RefundDue => Total - AmountApplied - AmountRefunded;
 

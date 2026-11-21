@@ -102,3 +102,19 @@ internal sealed class AccountMappingConfiguration : IEntityTypeConfiguration<Acc
         b.HasIndex(x => new { x.CompanyId, x.Role }).IsUnique();
     }
 }
+
+internal sealed class TaxCodeConfiguration : IEntityTypeConfiguration<TaxCode>
+{
+    public void Configure(EntityTypeBuilder<TaxCode> b)
+    {
+        b.ToTable("TaxCodes", "finance");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new TaxCodeId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.Code).HasMaxLength(20).IsRequired();
+        b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.Property(x => x.RatePercent).HasPrecision(7, 4);
+        b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+    }
+}

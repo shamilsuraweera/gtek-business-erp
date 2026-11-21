@@ -41,7 +41,9 @@ public sealed class CreditNoteService(
                 throw new DomainException("Each item can appear only once on a credit note.");
 
             // Quantity limit: never credit more than was invoiced, counting earlier credit notes.
-            var already = InvoiceService.CreditedQuantities(await store.ListCreditNotesForInvoiceAsync(companyId, invoice.Id, ct));
+            var priorNotes = await store.ListCreditNotesForInvoiceAsync(companyId, invoice.Id, ct);
+            var already = InvoiceService.CreditedQuantities(priorNotes);
+            var taxAlready = priorNotes.SelectMany(p => p.Lines).GroupBy(l => l.ItemId).ToDictionary(g => g.Key, g => g.Sum(l => l.TaxAmount));
             var lines = new List<CreditNoteLine>();
             foreach (var r in request.Lines)
             {
@@ -51,15 +53,20 @@ public sealed class CreditNoteService(
                 if (r.Quantity <= 0) throw new DomainException($"The credited quantity for '{invoiceLine.Sku}' must be positive.");
                 if (r.Quantity > remaining)
                     throw new DomainException($"Cannot credit {r.Quantity:0.####} of '{invoiceLine.Sku}': only {remaining:0.####} remain creditable on {invoice.Number}.");
+                // The tax credited back is this quantity's share of what was charged on the line; the last credit takes the remainder.
+                var lineTax = TaxMath.Portion(invoiceLine.TaxAmount, invoiceLine.Quantity,
+                    already.GetValueOrDefault((invoice.Id.Value, r.ItemId)), taxAlready.GetValueOrDefault(r.ItemId), r.Quantity);
                 lines.Add(new CreditNoteLine(invoiceLine.ItemId, invoiceLine.Sku, invoiceLine.Description, r.Quantity,
-                    invoiceLine.UnitPrice, invoiceLine.UnitCost, r.ReturnToStock));
+                    invoiceLine.UnitPrice, invoiceLine.UnitCost, r.ReturnToStock, invoiceLine.TaxRate, lineTax));
             }
 
             var date = request.Date ?? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
             var number = await numbers.NextAsync(CreditNoteSequence, "CN-", ct);
 
-            var total = lines.Sum(l => l.LineTotal);
+            var subtotal = lines.Sum(l => l.LineTotal);
+            var tax = lines.Sum(l => l.TaxAmount);
+            var total = subtotal + tax;
             var returnedCost = lines.Sum(l => l.ReturnedCost);
             var applied = Math.Min(total, invoice.Balance);
 
@@ -78,9 +85,10 @@ public sealed class CreditNoteService(
 
                 var journalLines = new List<PostJournalLine>
                 {
-                    PostJournalLine.ForRole(AccountRole.SalesReturns, total, 0, $"Credit note {number}"),
+                    PostJournalLine.ForRole(AccountRole.SalesReturns, subtotal, 0, $"Credit note {number}"),
                     PostJournalLine.ForRole(AccountRole.AccountsReceivable, 0, total, $"Credit note {number}")
                 };
+                if (tax > 0) journalLines.Add(PostJournalLine.ForRole(AccountRole.TaxPayable, tax, 0, $"Tax {number}"));
                 if (returnedCost > 0)
                 {
                     journalLines.Add(PostJournalLine.ForRole(AccountRole.Inventory, returnedCost, 0, $"Returned goods {number}"));
@@ -104,7 +112,7 @@ public sealed class CreditNoteService(
             await audit.RecordAsync("Sales", "credit-note.created", "CreditNote", note.Id.Value.ToString(), note.Number, true,
                 new Dictionary<string, object?>
                 {
-                    ["Invoice"] = invoice.Number, ["Total"] = note.Total, ["Applied"] = note.AmountApplied,
+                    ["Invoice"] = invoice.Number, ["Total"] = note.Total, ["Tax"] = note.TaxTotal, ["Applied"] = note.AmountApplied,
                     ["RefundDue"] = note.RefundDue, ["ReturnedCost"] = note.ReturnedCost, ["Journal"] = journal.Number
                 }, ct);
             return Map(note, invoice.Number, customer.Name, []);
@@ -201,8 +209,8 @@ public sealed class CreditNoteService(
 
     private static CreditNoteResponse Map(CreditNote n, string invoiceNumber, string customerName, IReadOnlyList<RefundResponse> refunds) => new(
         n.Id.Value, n.Number, n.SalesInvoiceId.Value, invoiceNumber, n.CustomerId.Value, customerName, n.CreditDate, n.Reason,
-        n.Total, n.AmountApplied, n.AmountRefunded, n.RefundDue, n.ReturnedCost, n.JournalNumber,
-        n.Lines.Select(l => new CreditNoteLineResponse(l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitPrice, l.LineTotal, l.ReturnedToStock)).ToArray(),
+        n.Subtotal, n.TaxTotal, n.Total, n.AmountApplied, n.AmountRefunded, n.RefundDue, n.ReturnedCost, n.JournalNumber,
+        n.Lines.Select(l => new CreditNoteLineResponse(l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitPrice, l.LineTotal, l.ReturnedToStock, l.TaxRate, l.TaxAmount)).ToArray(),
         refunds);
 
     private static RefundResponse MapRefund(CustomerRefund r, string creditNoteNumber, string customerName) => new(

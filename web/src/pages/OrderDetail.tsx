@@ -31,11 +31,11 @@ export function OrderDetail() {
       <ErrorNote error={act.error ?? invoice.error} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Unit price</th><th className="num">Total</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Qty</th><th className="num">Unit price</th><th className="num">Amount</th></tr></thead>
           <tbody>{o.lines.map((l, index) => (
             <tr key={index}><td>{l.sku}</td><td>{l.description}</td><td className="num">{l.quantity}</td><td className="num">{formatMoney(l.unitPrice)}</td><td className="num">{formatMoney(l.lineTotal)}</td></tr>
           ))}</tbody>
-          <tfoot><tr><td colSpan={4}>Total</td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={4}>Total <span className="muted">(excl. tax — added when invoiced)</span></td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
         </table>
       </section>
       {o.notes && <p className="muted" style={{ marginTop: 12 }}>Notes: {o.notes}</p>}

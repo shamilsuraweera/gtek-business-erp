@@ -17,10 +17,11 @@ public sealed record OrderResponse(
 
 public sealed record CreateInvoiceRequest(DateOnly? Date);
 public sealed record InvoiceLineResponse(
-    Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitPrice, decimal LineTotal, decimal QuantityCredited);
+    Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitPrice, decimal LineTotal, decimal QuantityCredited,
+    string? TaxCode, decimal TaxRate, decimal TaxAmount);
 public sealed record InvoiceResponse(
     Guid Id, string Number, Guid SalesOrderId, Guid CustomerId, string CustomerName, DateOnly InvoiceDate, DateOnly DueDate,
-    decimal Total, decimal AmountPaid, decimal AmountCredited, decimal Balance, InvoiceStatus Status, bool IsOverdue, string JournalNumber,
+    decimal Subtotal, decimal TaxTotal, decimal Total, decimal AmountPaid, decimal AmountCredited, decimal Balance, InvoiceStatus Status, bool IsOverdue, string JournalNumber,
     IReadOnlyList<InvoiceLineResponse> Lines);
 
 public sealed record RecordPaymentRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);
@@ -32,14 +33,15 @@ public sealed record PaymentResponse(
 public sealed record CreditNoteLineRequest(Guid ItemId, decimal Quantity, bool ReturnToStock);
 public sealed record CreateCreditNoteRequest(DateOnly? Date, string Reason, IReadOnlyList<CreditNoteLineRequest> Lines);
 public sealed record CreditNoteLineResponse(
-    Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitPrice, decimal LineTotal, bool ReturnedToStock);
+    Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitPrice, decimal LineTotal, bool ReturnedToStock,
+    decimal TaxRate, decimal TaxAmount);
 public sealed record RefundRequest(decimal Amount, PaymentMethod Method, DateOnly? Date, string? Reference);
 public sealed record RefundResponse(
     Guid Id, string Number, Guid CreditNoteId, string CreditNoteNumber, Guid CustomerId, string CustomerName,
     DateOnly RefundDate, decimal Amount, PaymentMethod Method, string Reference, string JournalNumber);
 public sealed record CreditNoteResponse(
     Guid Id, string Number, Guid SalesInvoiceId, string InvoiceNumber, Guid CustomerId, string CustomerName, DateOnly CreditDate,
-    string Reason, decimal Total, decimal AmountApplied, decimal AmountRefunded, decimal RefundDue, decimal ReturnedCost,
+    string Reason, decimal Subtotal, decimal TaxTotal, decimal Total, decimal AmountApplied, decimal AmountRefunded, decimal RefundDue, decimal ReturnedCost,
     string JournalNumber, IReadOnlyList<CreditNoteLineResponse> Lines, IReadOnlyList<RefundResponse> Refunds);
 
 public interface ISalesStore

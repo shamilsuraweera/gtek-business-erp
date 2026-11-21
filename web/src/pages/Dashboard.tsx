@@ -4,7 +4,7 @@ import { useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney } from '../format'
 import { Badge, Empty, Kpi, Loading, PageHeader } from '../ui'
-import type { AccountMapping, Bill, Invoice, Order, StockLevel, TrialBalance } from '../api/types'
+import type { AccountMapping, Bill, Invoice, Order, StockLevel, TaxSummary, TrialBalance } from '../api/types'
 
 const DAY = 86_400_000
 
@@ -16,6 +16,7 @@ export function Dashboard() {
   const mappings = useApiQuery<AccountMapping[]>('/finance/account-mappings', { enabled: can(P.accountsRead) })
   const bills = useApiQuery<Bill[]>('/purchasing/bills?take=500', { enabled: can(P.billsRead) })
   const stock = useApiQuery<StockLevel[]>('/inventory/stock', { enabled: can(P.stockRead) })
+  const taxes = useApiQuery<TaxSummary>('/finance/tax-summary', { enabled: can(P.reportsRead) })
 
   // Account codes come from the account mapping. A remapped role keeps its earlier postings on the account it used before,
   // so each figure sums the currently mapped account *and* the role's default code (deduplicated, so shared accounts count once).
@@ -82,6 +83,10 @@ export function Dashboard() {
         {can(P.billsRead) && <Kpi label="Payables" value={formatMoney(payables)} hint={`${openBills.length} open bills · ${overdueBills.length} overdue`} tone={overdueBills.length ? 'bad' : ''} />}
         {can(P.stockRead) && <Kpi label="Inventory value" value={formatMoney(stockValue)} />}
         {can(P.reportsRead) && <Kpi label="Net revenue" value={formatMoney(revenue)} hint={returnsTotal ? `after ${formatMoney(returnsTotal)} returns` : undefined} />}
+        {can(P.reportsRead) && taxes.data && (taxes.data.outputTax !== 0 || taxes.data.inputTax !== 0) && (
+          <Kpi label={taxes.data.netPayable >= 0 ? 'Tax payable' : 'Tax refundable'} value={formatMoney(Math.abs(taxes.data.netPayable))}
+            hint={`${formatMoney(taxes.data.outputTax)} charged − ${formatMoney(taxes.data.inputTax)} paid`} />
+        )}
         {can(P.reportsRead) && <Kpi label="Gross profit" value={formatMoney(grossProfit)} hint={revenue ? `${((grossProfit / revenue) * 100).toFixed(1)}% margin` : undefined} tone="ok" />}
       </div>
 

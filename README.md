@@ -53,9 +53,12 @@ Notes:
   that you map to your own ledger accounts under **Finance → Account mapping**; unmapped roles use the default codes below (ADR 0016).
   The API also grants newly introduced permissions to the system administrator role at startup.
 - MVP limitations: default account codes are 1000/1010 cash and bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received
-  not invoiced, 4000 revenue, 4100 sales returns, 5000 COGS, 5100 purchase price variance; manual stock receipts do not post to the ledger;
+  not invoiced, 4000 revenue, 4100 sales returns, 5000 COGS, 5100 purchase price variance, 2200 output tax payable, 1300 input tax recoverable; manual stock receipts do not post to the ledger;
   the three-way match uses one global 2% price tolerance (see ADR 0013) with no over-delivery tolerance; credit notes are at the invoiced
-  price (no partial price adjustments); there is no tax or multi-currency yet.
+  price (no partial price adjustments); there is no multi-currency yet.
+- Tax: prices are tax-exclusive. Create tax codes under **Finance → Tax** (the demo has `VAT18` 18% and `ZERO`) and assign one to each item;
+  invoices then charge output tax (posted to 2200) and vendor bills record input tax (1300). Credit notes and debit notes return the tax
+  that was charged, and **Finance → Tax** shows the net payable for any period (ADR 0017). Items with no tax code carry no tax.
 
 ## Quick start
 
