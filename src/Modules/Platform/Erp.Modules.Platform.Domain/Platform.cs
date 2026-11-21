@@ -697,3 +697,52 @@ public sealed class Permission : AggregateRoot<PermissionId>
 
 public sealed record UserRole(UserId UserId, RoleId RoleId);
 public sealed record RolePermission(RoleId RoleId, PermissionId PermissionId);
+
+/// <summary>An in-app message for one user of one company. Read state is the only thing that changes after creation.</summary>
+public sealed class Notification
+{
+    private Notification()
+    {
+        Category = string.Empty;
+        Title = string.Empty;
+    }
+
+    private Notification(Guid id, CompanyId companyId, UserId userId, string category, string title, string? body, string? link,
+        string? subject, DateTimeOffset createdAt)
+    {
+        Id = id;
+        CompanyId = companyId;
+        UserId = userId;
+        Category = category;
+        Title = title;
+        Body = body;
+        Link = link;
+        Subject = subject;
+        CreatedAt = createdAt;
+    }
+
+    public Guid Id { get; private set; }
+    public CompanyId CompanyId { get; private set; }
+    public UserId UserId { get; private set; }
+    public string Category { get; private set; }
+    public string Title { get; private set; }
+    public string? Body { get; private set; }
+    public string? Link { get; private set; }
+    public string? Subject { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public DateTimeOffset? ReadAt { get; private set; }
+    public bool IsRead => ReadAt is not null;
+
+    public static Notification Create(CompanyId companyId, UserId userId, string category, string title, string? body, string? link,
+        string? subject, DateTimeOffset createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(title)) throw new DomainException("A notification needs a title.");
+        return new Notification(Guid.NewGuid(), companyId, userId, string.IsNullOrWhiteSpace(category) ? "general" : category.Trim(),
+            Trim(title, 200)!, Trim(body, 1000), Trim(link, 300), Trim(subject, 200), createdAt);
+    }
+
+    public void MarkRead(DateTimeOffset at) => ReadAt ??= at;
+
+    private static string? Trim(string? value, int max) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length <= max ? value.Trim() : value.Trim()[..max];
+}

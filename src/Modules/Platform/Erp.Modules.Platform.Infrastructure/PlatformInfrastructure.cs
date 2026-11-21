@@ -20,6 +20,7 @@ public static class PlatformInfrastructure
         services.AddScoped<IRolePermissionStore, RolePermissionStore>();
         services.AddScoped<IUserCompanyAccessStore, UserCompanyAccessStore>();
         services.AddScoped<IAuditEntryStore, AuditEntryStore>();
+        services.AddScoped<INotificationStore, NotificationStore>();
         services.AddScoped<INumberSequenceStore, NumberSequenceStore>();
         services.AddScoped<IAccountingPeriodStore, AccountingPeriodStore>();
         services.AddSingleton<IPasswordHasher<object>, PasswordHasher<object>>();
