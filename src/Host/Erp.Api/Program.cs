@@ -17,6 +17,10 @@ using Erp.Api.Seeding;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Secrets as files (Docker and Kubernetes secrets): a file named like the setting, with "__" for ":", holds its value, e.g. /run/secrets/Email__Password.
+// Read last, so a secret file wins over appsettings and environment variables. The folder is optional; ERP_SECRETS_DIR moves it (ADR 0038).
+builder.Configuration.AddKeyPerFile(Environment.GetEnvironmentVariable("ERP_SECRETS_DIR") ?? "/run/secrets", optional: true);
+
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();

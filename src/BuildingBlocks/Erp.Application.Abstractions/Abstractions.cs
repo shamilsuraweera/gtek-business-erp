@@ -145,6 +145,13 @@ public interface IJobLock
     Task<IAsyncDisposable?> TryAcquireAsync(string name, CancellationToken cancellationToken);
 }
 
+/// <summary>How much of each item is on its way from vendors, so other modules can tell "low" from "low but already reordered" (ADR 0037).</summary>
+public interface IOnOrderQuantities
+{
+    /// <summary>The quantity still to be received on the active company's orders placed with vendors, by item id. Items with nothing on order are absent.</summary>
+    Task<IReadOnlyDictionary<Guid, decimal>> GetAsync(CancellationToken cancellationToken);
+}
+
 /// <summary>A scheduled check a module runs for the active company; it notifies through <see cref="INotifier"/> when something needs attention.</summary>
 public interface IReminderJob
 {

@@ -25,7 +25,7 @@ export function NotificationBell() {
   const root = useRef<HTMLDivElement>(null)
   const count = useApiQuery<{ count: number }>('/notifications/unread-count', { refetchInterval: POLL_MS })
   const list = useApiQuery<AppNotification[]>('/notifications?take=20', { enabled: open, refetchInterval: open ? POLL_MS : undefined })
-  const policy = useApiQuery<{ enabled: boolean; readDays: number; unreadDays: number }>('/notifications/retention', { enabled: open })
+  const policy = useApiQuery<{ enabled: boolean; readDays: number; unreadDays: number; categories: { category: string; readDays: number; unreadDays: number }[] }>('/notifications/retention', { enabled: open })
   const prefs = useApiQuery<UserPreferences>('/auth/me/preferences', { enabled: open })
   const setEmail = useApiMutation<boolean>((enabled) => ({ path: '/auth/me/preferences', method: 'PUT', body: { emailNotifications: enabled } }))
   const setCategory = useApiMutation<{ category: string; enabled: boolean }>((v) => ({
@@ -101,6 +101,9 @@ export function NotificationBell() {
             <p className="muted bell-foot">
               Messages are removed {policy.data.readDays} days after you read them
               {policy.data.unreadDays > 0 ? `, or after ${policy.data.unreadDays} days if you never do.` : '; unread ones are kept.'}
+              {policy.data.categories.length > 0 && (
+                <> Exceptions: {policy.data.categories.map((c) => `${CATEGORY_LABELS[c.category] ?? c.category} ${c.readDays} days after read, ${c.unreadDays > 0 ? `${c.unreadDays} if unread` : 'kept if unread'}`).join('; ')}.</>
+              )}
             </p>
           )}
         </div>

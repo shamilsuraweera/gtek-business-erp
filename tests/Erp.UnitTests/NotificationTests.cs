@@ -540,4 +540,33 @@ public class NotificationTests
         var prefs = await service.GetAsync(user.Id, default);
         Assert.DoesNotContain(prefs!.Categories, c => c.Category == "account");
     }
+
+    private sealed class FixedUser(UserId id) : ICurrentUser { public UserId? UserId => id; public bool IsAuthenticated => true; }
+
+    [Fact]
+    public async Task The_policy_shown_to_users_lists_only_categories_that_differ_from_the_company()
+    {
+        var store = new FakeStore();
+        store.Settings.AddRange([
+            Override(Company, 60, 120),                  // the company's own rule
+            Override(Company, 7, null, "approval"),      // differs: read 7, unread inherited 120
+            Override(Company, 60, 120, "general"),       // set explicitly but identical to the company: not an exception
+            Override(Company, null, 0, "decision"),      // differs: unread kept forever
+            Override(new CompanyId(Guid.NewGuid()), 1, 2, "elsewhere")]);   // another company's rule is never shown
+        var service = new NotificationService(store, new FixedUser(new UserId(Guid.NewGuid())), new FixedCompany(Company), new FixedClock(), new NotificationRetentionOptions());
+
+        var policy = await service.GetRetentionAsync(default);
+
+        Assert.Equal((true, 60, 120), (policy.Enabled, policy.ReadDays, policy.UnreadDays));
+        Assert.Equal([("approval", 7, 120), ("decision", 60, 0)], policy.Categories.Select(c => (c.Category, c.ReadDays, c.UnreadDays)));
+    }
+
+    [Fact]
+    public async Task With_no_settings_the_policy_is_the_system_default_and_has_no_exceptions()
+    {
+        var service = new NotificationService(new FakeStore(), new FixedUser(new UserId(Guid.NewGuid())), new FixedCompany(Company), new FixedClock(), new NotificationRetentionOptions());
+        var policy = await service.GetRetentionAsync(default);
+        Assert.Equal((30, 180), (policy.ReadDays, policy.UnreadDays));
+        Assert.Empty(policy.Categories);
+    }
 }

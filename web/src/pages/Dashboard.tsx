@@ -68,7 +68,8 @@ export function Dashboard() {
   const statuses = ['Draft', 'Open', 'Released', 'Invoiced', 'Cancelled'] as const
   const counts = statuses.map((s) => ({ status: s, count: (orders.data ?? []).filter((o) => o.status === s).length }))
   const maxCount = Math.max(...counts.map((c) => c.count), 1)
-  const lowStock = (stock.data ?? []).filter(isLowStock).sort((a, b) => a.onHand - b.onHand).slice(0, 6)
+  const allLow = (stock.data ?? []).filter(isLowStock).sort((a, b) => a.onHand - b.onHand)
+  const lowStock = allLow.slice(0, 6)
   const recent = (invoices.data ?? []).slice(0, 6)
   const loading = tb.isLoading || invoices.isLoading || orders.isLoading || stock.isLoading
 
@@ -144,6 +145,7 @@ export function Dashboard() {
                 ))}
               </tbody></table>
             )}
+            {allLow.length > lowStock.length && <p className="muted" style={{ padding: '0 16px 12px', margin: 0 }}>+{allLow.length - lowStock.length} more on <Link to="/items">Items &amp; stock</Link></p>}
           </section>
         )}
       </div>

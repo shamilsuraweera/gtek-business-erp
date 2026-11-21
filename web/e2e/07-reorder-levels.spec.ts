@@ -17,9 +17,12 @@ test('reorder levels show on the items page, can be edited, and flag items that 
   await expect(mouse().locator('.badge.warn')).toBeVisible()                        // on hand is below the level: flagged
   await expect(printer.locator('.badge.warn')).toBeVisible()                        // the printer starts below its seeded level
 
-  // The dashboard card lists only the six lowest items, and zero-stock items from other tests compete for those places, so only its presence is asserted.
+  // Items that were created but never stocked (other tests make some) are not "low", so they cannot crowd these out of the card.
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Low stock' })).toBeVisible()
+  const card = page.locator('section.card', { has: page.getByRole('heading', { name: 'Low stock' }) })
+  await expect(card.getByText('PRN-100')).toBeVisible()
+  await expect(card.getByText('MOU-001')).toBeVisible()
+  await expect(card.getByText(/E2E item|Smoke item/)).toHaveCount(0)
 
   await page.goto('/items')                                                         // put it back
   await mouse().getByRole('button', { name: 'Edit' }).click()

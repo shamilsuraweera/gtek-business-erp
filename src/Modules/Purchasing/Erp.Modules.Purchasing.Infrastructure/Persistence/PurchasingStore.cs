@@ -35,6 +35,11 @@ public sealed class PurchasingStore(PurchasingDbContext db) : IPurchasingStore
         await db.Orders.AsNoTracking().Where(x => x.CompanyId == companyId)
             .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<PurchaseOrder>> ListOrdersAwaitingGoodsAsync(CompanyId companyId, CancellationToken cancellationToken) =>
+        await db.Orders.AsNoTracking()
+            .Where(x => x.CompanyId == companyId && (x.Status == PurchaseOrderStatus.Released || x.Status == PurchaseOrderStatus.PartiallyReceived))
+            .ToListAsync(cancellationToken);
+
     public Task<PurchaseOrder?> GetOrderAsync(CompanyId companyId, PurchaseOrderId id, CancellationToken cancellationToken) =>
         db.Orders.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
 

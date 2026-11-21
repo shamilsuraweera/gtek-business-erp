@@ -239,12 +239,19 @@ public class ReminderTests
         return item;
     }
 
-    private static (LowStockReminder Job, FakeNotifier Notifier) StockJob(IReadOnlyList<Item> items, Func<Item, decimal> onHand, ReminderOptions? options = null)
+    private sealed class FakeOnOrder(IReadOnlyDictionary<Guid, decimal> quantities) : IOnOrderQuantities
+    {
+        public Task<IReadOnlyDictionary<Guid, decimal>> GetAsync(CancellationToken cancellationToken) => Task.FromResult(quantities);
+    }
+
+    private static (LowStockReminder Job, FakeNotifier Notifier) StockJob(IReadOnlyList<Item> items, Func<Item, decimal> onHand, ReminderOptions? options = null,
+        Func<Item, decimal>? onOrder = null)
     {
         var notifier = new FakeNotifier();
         var itemStore = Stub<IItemStore>("ListAsync", _ => Task.FromResult(items));
         var stock = Stub<IStockStore>("OnHandByItemAsync", _ => Task.FromResult<IReadOnlyList<ItemQuantity>>(items.Select(i => new ItemQuantity(i.Id, onHand(i), 0m)).ToList()));
-        return (new LowStockReminder(itemStore, stock, notifier, new FixedCompany(), new FixedClock(), options ?? new ReminderOptions()), notifier);
+        var coming = new FakeOnOrder(items.Where(i => (onOrder?.Invoke(i) ?? 0m) > 0m).ToDictionary(i => i.Id.Value, i => onOrder!(i)));
+        return (new LowStockReminder(itemStore, stock, coming, notifier, new FixedCompany(), new FixedClock(), options ?? new ReminderOptions()), notifier);
     }
 
     [Fact]
@@ -261,6 +268,56 @@ public class ReminderTests
         Assert.Equal("2 items are low on stock", message.Title);       // A and B; C is above, D is unmonitored, E is inactive
         Assert.StartsWith("1 out of stock. Lowest: B (Name of B) has 0 EA left, reorder level 10.", message.Body);
         Assert.Equal(["low-stock"], notifier.Resolved);
+    }
+
+    [Fact]
+    public async Task An_item_whose_shortfall_is_already_on_order_is_left_out()
+    {
+        var a = Stocked("A", 10m); var b = Stocked("B", 10m); var c = Stocked("C", 10m);
+        var onHand = new Dictionary<string, decimal> { ["A"] = 3m, ["B"] = 4m, ["C"] = 3m };
+        var onOrder = new Dictionary<string, decimal> { ["A"] = 20m, ["B"] = 5m };     // A is covered; B arrives but stays at 9 <= 10; C has nothing coming
+        var (job, notifier) = StockJob([a, b, c], i => onHand[i.Sku], onOrder: i => onOrder.GetValueOrDefault(i.Sku));
+        await job.RunAsync(default);
+        var message = notifier.Sent.Single().Message;
+        Assert.Equal("2 items are low on stock", message.Title);                        // B and C
+        Assert.Contains("Lowest: C", message.Body);                                      // furthest below its level
+    }
+
+    [Fact]
+    public async Task The_summary_shows_what_is_on_order_for_the_worst_item()
+    {
+        var (job, notifier) = StockJob([Stocked("A", 10m)], _ => 2m, onOrder: _ => 4m);   // 2 + 4 = 6, still <= 10
+        await job.RunAsync(default);
+        Assert.Equal("Lowest: A (Name of A) has 2 EA left (+4 on order), reorder level 10.", notifier.Sent.Single().Message.Body);
+    }
+
+    [Fact]
+    public async Task When_everything_low_is_covered_by_orders_nothing_is_sent_and_the_old_summary_clears()
+    {
+        var (job, notifier) = StockJob([Stocked("A", 10m)], _ => 2m, onOrder: _ => 50m);
+        Assert.Equal(0, await job.RunAsync(default));
+        Assert.Empty(notifier.Sent);
+        Assert.Equal(["low-stock"], notifier.Resolved);
+    }
+
+    [Fact]
+    public async Task On_order_quantities_count_only_released_orders_net_of_what_arrived()
+    {
+        var itemA = Guid.NewGuid(); var itemB = Guid.NewGuid();
+        PurchaseOrder Order(string number, Action<PurchaseOrder> shape)
+        {
+            var o = PurchaseOrder.Create(Company, number, new VendorId(Guid.NewGuid()), new DateOnly(2026, 11, 1), null, Now);
+            o.AddLine(itemA, "A", "Item A", 10m, 5m);
+            o.AddLine(itemB, "B", "Item B", 4m, 5m);
+            shape(o);
+            return o;
+        }
+        var released = Order("PO-1", o => { o.Open(); o.Release(); });
+        var partial = Order("PO-2", o => { o.Open(); o.Release(); o.RecordReceipt([(itemA, 6m)]); });
+        var store = Stub<IPurchasingStore>("ListOrdersAwaitingGoodsAsync", _ => Task.FromResult<IReadOnlyList<PurchaseOrder>>([released, partial]));
+        var quantities = await new OnOrderQuantities(store, new FixedCompany()).GetAsync(default);
+        Assert.Equal(10m + 4m, quantities[itemA]);       // 10 on the first order, 4 still to come on the part-received one
+        Assert.Equal(4m + 4m, quantities[itemB]);
     }
 
     [Fact]

@@ -79,6 +79,8 @@ public interface IPurchasingStore
     Task AddOrderAsync(PurchaseOrder order, CancellationToken cancellationToken);
     Task<IReadOnlyList<PurchaseOrder>> ListOrdersAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
     Task<PurchaseOrder?> GetOrderAsync(CompanyId companyId, PurchaseOrderId id, CancellationToken cancellationToken);
+    /// <summary>Orders placed with the vendor and not yet fully received (released or part-received), with their lines, read without tracking.</summary>
+    Task<IReadOnlyList<PurchaseOrder>> ListOrdersAwaitingGoodsAsync(CompanyId companyId, CancellationToken cancellationToken);
 
     Task AddReceiptAsync(GoodsReceipt receipt, CancellationToken cancellationToken);
     Task<IReadOnlyList<GoodsReceipt>> ListReceiptsForOrderAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken);
@@ -169,6 +171,7 @@ public static class PurchasingModule
         services.AddScoped<IToleranceRequestService, ToleranceRequestService>();
         services.AddScoped<IDebitNoteService, DebitNoteService>();
         services.AddScoped<IReminderJob, OverdueBillReminder>();
+        services.AddScoped<IOnOrderQuantities, OnOrderQuantities>();
         return services;
     }
 }

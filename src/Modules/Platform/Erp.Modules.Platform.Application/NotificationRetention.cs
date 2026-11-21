@@ -83,7 +83,10 @@ public sealed record PurgeResult(int Read, int Unread)
 }
 
 /// <summary>The retention that applies to the active company.</summary>
-public sealed record NotificationRetentionResponse(bool Enabled, int ReadDays, int UnreadDays);
+public sealed record NotificationRetentionResponse(bool Enabled, int ReadDays, int UnreadDays, IReadOnlyList<CategoryRetentionSummary> Categories);
+
+/// <summary>A notification category that is kept for different periods from the rest of the company's messages.</summary>
+public sealed record CategoryRetentionSummary(string Category, int ReadDays, int UnreadDays);
 
 /// <summary>A company's retention settings next to the system defaults; a null override inherits the default.</summary>
 public sealed record NotificationRetentionSettingsResponse(

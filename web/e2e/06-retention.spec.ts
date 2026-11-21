@@ -14,6 +14,11 @@ test('a category can have its own notification retention, which persists and can
   await expect(row('approval').getByText('own rule')).toBeVisible()
   await expect(row('approval').getByText(/^10 \//)).toBeVisible()
 
+  // Everyone is told about the exception in the bell panel.
+  await page.getByRole('button', { name: /Notifications/ }).click()
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByText(/Exceptions: Approval requests 10 days after read/)).toBeVisible()
+  await page.keyboard.press('Escape')
+
   await page.reload()
   await page.getByRole('tab', { name: 'Notifications' }).click()
   await expect(page.getByLabel('approval read days')).toHaveValue('10')
