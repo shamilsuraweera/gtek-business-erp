@@ -317,7 +317,7 @@ def section_email_preferences():
     prefs = admin("GET", "/auth/me/preferences")[1]
     categories = {c["category"]: c["emailEnabled"] for c in prefs["categories"]}
     check("email is available and every category is listed",
-          prefs["emailAvailable"] and {"approval", "decision", "account", "low-stock", "overdue-invoice", "overdue-bill", "period-close"} <= set(categories), sorted(categories))
+          prefs["emailAvailable"] and {"approval", "decision", "low-stock", "overdue-invoice", "overdue-bill", "period-close"} <= set(categories) and "account" not in categories, sorted(categories))
     check("admin opts out of approval email", admin("PUT", "/auth/me/preferences/email-categories/approval", {"enabled": False})[0] == 200)
     vendor, item = new_vendor_and_item("O")
     unread = admin("GET", "/notifications/unread-count")[1]["count"]
@@ -370,6 +370,14 @@ def section_account_notices():
     call("DELETE", f"/users/{me}/roles/{role['id']}", admin.token)
     settle()
     check("nobody is emailed about their own change", len(mails("admin@gtek.local")) == before)
+    check("account notices are mandatory: they cannot be opted out of (400)", admin("PUT", "/auth/me/preferences/email-categories/account", {"enabled": False})[0] == 400)
+    off = admin("PUT", "/auth/me/preferences", {"emailNotifications": False})
+    other = f"quiet-{RUN}@gtek.local"
+    quiet = admin("POST", "/users", {"userName": f"quiet{RUN}", "email": other, "password": password})
+    check("a user can be created", quiet[0] == 201, detail(quiet))
+    check("the new user is emailed even with the administrator's own email switched off", bool(wait_for(lambda: mails(other, "account was created"))))
+    admin("PUT", "/auth/me/preferences", {"emailNotifications": True})
+    check("switching email off overall changed only the administrator's own preference", off[0] == 200 and off[1]["emailNotifications"] is False)
 
 
 def section_email_failure_does_not_fail_the_operation():

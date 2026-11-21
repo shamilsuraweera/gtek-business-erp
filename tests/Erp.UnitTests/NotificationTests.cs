@@ -523,4 +523,21 @@ public class NotificationTests
         await Assert.ThrowsAsync<DomainException>(() => service.SetEmailCategoryAsync(user.Id, "bad name", false, default));
         await Assert.ThrowsAsync<DomainException>(() => service.SetEmailCategoryAsync(user.Id, "", false, default));
     }
+
+    [Fact]
+    public async Task A_mandatory_category_cannot_be_opted_out_of_and_a_stale_opt_out_is_not_shown()
+    {
+        var store = new FakeStore();
+        var user = MakeUser("clerk");
+        var users = DispatchProxy.Create<IUserStore, Proxy<IUserStore>>();
+        ((Proxy<IUserStore>)(object)users).Handlers["GetByIdAsync"] = _ => Task.FromResult<User?>(user);
+        var service = new UserPreferenceService(users, store, EmailOn());
+
+        await Assert.ThrowsAsync<DomainException>(() => service.SetEmailCategoryAsync(user.Id, "account", false, default));
+        await Assert.ThrowsAsync<DomainException>(() => service.SetEmailCategoryAsync(user.Id, "Account", true, default));
+
+        store.OptOuts.Add((user.Id, "account"));          // left over from before the category became mandatory
+        var prefs = await service.GetAsync(user.Id, default);
+        Assert.DoesNotContain(prefs!.Categories, c => c.Category == "account");
+    }
 }

@@ -100,7 +100,10 @@ public sealed record UpdateNotificationRetentionRequest(int? ReadDays, int? Unre
 /// <summary>The notification categories the platform's modules send, so they can be given a retention before any message exists.</summary>
 public static class NotificationCategories
 {
-    public static readonly IReadOnlyList<string> Known = ["account", "approval", "decision", "low-stock", "overdue-bill", "overdue-invoice", "period-close"];
+    /// <summary>Categories whose email cannot be switched off by the recipient (security notices, ADR 0034). They are not offered as choices.</summary>
+    public static readonly IReadOnlyList<string> Mandatory = ["account"];
+
+    public static readonly IReadOnlyList<string> Known = ["approval", "decision", "low-stock", "overdue-bill", "overdue-invoice", "period-close"];
 }
 
 /// <summary>

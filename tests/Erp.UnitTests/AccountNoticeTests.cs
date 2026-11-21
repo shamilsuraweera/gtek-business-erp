@@ -133,23 +133,24 @@ public class AccountNoticeTests
     }
 
     [Fact]
-    public async Task A_person_who_turned_email_off_is_not_emailed()
+    public async Task Security_notices_ignore_the_recipients_email_preferences()
     {
         var f = new Fixture();
-        f.Clerk.SetEmailNotifications(false);
+        f.Clerk.SetEmailNotifications(false);          // email switched off overall
+        f.OptedOut.Add(f.Clerk.Id);                    // and a stale opt-out of the category
         await f.Notices().AccountStatusChangedAsync(f.Admin.Id, f.Clerk.Id, false, default);
-        Assert.Empty(f.Outbox.Added);
+        var mail = Assert.Single(f.Outbox.Added);
+        Assert.Contains("security notice about your GTEK ERP account", mail.TextBody);
+        Assert.Contains("whatever your email settings are", mail.HtmlBody);
+        Assert.DoesNotContain("turn these emails off", mail.TextBody);
     }
 
     [Fact]
-    public async Task A_person_who_opted_out_of_the_account_category_is_not_emailed()
+    public void The_account_category_is_mandatory_and_therefore_not_a_choice()
     {
-        var f = new Fixture();
-        f.OptedOut.Add(f.Clerk.Id);
-        await f.Notices().RoleChangedAsync(f.Admin.Id, f.Clerk.Id, "Accountant", true, default);
-        Assert.Empty(f.Outbox.Added);
         Assert.Equal("account", AccountNotices.Category);
-        Assert.Contains(AccountNotices.Category, NotificationCategories.Known);
+        Assert.Contains(AccountNotices.Category, NotificationCategories.Mandatory);
+        Assert.DoesNotContain(AccountNotices.Category, NotificationCategories.Known);
     }
 
     [Fact]
