@@ -23,6 +23,7 @@ export function NotificationBell() {
   const root = useRef<HTMLDivElement>(null)
   const count = useApiQuery<{ count: number }>('/notifications/unread-count', { refetchInterval: POLL_MS })
   const list = useApiQuery<AppNotification[]>('/notifications?take=20', { enabled: open, refetchInterval: open ? POLL_MS : undefined })
+  const policy = useApiQuery<{ enabled: boolean; readDays: number; unreadDays: number }>('/notifications/retention', { enabled: open })
   const read = useApiMutation<string>((id) => ({ path: `/notifications/${id}/read` }))
   const readAll = useApiMutation<void>(() => ({ path: '/notifications/read-all' }))
   const unread = count.data?.count ?? 0
@@ -70,6 +71,12 @@ export function NotificationBell() {
                 ))}
               </ul>
             )}
+          {policy.data?.enabled && (
+            <p className="muted bell-foot">
+              Messages are removed {policy.data.readDays} days after you read them
+              {policy.data.unreadDays > 0 ? `, or after ${policy.data.unreadDays} days if you never do.` : '; unread ones are kept.'}
+            </p>
+          )}
         </div>
       )}
     </div>

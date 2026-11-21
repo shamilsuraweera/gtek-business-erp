@@ -2,6 +2,7 @@ using Erp.Application.Abstractions;
 using Erp.Modules.Platform.Domain;
 using Erp.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Erp.Modules.Platform.Application;
 
@@ -512,6 +513,8 @@ public static class PlatformModule
         services.AddScoped<IUserDirectory, UserDirectory>();
         services.AddScoped<INotifier, Notifier>();
         services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<INotificationRetention, NotificationRetention>();
+        services.TryAddSingleton(new NotificationRetentionOptions());
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

@@ -34,7 +34,7 @@ come back and look for a decision. There was no way for any module to tell a use
 
 - Delivery is pull-based (polling), not pushed: a new message can take up to 30 seconds to show, and nothing reaches a user who is not signed in.
   There is no email or mobile push.
-- Notifications are never deleted or archived yet; the list shows the newest 20. A retention policy will be needed as volumes grow.
+- The panel shows the newest 20. Old notifications are purged by the retention policy (ADR 0024).
 - Recipients are decided when the message is sent: a user granted the permission later does not receive earlier requests as notifications,
   although they still see them in the inbox.
 - Per-user preferences (muting categories) are not covered.
