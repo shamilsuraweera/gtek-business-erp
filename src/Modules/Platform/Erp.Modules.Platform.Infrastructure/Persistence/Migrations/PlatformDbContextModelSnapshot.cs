@@ -182,6 +182,76 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                     b.ToTable("Companies", "platform");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Platform.Domain.EmailMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HtmlBody")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LeasedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("TextBody")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToAddress")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("ToName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "Status");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("EmailMessages", "platform");
+                });
+
             modelBuilder.Entity("Erp.Modules.Platform.Domain.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -415,6 +485,11 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
+
+                    b.Property<bool>("EmailNotifications")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<bool>("IsBootstrapAdministrator")
                         .HasColumnType("boolean");

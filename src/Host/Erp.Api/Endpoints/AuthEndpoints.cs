@@ -27,6 +27,18 @@ public static class AuthEndpoints
             var user = await users.GetByIdAsync(userId, ct);
             return user is null ? TypedResults.NotFound() : TypedResults.Ok(user);
         }).RequireAuthorization().WithSummary("Get the authenticated user");
+        group.MapGet("/me/preferences", async Task<Results<Ok<UserPreferencesResponse>, UnauthorizedHttpResult, NotFound>>(
+            ICurrentUser currentUser, IUserPreferenceService preferences, CancellationToken ct) =>
+        {
+            if (!currentUser.IsAuthenticated || currentUser.UserId is not UserId userId) return TypedResults.Unauthorized();
+            return await preferences.GetAsync(userId, ct) is { } result ? TypedResults.Ok(result) : TypedResults.NotFound();
+        }).RequireAuthorization().WithSummary("Get the authenticated user's preferences");
+        group.MapPut("/me/preferences", async Task<Results<Ok<UserPreferencesResponse>, UnauthorizedHttpResult, NotFound>>(
+            UpdateUserPreferencesRequest request, ICurrentUser currentUser, IUserPreferenceService preferences, CancellationToken ct) =>
+        {
+            if (!currentUser.IsAuthenticated || currentUser.UserId is not UserId userId) return TypedResults.Unauthorized();
+            return await preferences.SetEmailNotificationsAsync(userId, request.EmailNotifications, ct) is { } result ? TypedResults.Ok(result) : TypedResults.NotFound();
+        }).RequireAuthorization().WithSummary("Turn email notifications on or off for the authenticated user");
         group.MapGet("/me/companies", async Task<Results<Ok<IReadOnlyList<CompanyResponse>>, UnauthorizedHttpResult>>(
             ICurrentUser currentUser,
             IUserCompanyAccessService access,

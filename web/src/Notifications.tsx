@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApiMutation, useApiQuery } from './hooks'
-import type { AppNotification } from './api/types'
+import type { AppNotification, UserPreferences } from './api/types'
 
 /** How often the unread count is refreshed while the page is open. */
 const POLL_MS = 30_000
@@ -24,6 +24,8 @@ export function NotificationBell() {
   const count = useApiQuery<{ count: number }>('/notifications/unread-count', { refetchInterval: POLL_MS })
   const list = useApiQuery<AppNotification[]>('/notifications?take=20', { enabled: open, refetchInterval: open ? POLL_MS : undefined })
   const policy = useApiQuery<{ enabled: boolean; readDays: number; unreadDays: number }>('/notifications/retention', { enabled: open })
+  const prefs = useApiQuery<UserPreferences>('/auth/me/preferences', { enabled: open })
+  const setEmail = useApiMutation<boolean>((enabled) => ({ path: '/auth/me/preferences', method: 'PUT', body: { emailNotifications: enabled } }))
   const read = useApiMutation<string>((id) => ({ path: `/notifications/${id}/read` }))
   const readAll = useApiMutation<void>(() => ({ path: '/notifications/read-all' }))
   const unread = count.data?.count ?? 0
@@ -71,6 +73,13 @@ export function NotificationBell() {
                 ))}
               </ul>
             )}
+          {prefs.data?.emailAvailable && (
+            <label className="bell-foot row" style={{ cursor: 'pointer' }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={setEmail.isPending ? setEmail.variables === true : prefs.data.emailNotifications} disabled={setEmail.isPending}
+                onChange={(e) => setEmail.mutate(e.target.checked)} />
+              <span>Email me approval requests and decisions<span className="muted"> ({prefs.data.email})</span></span>
+            </label>
+          )}
           {policy.data?.enabled && (
             <p className="muted bell-foot">
               Messages are removed {policy.data.readDays} days after you read them

@@ -94,26 +94,40 @@ public class NotificationTests
             Handlers.TryGetValue(method!.Name, out var h) ? h(args ?? []) : throw new NotSupportedException(method.Name);
     }
 
+    public sealed class FakeOutbox : IEmailOutboxStore
+    {
+        public List<EmailMessage> Added { get; } = [];
+        public Task AddRangeAsync(IEnumerable<EmailMessage> messages, CancellationToken ct) { Added.AddRange(messages); return Task.CompletedTask; }
+        public Task<IReadOnlyList<EmailMessage>> ClaimDueAsync(DateTimeOffset now, int batch, DateTimeOffset leaseUntil, Guid token, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> PurgeAsync(DateTimeOffset sentBefore, DateTimeOffset failedBefore, CancellationToken ct) => throw new NotSupportedException();
+        public Task<EmailOutboxStatus> StatusAsync(CompanyId companyId, DateTimeOffset now, CancellationToken ct) => throw new NotSupportedException();
+        public Task SaveChangesAsync(CancellationToken ct) => Task.CompletedTask;
+    }
+
     private sealed class FixedCompany(CompanyId id) : ICompanyContext { public CompanyId CompanyId => id; public bool HasCompany => true; }
     private sealed class FixedClock : IClock { public DateTimeOffset UtcNow => Now; }
 
     private static User MakeUser(string name) => Erp.Modules.Platform.Domain.User.Create(name, $"{name}@example.com", Now);
 
-    private static (Notifier Notifier, FakeStore Store, User[] Users) Setup(Func<User, bool> hasPermission)
+    private static EmailOptions EmailOn() => new() { Enabled = true, Host = "smtp.test", FromAddress = "erp@example.com", BaseUrl = "https://erp.example.com" };
+
+    private static (Notifier Notifier, FakeStore Store, User[] Users, FakeOutbox Outbox) Setup(Func<User, bool> hasPermission, EmailOptions? email = null, Action<User[]>? tweakUsers = null)
     {
         var users = new[] { MakeUser("clerk"), MakeUser("approver1"), MakeUser("approver2"), MakeUser("viewer") };
         var access = DispatchProxy.Create<IUserCompanyAccessStore, Proxy<IUserCompanyAccessStore>>();
         ((Proxy<IUserCompanyAccessStore>)(object)access).Handlers["ListUsersForCompanyAsync"] = _ => Task.FromResult<IReadOnlyList<User>>(users);
         var perms = DispatchProxy.Create<IRolePermissionStore, Proxy<IRolePermissionStore>>();
         ((Proxy<IRolePermissionStore>)(object)perms).Handlers["UserHasPermissionAsync"] = a => Task.FromResult(hasPermission(users.Single(u => u.Id == (UserId)a[0]!)));
+        tweakUsers?.Invoke(users);
         var store = new FakeStore();
-        return (new Notifier(store, access, perms, new FixedCompany(Company), new FixedClock()), store, users);
+        var outbox = new FakeOutbox();
+        return (new Notifier(store, access, perms, new FixedCompany(Company), new FixedClock(), outbox, email ?? new EmailOptions()), store, users, outbox);
     }
 
     [Fact]
     public async Task Permission_holders_are_notified_except_the_actor()
     {
-        var (notifier, store, users) = Setup(u => u.UserName.StartsWith("approver") || u.UserName == "clerk");
+        var (notifier, store, users, _) = Setup(u => u.UserName.StartsWith("approver") || u.UserName == "clerk");
         await notifier.NotifyPermissionHoldersAsync("p", new NotificationMessage("approval", "Needs a decision", "b", "/x", "s:1"), users[0].Id.Value, default);
         Assert.Equal(new[] { "approver1", "approver2" }.Order(), store.Added.Select(n => users.Single(u => u.Id == n.UserId).UserName).Order());
         Assert.All(store.Added, n => Assert.Equal((Company, "s:1", "approval"), (n.CompanyId, n.Subject, n.Category)));
@@ -122,7 +136,7 @@ public class NotificationTests
     [Fact]
     public async Task Nobody_is_notified_when_nobody_holds_the_permission()
     {
-        var (notifier, store, _) = Setup(_ => false);
+        var (notifier, store, _, _) = Setup(_ => false);
         await notifier.NotifyPermissionHoldersAsync("p", new NotificationMessage("approval", "T", null, null), null, default);
         Assert.Empty(store.Added);
     }
@@ -130,7 +144,7 @@ public class NotificationTests
     [Fact]
     public async Task Named_users_are_notified_only_if_they_belong_to_the_company_and_only_once()
     {
-        var (notifier, store, users) = Setup(_ => true);
+        var (notifier, store, users, _) = Setup(_ => true);
         await notifier.NotifyUsersAsync([users[0].Id.Value, users[0].Id.Value, Guid.NewGuid()], new NotificationMessage("decision", "T", null, null), default);
         Assert.Single(store.Added);
         Assert.Equal(users[0].Id, store.Added[0].UserId);
@@ -139,7 +153,7 @@ public class NotificationTests
     [Fact]
     public async Task Resolving_a_subject_marks_it_read_for_everyone_in_the_company()
     {
-        var (notifier, store, _) = Setup(_ => true);
+        var (notifier, store, _, _) = Setup(_ => true);
         await notifier.ResolveSubjectAsync("tolerance-request:9", default);
         Assert.Equal("tolerance-request:9", store.ResolvedSubject);
     }
@@ -288,5 +302,64 @@ public class NotificationTests
         await new NotificationRetention(store, new NotificationRetentionOptions(), new FixedClock()).PurgeAsync(default);
         var forA = store.Purges.Single(p => p.Scope.Only == a);
         Assert.Equal((Now.AddDays(-200), (DateTimeOffset?)Now.AddDays(-200)), (forA.ReadBefore, forA.UnreadBefore));
+    }
+
+    // ---- email from the notifier ------------------------------------------------------------------------------------
+
+    private static NotificationMessage Mail(bool email = true) => new("approval", "Needs a decision", "apclerk asked for a change", "/tolerance-requests", "s:1", email);
+
+    [Fact]
+    public async Task Flagged_messages_are_also_queued_as_email_for_each_recipient()
+    {
+        var (notifier, store, users, outbox) = Setup(u => u.UserName.StartsWith("approver"), EmailOn());
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(), null, default);
+        Assert.Equal(2, store.Added.Count);
+        Assert.Equal(new[] { "approver1@example.com", "approver2@example.com" }, outbox.Added.Select(m => m.ToAddress).Order());
+        Assert.All(outbox.Added, m => Assert.Equal((Company, EmailStatus.Pending), (m.CompanyId, m.Status)));
+        Assert.All(outbox.Added, m => Assert.Contains("https://erp.example.com/tolerance-requests", m.TextBody));
+    }
+
+    [Fact]
+    public async Task No_email_when_the_message_is_not_flagged_for_email()
+    {
+        var (notifier, store, _, outbox) = Setup(_ => true, EmailOn());
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(email: false), null, default);
+        Assert.NotEmpty(store.Added);
+        Assert.Empty(outbox.Added);
+    }
+
+    [Fact]
+    public async Task No_email_when_the_installation_has_email_off_but_the_in_app_message_still_goes()
+    {
+        var (notifier, store, _, outbox) = Setup(_ => true, new EmailOptions { Enabled = false });
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(), null, default);
+        Assert.NotEmpty(store.Added);
+        Assert.Empty(outbox.Added);
+    }
+
+    [Fact]
+    public async Task Users_who_turned_email_off_or_have_no_address_get_only_the_in_app_message()
+    {
+        var (notifier, store, users, outbox) = Setup(_ => true, EmailOn(), us => us[1].SetEmailNotifications(false));
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(), null, default);
+        Assert.Equal(4, store.Added.Count);                                   // everyone is told in the app
+        Assert.DoesNotContain(outbox.Added, m => m.UserId == users[1].Id);    // approver1 opted out
+        Assert.Equal(3, outbox.Added.Count);
+    }
+
+    [Fact]
+    public async Task The_actor_gets_no_email_either()
+    {
+        var (notifier, _, users, outbox) = Setup(_ => true, EmailOn());
+        await notifier.NotifyPermissionHoldersAsync("p", Mail(), users[0].Id.Value, default);
+        Assert.DoesNotContain(outbox.Added, m => m.UserId == users[0].Id);
+    }
+
+    [Fact]
+    public async Task Named_users_can_be_emailed_too()
+    {
+        var (notifier, _, users, outbox) = Setup(_ => true, EmailOn());
+        await notifier.NotifyUsersAsync([users[2].Id.Value], Mail(), default);
+        Assert.Equal("approver2@example.com", Assert.Single(outbox.Added).ToAddress);
     }
 }

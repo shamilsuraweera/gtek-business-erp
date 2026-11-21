@@ -88,7 +88,8 @@ public sealed class NotificationService(
 
 /// <summary>Implements the cross-module notifier: recipients are users with active access to the active company.</summary>
 public sealed class Notifier(
-    INotificationStore store, IUserCompanyAccessStore access, IRolePermissionStore permissions, ICompanyContext companyContext, IClock clock) : INotifier
+    INotificationStore store, IUserCompanyAccessStore access, IRolePermissionStore permissions, ICompanyContext companyContext, IClock clock,
+    IEmailOutboxStore outbox, EmailOptions emailOptions) : INotifier
 {
     private CompanyId Company =>
         companyContext.HasCompany ? companyContext.CompanyId : throw new InvalidOperationException("An active company context is required.");
@@ -96,29 +97,42 @@ public sealed class Notifier(
     public async Task NotifyUsersAsync(IEnumerable<Guid> userIds, NotificationMessage message, CancellationToken cancellationToken)
     {
         var wanted = userIds.ToHashSet();
-        var recipients = (await access.ListUsersForCompanyAsync(Company, cancellationToken)).Where(u => wanted.Contains(u.Id.Value)).Select(u => u.Id);
+        var recipients = (await access.ListUsersForCompanyAsync(Company, cancellationToken)).Where(u => wanted.Contains(u.Id.Value));
         await DeliverAsync(recipients, message, cancellationToken);
     }
 
     public async Task NotifyPermissionHoldersAsync(string permissionCode, NotificationMessage message, Guid? exceptUserId, CancellationToken cancellationToken)
     {
-        var recipients = new List<UserId>();
+        var recipients = new List<User>();
         foreach (var user in await access.ListUsersForCompanyAsync(Company, cancellationToken))
             if (user.Id.Value != exceptUserId && await permissions.UserHasPermissionAsync(user.Id, permissionCode, cancellationToken))
-                recipients.Add(user.Id);
+                recipients.Add(user);
         await DeliverAsync(recipients, message, cancellationToken);
     }
 
     public async Task ResolveSubjectAsync(string subject, CancellationToken cancellationToken) =>
         await store.MarkSubjectReadAsync(Company, subject, clock.UtcNow, cancellationToken);
 
-    private async Task DeliverAsync(IEnumerable<UserId> recipients, NotificationMessage message, CancellationToken cancellationToken)
+    private async Task DeliverAsync(IEnumerable<User> recipients, NotificationMessage message, CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
-        var items = recipients.Distinct()
-            .Select(u => Notification.Create(Company, u, message.Category, message.Title, message.Body, message.Link, message.Subject, now)).ToList();
+        var users = recipients.DistinctBy(u => u.Id).ToList();
+        var items = users
+            .Select(u => Notification.Create(Company, u.Id, message.Category, message.Title, message.Body, message.Link, message.Subject, now)).ToList();
         if (items.Count == 0) return;
         await store.AddRangeAsync(items, cancellationToken);
+
+        // Email goes to the outbox in the same save as the in-app message: both happen or neither does.
+        if (message.Email && emailOptions.Enabled)
+        {
+            var emails = users.Where(u => u.EmailNotifications && !string.IsNullOrWhiteSpace(u.Email)).Select(u =>
+            {
+                var mail = EmailComposer.Compose(message, u.Email, u.UserName, emailOptions);
+                return EmailMessage.Create(Company, u.Id, mail.ToAddress, mail.ToName, mail.Subject, mail.Text, mail.Html, now);
+            }).ToList();
+            if (emails.Count > 0) await outbox.AddRangeAsync(emails, cancellationToken);
+        }
+
         await store.SaveChangesAsync(cancellationToken);
     }
 }

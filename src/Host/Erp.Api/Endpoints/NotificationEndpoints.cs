@@ -34,6 +34,10 @@ public static class NotificationSettingsEndpoints
         var group = endpoints.MapGroup("/api/v1/notification-settings/retention").WithTags("Notifications").RequireCompanyContext();
         group.MapGet("/", async (INotificationRetentionSettings service, CancellationToken ct) => TypedResults.Ok(await service.GetAsync(ct)))
             .RequirePermission(Erp.Modules.Platform.Application.Permissions.Platform.NotificationRetentionRead);
+        endpoints.MapGet("/api/v1/notification-settings/email", async (IEmailStatusService service, CancellationToken ct) =>
+                TypedResults.Ok(await service.GetAsync(ct)))
+            .WithTags("Notifications").RequireCompanyContext()
+            .RequirePermission(Erp.Modules.Platform.Application.Permissions.Platform.NotificationRetentionRead);
         group.MapPut("/", async (UpdateNotificationRetentionRequest request, INotificationRetentionSettings service, CancellationToken ct) =>
             TypedResults.Ok(await service.UpdateAsync(request, ct)))
             .RequirePermission(Erp.Modules.Platform.Application.Permissions.Platform.NotificationRetentionManage);

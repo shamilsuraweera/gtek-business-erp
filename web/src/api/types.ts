@@ -55,3 +55,6 @@ export interface ToleranceRequest { id: string; number: string; purchaseOrderId:
 export interface AppNotification { id: string; category: string; title: string; body: string | null; link: string | null; createdAt: string; isRead: boolean }
 
 export interface RetentionSettings { enabled: boolean; systemReadDays: number; systemUnreadDays: number; readDaysOverride: number | null; unreadDaysOverride: number | null; effectiveReadDays: number; effectiveUnreadDays: number; updatedAt: string | null; updatedBy: string | null }
+
+export interface UserPreferences { emailNotifications: boolean; emailAvailable: boolean; email: string }
+export interface EmailStatus { enabled: boolean; host: string | null; port: number | null; fromAddress: string | null; pending: number; failed: number; sentLast24Hours: number; lastError: string | null; lastSentAt: string | null; oldestPendingAt: string | null }

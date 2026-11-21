@@ -4,7 +4,7 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader, Tabs } from '../ui'
-import type { AuditPage, Period, RetentionSettings, Sequence, User } from '../api/types'
+import type { AuditPage, EmailStatus, Period, RetentionSettings, Sequence, User } from '../api/types'
 
 type Tab = 'periods' | 'sequences' | 'users' | 'audit' | 'notifications'
 
@@ -127,6 +127,33 @@ function AuditTab() {
   )
 }
 
+/** Whether notification emails are being delivered, and what is waiting or has failed. */
+function EmailCard() {
+  const status = useApiQuery<EmailStatus>('/notification-settings/email')
+  const s = status.data
+  if (!s) return status.error ? <ErrorNote error={status.error} /> : null
+  return (
+    <section className="card stack" style={{ maxWidth: 640, marginTop: 16 }}>
+      <h3 style={{ margin: 0 }}>Email delivery</h3>
+      {!s.enabled ? (
+        <p className="muted" style={{ margin: 0 }}>Email is switched off for this installation, so approval requests are shown in the app only. An administrator turns it on in the API's <code>Email</code> configuration.</p>
+      ) : (
+        <>
+          <p style={{ margin: 0 }}>Sending through <strong>{s.host}:{s.port}</strong> as <strong>{s.fromAddress}</strong>.</p>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Badge value={`${s.pending} waiting`} tone={s.pending > 0 ? 'warn' : 'neutral'} />
+            <Badge value={`${s.sentLast24Hours} sent in 24 h`} tone="ok" />
+            <Badge value={`${s.failed} failed`} tone={s.failed > 0 ? 'bad' : 'neutral'} />
+          </div>
+          {s.lastSentAt && <p className="muted" style={{ margin: 0 }}>Last sent {formatDate(s.lastSentAt)}.</p>}
+          {s.oldestPendingAt && s.pending > 0 && <p className="muted" style={{ margin: 0 }}>Oldest waiting since {formatDate(s.oldestPendingAt)}; undelivered messages are retried with a growing delay.</p>}
+          {s.lastError && <div className="note error">Last error: {s.lastError}</div>}
+        </>
+      )}
+    </section>
+  )
+}
+
 /** How long this company keeps notifications: its own values, or blank to use the system default. */
 function NotificationsTab() {
   const { can, company } = useAuth()
@@ -191,7 +218,7 @@ export function Admin() {
       {tab === 'sequences' && <SequencesTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'audit' && <AuditTab />}
-      {tab === 'notifications' && <NotificationsTab />}
+      {tab === 'notifications' && <><NotificationsTab /><EmailCard /></>}
     </>
   )
 }

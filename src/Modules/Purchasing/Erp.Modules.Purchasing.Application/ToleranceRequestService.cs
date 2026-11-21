@@ -99,7 +99,7 @@ public sealed class ToleranceRequestService(
             await NotifySafelyAsync(() => notifier.NotifyPermissionHoldersAsync(ApprovePermission, new NotificationMessage(
                 "approval", $"Tolerance request {created.Number} needs a decision",
                 $"{created.RequestedBy} asked to change tolerances on {created.OrderNumber} ({created.VendorName}): {created.Reason}",
-                "/tolerance-requests", Subject(created.Id)), userId, cancellationToken));
+                "/tolerance-requests", Subject(created.Id), Email: true), userId, cancellationToken));
         return created;
     }
 
@@ -164,7 +164,7 @@ public sealed class ToleranceRequestService(
                 await NotifySafelyAsync(() => notifier.NotifyUsersAsync([decided.RequestedById], new NotificationMessage(
                     "decision", $"Tolerance request {decided.Number} {outcome}",
                     $"{decided.DecidedBy} {outcome} your request for {decided.OrderNumber}" + (decided.DecisionNote is null ? "." : $": {decided.DecisionNote}"),
-                    $"/purchase-orders/{decided.PurchaseOrderId}", Subject(decided.Id)), cancellationToken));
+                    $"/purchase-orders/{decided.PurchaseOrderId}", Subject(decided.Id), Email: true), cancellationToken));
         }
 
         return decided;

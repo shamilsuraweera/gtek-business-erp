@@ -21,6 +21,8 @@ public static class PlatformInfrastructure
         services.AddScoped<IUserCompanyAccessStore, UserCompanyAccessStore>();
         services.AddScoped<IAuditEntryStore, AuditEntryStore>();
         services.AddScoped<INotificationStore, NotificationStore>();
+        services.AddScoped<IEmailOutboxStore, EmailOutboxStore>();
+        services.AddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddScoped<INumberSequenceStore, NumberSequenceStore>();
         services.AddScoped<IAccountingPeriodStore, AccountingPeriodStore>();
         services.AddSingleton<IPasswordHasher<object>, PasswordHasher<object>>();

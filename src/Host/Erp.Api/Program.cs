@@ -37,6 +37,13 @@ var retention = builder.Configuration.GetSection(NotificationRetentionOptions.Se
 if (retention.Validate() is { Count: > 0 } retentionErrors)
     throw new InvalidOperationException("Invalid notification retention configuration: " + string.Join(" ", retentionErrors));
 builder.Services.AddSingleton(retention);
+
+// Email delivery (ADR 0026): off unless configured; when on, a bad value stops start-up with every problem listed.
+var email = builder.Configuration.GetSection(EmailOptions.Section).Get<EmailOptions>() ?? new EmailOptions();
+if (email.Validate() is { Count: > 0 } emailErrors)
+    throw new InvalidOperationException("Invalid email configuration: " + string.Join(" ", emailErrors));
+builder.Services.AddSingleton(email);
+if (email.Enabled) builder.Services.AddHostedService<Erp.Api.Background.EmailDeliveryWorker>();
 if (retention.Enabled) builder.Services.AddHostedService<Erp.Api.Background.NotificationRetentionWorker>();
 
 builder.Services

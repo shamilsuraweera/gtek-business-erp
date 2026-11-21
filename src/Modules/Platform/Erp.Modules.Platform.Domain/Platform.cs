@@ -102,9 +102,13 @@ public sealed class User : AggregateRoot<UserId>
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset? ModifiedAt { get; private set; }
     public bool IsBootstrapAdministrator { get; private set; }
+    /// <summary>Whether the user wants approval messages by email as well as in the app (ADR 0026). On by default.</summary>
+    public bool EmailNotifications { get; private set; } = true;
 
     public static User Create(string userName, string email, DateTimeOffset createdAt, bool isBootstrapAdministrator = false) =>
         new(UserId.New(), userName, email, createdAt, isBootstrapAdministrator);
+
+    public void SetEmailNotifications(bool enabled) => EmailNotifications = enabled;
 
     public void ChangeEmail(string email)
     {
@@ -780,4 +784,105 @@ public sealed class NotificationRetentionSetting
         UpdatedAt = at;
         UpdatedBy = by;
     }
+}
+
+public enum EmailStatus
+{
+    Pending,
+    Sent,
+    Failed
+}
+
+/// <summary>
+/// An email waiting to be sent, kept in an outbox so a slow or unavailable mail server never blocks or fails the business operation that
+/// caused it (ADR 0026). A worker claims due messages under a lease, sends them, and retries with a back-off until it gives up.
+/// </summary>
+public sealed class EmailMessage
+{
+    private EmailMessage()
+    {
+        ToAddress = string.Empty;
+        Subject = string.Empty;
+        TextBody = string.Empty;
+        HtmlBody = string.Empty;
+    }
+
+    private EmailMessage(Guid id, CompanyId? companyId, UserId? userId, string toAddress, string? toName, string subject, string textBody,
+        string htmlBody, DateTimeOffset createdAt)
+    {
+        Id = id;
+        CompanyId = companyId;
+        UserId = userId;
+        ToAddress = toAddress;
+        ToName = toName;
+        Subject = subject;
+        TextBody = textBody;
+        HtmlBody = htmlBody;
+        CreatedAt = createdAt;
+        NextAttemptAt = createdAt;
+        Status = EmailStatus.Pending;
+    }
+
+    public Guid Id { get; private set; }
+    public CompanyId? CompanyId { get; private set; }
+    public UserId? UserId { get; private set; }
+    public string ToAddress { get; private set; }
+    public string? ToName { get; private set; }
+    public string Subject { get; private set; }
+    public string TextBody { get; private set; }
+    public string HtmlBody { get; private set; }
+    public EmailStatus Status { get; private set; }
+    public int Attempts { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public DateTimeOffset NextAttemptAt { get; private set; }
+    public DateTimeOffset? SentAt { get; private set; }
+    public string? LastError { get; private set; }
+    public Guid? LeaseToken { get; private set; }
+    public DateTimeOffset? LeasedUntil { get; private set; }
+
+    public static EmailMessage Create(CompanyId? companyId, UserId? userId, string toAddress, string? toName, string subject, string textBody,
+        string htmlBody, DateTimeOffset createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(toAddress) || !toAddress.Contains('@')) throw new DomainException("A recipient email address is required.");
+        if (string.IsNullOrWhiteSpace(subject)) throw new DomainException("An email needs a subject.");
+        return new EmailMessage(Guid.NewGuid(), companyId, userId, toAddress.Trim(), toName?.Trim(), Cut(subject.Trim(), 300), textBody, htmlBody, createdAt);
+    }
+
+    public void MarkSent(DateTimeOffset at)
+    {
+        Attempts++;
+        Status = EmailStatus.Sent;
+        SentAt = at;
+        LastError = null;
+        Release();
+    }
+
+    /// <summary>
+    /// Records a failed attempt. A transient failure schedules the next attempt after the given delay; a permanent one, or running out of
+    /// attempts, gives up for good.
+    /// </summary>
+    public void MarkFailed(string error, bool permanent, DateTimeOffset at, int maxAttempts, TimeSpan? retryAfter)
+    {
+        Attempts++;
+        LastError = Cut(error, 1000);
+        if (permanent || Attempts >= maxAttempts || retryAfter is null)
+        {
+            Status = EmailStatus.Failed;
+        }
+        else
+        {
+            Status = EmailStatus.Pending;
+            NextAttemptAt = at + retryAfter.Value;
+        }
+
+        Release();
+    }
+
+    private void Release()
+    {
+        LeaseToken = null;
+        LeasedUntil = null;
+    }
+
+    private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];
 }

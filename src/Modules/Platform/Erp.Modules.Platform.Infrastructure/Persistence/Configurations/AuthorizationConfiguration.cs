@@ -111,6 +111,30 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
         }
     }
 
+    public sealed class EmailMessageConfiguration : IEntityTypeConfiguration<EmailMessage>
+    {
+        public void Configure(EntityTypeBuilder<EmailMessage> b)
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.CompanyId).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.CompanyId(x.Value) : null);
+            b.Property(x => x.UserId).HasConversion(
+                x => x.HasValue ? x.Value.Value : (Guid?)null,
+                x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
+            b.Property(x => x.ToAddress).HasMaxLength(320).IsRequired();
+            b.Property(x => x.ToName).HasMaxLength(200);
+            b.Property(x => x.Subject).HasMaxLength(300).IsRequired();
+            b.Property(x => x.TextBody).IsRequired();
+            b.Property(x => x.HtmlBody).IsRequired();
+            b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            b.Property(x => x.LastError).HasMaxLength(1000);
+            b.HasIndex(x => new { x.Status, x.NextAttemptAt });
+            b.HasIndex(x => new { x.CompanyId, x.Status });
+            b.ToTable("EmailMessages", "platform");
+        }
+    }
+
     public sealed class NotificationRetentionSettingConfiguration : IEntityTypeConfiguration<NotificationRetentionSetting>
     {
         public void Configure(EntityTypeBuilder<NotificationRetentionSetting> b)
