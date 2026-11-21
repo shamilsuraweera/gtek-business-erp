@@ -61,4 +61,17 @@ public class InventoryTests
         Assert.Throws<DomainException>(() => item.Update("Tolerant", "EA", 10m, 5m, null, 100.5m));
         Assert.Throws<DomainException>(() => Item.Create(Company, "T-2", "N", "EA", 1m, 1m, DateTimeOffset.UtcNow, null, -1m));
     }
+
+    [Fact]
+    public void Item_quantity_tolerance_is_optional_validated_and_independent()
+    {
+        var item = Item.Create(Company, "Q-1", "Q", "EA", 10m, 5m, DateTimeOffset.UtcNow, null, 2m, 5m);
+        Assert.Equal(2m, item.PriceTolerancePercent);
+        Assert.Equal(5m, item.QuantityTolerancePercent);
+        item.Update("Q", "EA", 10m, 5m, null, 2m, 0m);
+        Assert.Equal(0m, item.QuantityTolerancePercent);
+        item.Update("Q", "EA", 10m, 5m, null, 2m, null);
+        Assert.Null(item.QuantityTolerancePercent);
+        Assert.Throws<DomainException>(() => item.Update("Q", "EA", 10m, 5m, null, null, 101m));
+    }
 }

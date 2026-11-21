@@ -208,6 +208,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                         .HasPrecision(7, 4)
                         .HasColumnType("numeric(7,4)");
 
+                    b.Property<decimal?>("QuantityTolerancePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Code")
@@ -526,6 +530,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                             b1.Property<decimal>("Quantity")
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
+
+                            b1.Property<decimal>("QuantityTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
 
                             b1.Property<string>("Sku")
                                 .IsRequired()

@@ -29,4 +29,4 @@ while a contracted item must match exactly.
 - Tolerance can only be loosened by someone who can edit a vendor or item, which is a wider group than the bill approvers. Treat
   vendor and item management as a control over matching.
 - Update requests replace the tolerance: omitting it clears it, as with an item's tax code.
-- Not covered: tolerance by absolute amount, quantity tolerance (over-delivery), and per-order overrides.
+- Not covered: tolerance by absolute amount and per-order overrides. Over-delivery tolerance is ADR 0019.

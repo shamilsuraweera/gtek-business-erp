@@ -14,10 +14,12 @@ function VendorForm({ vendor, onClose }: { vendor?: Vendor; onClose: () => void 
   const [terms, setTerms] = useState(String(vendor?.paymentTermsDays ?? 30))
   const [tolerance, setTolerance] = useState(vendor?.priceTolerancePercent == null ? '' : String(vendor.priceTolerancePercent))
   const toleranceValue = tolerance.trim() === '' ? null : Number(tolerance)
+  const [qtyTolerance, setQtyTolerance] = useState(vendor?.quantityTolerancePercent == null ? '' : String(vendor.quantityTolerancePercent))
+  const qtyToleranceValue = qtyTolerance.trim() === '' ? null : Number(qtyTolerance)
   const save = useApiMutation<void>(
     () => vendor
-      ? { path: `/purchasing/vendors/${vendor.id}`, method: 'PUT', body: { name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms), priceTolerancePercent: toleranceValue } }
-      : { path: '/purchasing/vendors', body: { code, name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms), priceTolerancePercent: toleranceValue } },
+      ? { path: `/purchasing/vendors/${vendor.id}`, method: 'PUT', body: { name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms), priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue } }
+      : { path: '/purchasing/vendors', body: { code, name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms), priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue } },
     onClose,
   )
   const submit = (event: FormEvent) => { event.preventDefault(); save.mutate() }
@@ -33,6 +35,9 @@ function VendorForm({ vendor, onClose }: { vendor?: Vendor; onClose: () => void 
           <Field label="Payment terms (days)"><input type="number" min={0} max={365} value={terms} onChange={(e) => setTerms(e.target.value)} required /></Field>
           <Field label="Price tolerance (%)" hint="How far this vendor's billed prices may differ from the order before a bill needs approval. Blank uses the company default (2%); an item's own tolerance takes priority.">
             <input type="number" min={0} max={100} step="0.01" value={tolerance} placeholder="Default" onChange={(e) => setTolerance(e.target.value)} />
+          </Field>
+          <Field label="Over-delivery tolerance (%)" hint="How far above the ordered quantity this vendor may deliver. Blank means none (company default); an item's own tolerance takes priority.">
+            <input type="number" min={0} max={100} step="0.01" value={qtyTolerance} placeholder="None" onChange={(e) => setQtyTolerance(e.target.value)} />
           </Field>
         </div>
         <ErrorNote error={save.error} />
@@ -68,7 +73,7 @@ export function Vendors() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No vendors match.</Empty> : (
             <table className="data">
-              <thead><tr><th>Code</th><th>Name</th><th>Contact</th><th className="num">Terms</th><th className="num">Tolerance</th><th className="num">Payable</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Contact</th><th className="num">Terms</th><th className="num">Price tol.</th><th className="num">Over-delivery</th><th className="num">Payable</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map((c) => (
                   <tr key={c.id}>
@@ -76,6 +81,7 @@ export function Vendors() {
                     <td>{c.email ?? '—'}<div className="muted">{c.phone ?? ''}</div></td>
                     <td className="num">{c.paymentTermsDays}d</td>
                     <td className="num">{c.priceTolerancePercent == null ? <span className="muted">default</span> : `${c.priceTolerancePercent}%`}</td>
+                    <td className="num">{c.quantityTolerancePercent == null ? <span className="muted">none</span> : `${c.quantityTolerancePercent}%`}</td>
                     <td className="num">{formatMoney(outstanding(c.id))}</td>
                     <td><Badge value={c.isActive ? 'Active' : 'Inactive'} /></td>
                     <td className="right">

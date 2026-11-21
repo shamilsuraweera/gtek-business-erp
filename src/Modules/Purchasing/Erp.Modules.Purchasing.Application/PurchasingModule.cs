@@ -4,16 +4,16 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.Modules.Purchasing.Application;
 
-public sealed record VendorResponse(Guid Id, string Code, string Name, string? Email, string? Phone, int PaymentTermsDays, bool IsActive, decimal? PriceTolerancePercent);
-public sealed record CreateVendorRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null);
-public sealed record UpdateVendorRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null);
+public sealed record VendorResponse(Guid Id, string Code, string Name, string? Email, string? Phone, int PaymentTermsDays, bool IsActive, decimal? PriceTolerancePercent, decimal? QuantityTolerancePercent);
+public sealed record CreateVendorRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null);
+public sealed record UpdateVendorRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null);
 
 public sealed record PurchaseLineRequest(Guid ItemId, decimal Quantity, decimal? UnitCost);
 public sealed record CreatePurchaseOrderRequest(Guid VendorId, DateOnly? OrderDate, string? Notes, IReadOnlyList<PurchaseLineRequest> Lines);
 public sealed record PurchaseOrderLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitCost, decimal LineTotal,
     decimal QuantityReceived, decimal QuantityBilled, decimal QuantityReturned, decimal QuantityDebited, decimal DebitableQuantity,
-    decimal? PriceTolerancePercent = null);
+    decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null);
 public sealed record ReceiptSummary(Guid Id, string Number, DateOnly ReceiptDate, string Reference, decimal Total, string JournalNumber);
 public sealed record ReturnSummary(Guid Id, string Number, DateOnly ReturnDate, string Reason, string Reference, decimal Total, string JournalNumber);
 public sealed record BillSummary(Guid Id, string Number, DateOnly BillDate, decimal Total, decimal PriceVariance, BillStatus Status);

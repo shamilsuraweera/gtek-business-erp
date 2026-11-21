@@ -109,15 +109,19 @@ public sealed class PurchaseOrderService(
             var wanted = request.Lines is { Count: > 0 }
                 ? request.Lines.Select(l => (l.ItemId, l.Quantity)).ToList()
                 : order.OutstandingToReceive().Select(x => (x.Key, x.Value)).ToList();
+            // Over-delivery tolerance per line: the item's own, else the vendor's, else none.
+            var catalogItems = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
+            var tolerances = order.Lines.ToDictionary(l => l.ItemId, l => ThreeWayMatch.EffectiveQuantityTolerance(
+                catalogItems.GetValueOrDefault(l.ItemId)?.QuantityTolerancePercent, vendor.QuantityTolerancePercent));
             var lines = wanted.Select(w =>
             {
                 var line = order.LineFor(w.Item1);
-                return new GoodsReceiptLine(line.ItemId, line.Sku, line.Description, w.Item2, line.UnitCost);
+                return new GoodsReceiptLine(line.ItemId, line.Sku, line.Description, w.Item2, line.UnitCost, tolerances[line.ItemId]);
             }).ToList();
 
             var date = request.Date ?? DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
             await periodGuard.EnsurePostingAllowedAsync(date, ct);
-            order.RecordReceipt(wanted); // validates quantities against the outstanding balance before anything is posted
+            order.RecordReceipt(wanted, tolerances); // validates quantities against the outstanding balance (plus tolerance) before anything is posted
             var number = await numbers.NextAsync(ReceiptSequence, "GRN-", ct);
 
             var received = new List<GoodsReceiptLine>();
@@ -264,6 +268,8 @@ public sealed class PurchaseOrderService(
         var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
         var tolerances = order.Lines.ToDictionary(l => l.ItemId,
             l => ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(l.ItemId)?.PriceTolerancePercent, vendor?.PriceTolerancePercent));
+        var quantityTolerances = order.Lines.ToDictionary(l => l.ItemId,
+            l => ThreeWayMatch.EffectiveQuantityTolerance(items.GetValueOrDefault(l.ItemId)?.QuantityTolerancePercent, vendor?.QuantityTolerancePercent));
         return Map(order, vendorName,
             receipts.OrderBy(r => r.ReceiptDate).ThenBy(r => r.Number)
                 .Select(r => new ReceiptSummary(r.Id.Value, r.Number, r.ReceiptDate, r.Reference, r.Total, r.JournalNumber)).ToArray(),
@@ -271,16 +277,16 @@ public sealed class PurchaseOrderService(
                 .Select(b => new BillSummary(b.Id.Value, b.Number, b.BillDate, b.Total, b.PriceVariance, b.Status)).ToArray(),
             returns.OrderBy(r => r.ReturnDate).ThenBy(r => r.Number)
                 .Select(r => new ReturnSummary(r.Id.Value, r.Number, r.ReturnDate, r.Reason, r.Reference, r.Total, r.JournalNumber)).ToArray(),
-            tolerances);
+            tolerances, quantityTolerances);
     }
 
     internal static PurchaseOrderResponse Map(
         PurchaseOrder o, string vendorName, IReadOnlyList<ReceiptSummary> receipts, IReadOnlyList<BillSummary> bills,
-        IReadOnlyList<ReturnSummary> returns, IReadOnlyDictionary<Guid, decimal>? tolerances = null) => new(
+        IReadOnlyList<ReturnSummary> returns, IReadOnlyDictionary<Guid, decimal>? tolerances = null, IReadOnlyDictionary<Guid, decimal>? quantityTolerances = null) => new(
         o.Id.Value, o.Number, o.VendorId.Value, vendorName, o.OrderDate, o.Notes, o.Status, o.Total,
         o.Lines.Select(l => new PurchaseOrderLineResponse(
             l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost, l.LineTotal, l.QuantityReceived, l.QuantityBilled,
             l.QuantityReturned, l.QuantityDebited, l.DebitableQuantity,
-            tolerances?.GetValueOrDefault(l.ItemId))).ToArray(),
+            tolerances?.GetValueOrDefault(l.ItemId), quantityTolerances?.GetValueOrDefault(l.ItemId))).ToArray(),
         receipts, bills, returns);
 }

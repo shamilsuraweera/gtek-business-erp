@@ -91,6 +91,100 @@ public class PurchasingTests
         Assert.Equal(PurchaseOrderStatus.Released, order.Status);
     }
 
+    // ---- over-delivery (quantity tolerance) --------------------------------------------------------------------
+
+    private static Dictionary<Guid, decimal> Tol(decimal a, decimal b = 0m) => new() { [ItemA] = a, [ItemB] = b };
+
+    [Theory]
+    [InlineData(10, 0, 10)]
+    [InlineData(10, 5, 10.5)]
+    [InlineData(4, 12.5, 4.5)]
+    [InlineData(3, 10, 3.3)]
+    public void Max_receivable_is_the_ordered_quantity_plus_tolerance(double ordered, double tolerance, double expected) =>
+        Assert.Equal((decimal)expected, ThreeWayMatch.MaxReceivable((decimal)ordered, (decimal)tolerance));
+
+    [Theory]
+    [InlineData(2.0, 5.0, 2.0)]       // item wins over vendor
+    [InlineData(0.0, 5.0, 0.0)]       // an item set to 0 is not "unset"
+    [InlineData(null, 5.0, 5.0)]
+    [InlineData(null, null, 0.0)]     // default: no over-delivery
+    public void Effective_quantity_tolerance_prefers_item_then_vendor_then_none(double? item, double? vendor, double expected) =>
+        Assert.Equal((decimal)expected, ThreeWayMatch.EffectiveQuantityTolerance((decimal?)item, (decimal?)vendor));
+
+    [Fact]
+    public void Over_delivery_is_accepted_up_to_the_tolerance_and_never_beyond()
+    {
+        var order = Released();                                   // 10 x A, 4 x B
+        order.RecordReceipt([(ItemA, 10.5m)], Tol(5m));           // exactly at +5%
+        Assert.Equal(10.5m, order.LineFor(ItemA).QuantityReceived);
+        Assert.Equal(0m, order.LineFor(ItemA).OutstandingToReceive); // never negative
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status); // B is still open
+        var ex = Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemA, 0.01m)], Tol(5m)));
+        Assert.Contains("only 0", ex.Message);
+    }
+
+    [Fact]
+    public void Over_delivery_is_cumulative_across_receipts()
+    {
+        var order = Released();
+        order.RecordReceipt([(ItemA, 8m)], Tol(10m));
+        order.RecordReceipt([(ItemA, 3m)], Tol(10m));             // 11 = the 10% ceiling
+        Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemA, 0.5m)], Tol(10m)));
+    }
+
+    [Fact]
+    public void Without_a_tolerance_over_delivery_is_rejected_as_before()
+    {
+        var order = Released();
+        var ex = Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemA, 10.01m)]));
+        Assert.Contains("only 10 outstanding", ex.Message);
+        Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemA, 10.01m)], Tol(0m)));
+    }
+
+    [Fact]
+    public void Tolerance_message_names_the_tolerance()
+    {
+        var ex = Assert.Throws<DomainException>(() => Released().RecordReceipt([(ItemA, 12m)], Tol(5m)));
+        Assert.Contains("5% over-delivery tolerance", ex.Message);
+        Assert.Contains("only 10.5", ex.Message);
+    }
+
+    [Fact]
+    public void Receiving_more_than_ordered_completes_the_order_and_can_all_be_billed()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(10.4m, 4m), Tol(5m, 5m));
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);
+        Assert.Empty(order.OutstandingToReceive());
+        order.RecordBilling([(ItemA, 10.4m), (ItemB, 4m)]);       // billing follows what was received, not what was ordered
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);
+    }
+
+    [Fact]
+    public void Tolerance_is_checked_against_the_line_it_belongs_to()
+    {
+        var order = Released();
+        Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemB, 4.1m)], Tol(5m, 0m)));   // B has no tolerance
+        order.RecordReceipt([(ItemB, 4.2m)], Tol(0m, 5m));
+    }
+
+    [Fact]
+    public void Vendor_quantity_tolerance_is_validated_optional_and_independent_of_the_price_tolerance()
+    {
+        var vendor = Vendor.Create(new CompanyId(Guid.NewGuid()), "V1", "Vendor", null, null, 30, DateTimeOffset.UtcNow, 3m, 7m);
+        Assert.Equal(3m, vendor.PriceTolerancePercent);
+        Assert.Equal(7m, vendor.QuantityTolerancePercent);
+        vendor.Update("Vendor", null, null, 30, 3m, null);
+        Assert.Null(vendor.QuantityTolerancePercent);
+        Assert.Equal(3m, vendor.PriceTolerancePercent);
+        var ex = Assert.Throws<DomainException>(() => vendor.Update("Vendor", null, null, 30, null, 101m));
+        Assert.Contains("Quantity tolerance", ex.Message);
+    }
+
+    [Fact]
+    public void Receipt_line_keeps_the_tolerance_it_was_accepted_under() =>
+        Assert.Equal(5m, new GoodsReceiptLine(ItemA, "A", "Item A", 10.5m, 25m, 5m).QuantityTolerancePercent);
+
     [Fact]
     public void Fully_received_order_accepts_no_more_goods()
     {
