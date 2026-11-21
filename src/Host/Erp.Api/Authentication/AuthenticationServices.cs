@@ -10,19 +10,26 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace Erp.Api.Authentication;
 
-public sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentUser
+/// <summary>Lets the development seeder act as a given user when there is no HTTP request. Never set during normal requests.</summary>
+public sealed class ActingUserContext
+{
+    public UserId? User { get; set; }
+}
+
+public sealed class HttpCurrentUser(IHttpContextAccessor accessor, ActingUserContext acting) : ICurrentUser
 {
     public UserId? UserId
     {
         get
         {
+            if (acting.User is { } actingUser) return actingUser;
             var value = accessor.HttpContext?.User.FindFirstValue(JwtRegisteredClaimNames.Sub)
                 ?? accessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
             return Guid.TryParse(value, out var id) ? new UserId(id) : null;
         }
     }
 
-    public bool IsAuthenticated => accessor.HttpContext?.User.Identity?.IsAuthenticated == true;
+    public bool IsAuthenticated => acting.User is not null || accessor.HttpContext?.User.Identity?.IsAuthenticated == true;
 }
 
 public sealed class HttpAuditRequestContext(IHttpContextAccessor accessor) : IAuditRequestContext
@@ -70,6 +77,7 @@ public static class AuthenticationRegistration
     public static IServiceCollection AddLocalAuthentication(this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         services.AddHttpContextAccessor();
+        services.AddScoped<ActingUserContext>();
         services.AddScoped<ICurrentUser, HttpCurrentUser>();
         services.AddScoped<IAuditRequestContext, HttpAuditRequestContext>();
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();

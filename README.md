@@ -42,6 +42,9 @@ A restricted demo user, **`apclerk` / `Clerk#1234567`**, can receive goods and e
 but cannot approve price variances beyond the tolerance (2% by default) or open Finance and Administration.
 The demo data contains 15 items with opening stock, 8 customers, 5 vendors, and
 sales and purchase orders in every state (drafts through paid and overdue documents).
+It also shows the matching tolerances and the approval workflow: the importer VEN-004 allows 5% over or under delivery, VEN-003 allows a 5% price
+difference, the laptop LAP-002 is held to a 1% price and cable accepts 10% over and 5% under. Three tolerance requests from the AP clerk are
+seeded: one approved, one rejected and one pending, so the administrator's bell shows 1 unread and the clerk's shows 2.
 
 Notes:
 
