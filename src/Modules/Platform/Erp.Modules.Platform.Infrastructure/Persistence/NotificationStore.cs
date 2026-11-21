@@ -55,6 +55,9 @@ public sealed class NotificationStore(PlatformDbContext db) : INotificationStore
     public async Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken ct) =>
         await db.NotificationRetentionSettings.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(ct);
 
+    public async Task<DateTimeOffset?> LastForSubjectAsync(CompanyId companyId, string subject, CancellationToken ct) =>
+        await db.Notifications.AsNoTracking().Where(x => x.CompanyId == companyId && x.Subject == subject).MaxAsync(x => (DateTimeOffset?)x.CreatedAt, ct);
+
     public async Task<IReadOnlySet<UserId>> ListEmailOptOutsAsync(IReadOnlyCollection<UserId> userIds, string category, CancellationToken ct) =>
         (await db.UserEmailOptOuts.AsNoTracking().Where(x => x.Category == category && userIds.Contains(x.UserId)).Select(x => x.UserId).ToListAsync(ct)).ToHashSet();
 

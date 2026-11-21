@@ -1,3 +1,4 @@
+using Erp.Application.Abstractions;
 using Erp.Modules.Sales.Domain;
 using Erp.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,6 +57,8 @@ public interface ISalesStore
     Task<SalesOrder?> GetOrderAsync(CompanyId companyId, SalesOrderId id, CancellationToken cancellationToken);
 
     Task AddInvoiceAsync(SalesInvoice invoice, CancellationToken cancellationToken);
+    /// <summary>Open invoices whose due date is before <paramref name="today"/>, oldest due first.</summary>
+    Task<IReadOnlyList<SalesInvoice>> ListOverdueInvoicesAsync(CompanyId companyId, DateOnly today, CancellationToken cancellationToken);
     Task<IReadOnlyList<SalesInvoice>> ListInvoicesAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
     Task<SalesInvoice?> GetInvoiceAsync(CompanyId companyId, SalesInvoiceId id, CancellationToken cancellationToken);
 
@@ -118,6 +121,7 @@ public static class SalesModule
         services.AddScoped<IOrderService, OrderService>();
         services.AddScoped<IInvoiceService, InvoiceService>();
         services.AddScoped<ICreditNoteService, CreditNoteService>();
+        services.AddScoped<IReminderJob, OverdueInvoiceReminder>();
         return services;
     }
 }

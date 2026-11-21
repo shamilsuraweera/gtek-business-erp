@@ -105,6 +105,10 @@ public sealed class PurchasingStore(PurchasingDbContext db) : IPurchasingStore
         return Task.CompletedTask;
     }
 
+    public async Task<IReadOnlyList<VendorBill>> ListOverdueBillsAsync(CompanyId companyId, DateOnly today, CancellationToken cancellationToken) =>
+        await db.Bills.AsNoTracking().Where(x => x.CompanyId == companyId && x.Status == BillStatus.Open && x.DueDate < today)
+            .OrderBy(x => x.DueDate).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<VendorBill>> ListBillsAsync(CompanyId companyId, int take, CancellationToken cancellationToken) =>
         await db.Bills.AsNoTracking().Where(x => x.CompanyId == companyId)
             .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);

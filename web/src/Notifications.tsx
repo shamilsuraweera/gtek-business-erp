@@ -5,7 +5,7 @@ import type { AppNotification, UserPreferences } from './api/types'
 
 /** How often the unread count is refreshed while the page is open. */
 /** Friendly names for the categories the modules send; unknown ones show their own name. */
-const CATEGORY_LABELS: Record<string, string> = { approval: 'Approval requests', decision: 'Decisions on my requests' }
+const CATEGORY_LABELS: Record<string, string> = { approval: 'Approval requests', decision: 'Decisions on my requests', 'overdue-invoice': 'Overdue invoices', 'overdue-bill': 'Overdue bills' }
 const POLL_MS = 30_000
 
 function timeAgo(iso: string): string {

@@ -72,6 +72,51 @@ public interface INotifier
 
     /// <summary>Marks every notification about a subject as read for everyone: it no longer needs anyone's attention.</summary>
     Task ResolveSubjectAsync(string subject, CancellationToken cancellationToken);
+
+    /// <summary>When the active company was last sent a notification about the subject, or null if never.</summary>
+    Task<DateTimeOffset?> LastSentAsync(string subject, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Scheduled reminders (ADR 0029; configuration section <c>Reminders</c>). A reminder is sent at most once per <see cref="RepeatDays"/> calendar days
+/// per company, and not before <see cref="HourUtc"/> o'clock UTC.
+/// </summary>
+public sealed class ReminderOptions
+{
+    public const string Section = "Reminders";
+
+    public bool Enabled { get; set; } = true;
+    /// <summary>Earliest hour of the day (UTC) a reminder is sent.</summary>
+    public int HourUtc { get; set; } = 8;
+    /// <summary>A reminder is repeated after this many calendar days while the condition lasts.</summary>
+    public int RepeatDays { get; set; } = 1;
+    public int IntervalMinutes { get; set; } = 60;
+    public int InitialDelaySeconds { get; set; } = 120;
+
+    public IReadOnlyList<string> Validate()
+    {
+        var errors = new List<string>();
+        if (HourUtc is < 0 or > 23) errors.Add($"{Section}:HourUtc must be between 0 and 23 (was {HourUtc}).");
+        if (RepeatDays is < 1 or > 90) errors.Add($"{Section}:RepeatDays must be between 1 and 90 (was {RepeatDays}).");
+        if (IntervalMinutes is < 1 or > 1440) errors.Add($"{Section}:IntervalMinutes must be between 1 and 1440 (was {IntervalMinutes}).");
+        if (InitialDelaySeconds is < 0 or > 3600) errors.Add($"{Section}:InitialDelaySeconds must be between 0 and 3600 (was {InitialDelaySeconds}).");
+        return errors;
+    }
+
+    /// <summary>Whether a reminder last sent at <paramref name="lastSent"/> is due at <paramref name="now"/>.</summary>
+    public bool IsDue(DateTimeOffset now, DateTimeOffset? lastSent)
+    {
+        var utc = now.UtcDateTime;
+        if (utc.Hour < HourUtc) return false;
+        return lastSent is not { } last || DateOnly.FromDateTime(last.UtcDateTime) <= DateOnly.FromDateTime(utc).AddDays(-RepeatDays);
+    }
+}
+
+/// <summary>A scheduled check a module runs for the active company; it notifies through <see cref="INotifier"/> when something needs attention.</summary>
+public interface IReminderJob
+{
+    /// <summary>Notifications sent by this run (0 when nothing is due or nothing needs attention).</summary>
+    Task<int> RunAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>Records audit history for business modules without referencing Platform.</summary>

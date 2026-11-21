@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Domain\Erp.Modules.Platform.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Platform\Erp.Modules.Platform.Application\Erp.Modules.Platform.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Application\Erp.Modules.Purchasing.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Application\Erp.Modules.Sales.Application.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks\Erp.Application.Abstractions\Erp.Application.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Domain\Erp.Modules.Sales.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Domain\Erp.Modules.Purchasing.Domain.csproj" />
