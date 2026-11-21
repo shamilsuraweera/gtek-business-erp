@@ -49,6 +49,13 @@ public interface IDocumentNumberGenerator
     Task<string> NextAsync(string sequenceCode, string defaultPrefix, CancellationToken cancellationToken);
 }
 
+/// <summary>Resolves user ids to display names, so business modules can show who did something without referencing Platform.</summary>
+public interface IUserDirectory
+{
+    /// <summary>User names by id; unknown ids are absent.</summary>
+    Task<IReadOnlyDictionary<Guid, string>> GetUserNamesAsync(IEnumerable<Guid> userIds, CancellationToken cancellationToken);
+}
+
 /// <summary>Records audit history for business modules without referencing Platform.</summary>
 public interface IAuditRecorder
 {

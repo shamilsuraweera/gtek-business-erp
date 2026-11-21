@@ -35,4 +35,5 @@ exactly. Changing the vendor or item for that would affect every other order.
   Grant it to approvers, not to clerks. The audit trail records who changed what.
 - Overrides are per line, not per order: setting the same value on every line is done line by line in the UI.
 - Lowering an over-delivery override below what has already been received simply blocks further receipts; nothing is reversed.
-- Not covered: overrides by order header, approval workflows for overrides, and expiry of an override.
+- Users without the permission can ask for an override instead (ADR 0022).
+- Not covered: overrides by order header and expiry of an override.

@@ -13,6 +13,7 @@ public sealed class PurchasingDbContext(DbContextOptions<PurchasingDbContext> op
     public DbSet<VendorRefund> VendorRefunds => Set<VendorRefund>();
     public DbSet<VendorBill> Bills => Set<VendorBill>();
     public DbSet<VendorPayment> Payments => Set<VendorPayment>();
+    public DbSet<ToleranceRequest> ToleranceRequests => Set<ToleranceRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

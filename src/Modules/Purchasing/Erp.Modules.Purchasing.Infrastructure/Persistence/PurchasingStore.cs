@@ -141,5 +141,33 @@ public sealed class PurchasingStore(PurchasingDbContext db) : IPurchasingStore
         return result;
     }
 
+    public Task AddToleranceRequestAsync(ToleranceRequest request, CancellationToken cancellationToken)
+    {
+        db.ToleranceRequests.Add(request);
+        return Task.CompletedTask;
+    }
+
+    public Task<ToleranceRequest?> GetToleranceRequestAsync(CompanyId companyId, ToleranceRequestId id, CancellationToken cancellationToken) =>
+        db.ToleranceRequests.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
+
+    public async Task<PurchaseOrderId?> GetToleranceRequestOrderIdAsync(CompanyId companyId, ToleranceRequestId id, CancellationToken cancellationToken)
+    {
+        var ids = await db.ToleranceRequests.AsNoTracking().Where(x => x.CompanyId == companyId && x.Id == id)
+            .Select(x => x.PurchaseOrderId).ToListAsync(cancellationToken);
+        return ids.Count == 0 ? null : ids[0];
+    }
+
+    public async Task<IReadOnlyList<ToleranceRequest>> ListToleranceRequestsAsync(
+        CompanyId companyId, ToleranceRequestStatus? status, PurchaseOrderId? orderId, int take, CancellationToken cancellationToken)
+    {
+        var query = db.ToleranceRequests.AsNoTracking().Where(x => x.CompanyId == companyId);
+        if (status is { } s) query = query.Where(x => x.Status == s);
+        if (orderId is { } o) query = query.Where(x => x.PurchaseOrderId == o);
+        return await query.OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);
+    }
+
+    public Task<bool> HasPendingToleranceRequestAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken) =>
+        db.ToleranceRequests.AnyAsync(x => x.CompanyId == companyId && x.PurchaseOrderId == orderId && x.Status == ToleranceRequestStatus.Pending, cancellationToken);
+
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
 }

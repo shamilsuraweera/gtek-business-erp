@@ -12,6 +12,7 @@ import { OrderDetail } from './pages/OrderDetail'
 import { Invoices } from './pages/Invoices'
 import { InvoiceDetail } from './pages/InvoiceDetail'
 import { Vendors } from './pages/Vendors'
+import { ToleranceRequests } from './pages/ToleranceRequests'
 import { PurchaseOrders } from './pages/PurchaseOrders'
 import { NewPurchaseOrder } from './pages/NewPurchaseOrder'
 import { PurchaseOrderDetail } from './pages/PurchaseOrderDetail'
@@ -32,6 +33,7 @@ function Layout() {
     ] },
     { title: 'Purchasing', links: [
       { to: '/purchase-orders', label: 'Purchase orders', allowed: can(P.poRead) },
+      { to: '/tolerance-requests', label: 'Tolerance requests', allowed: can(P.poRead) },
       { to: '/bills', label: 'Bills & payments', allowed: can(P.billsRead) },
       { to: '/vendors', label: 'Vendors', allowed: can(P.vendorsRead) },
     ] },
@@ -82,6 +84,7 @@ function Layout() {
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/invoices/:id" element={<InvoiceDetail />} />
               <Route path="/vendors" element={<Vendors />} />
+              <Route path="/tolerance-requests" element={<ToleranceRequests />} />
               <Route path="/purchase-orders" element={<PurchaseOrders />} />
               <Route path="/purchase-orders/new" element={<NewPurchaseOrder />} />
               <Route path="/purchase-orders/:id" element={<PurchaseOrderDetail />} />
