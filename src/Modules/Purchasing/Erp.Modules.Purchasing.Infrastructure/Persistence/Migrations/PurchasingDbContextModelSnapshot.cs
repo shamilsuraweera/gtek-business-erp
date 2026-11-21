@@ -212,6 +212,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                         .HasPrecision(7, 4)
                         .HasColumnType("numeric(7,4)");
 
+                    b.Property<decimal?>("UnderDeliveryTolerancePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Code")
@@ -539,6 +543,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                                 .IsRequired()
                                 .HasMaxLength(60)
                                 .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal>("UnderDeliveryTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
 
                             b1.Property<decimal>("UnitCost")
                                 .HasPrecision(19, 4)

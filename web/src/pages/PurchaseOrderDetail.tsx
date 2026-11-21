@@ -12,6 +12,8 @@ const DEFAULT_TOLERANCE = 2
 /** The most more of this line that can still be received: what is outstanding plus the over-delivery tolerance. Mirrors the server. */
 const receivable = (l: PurchaseOrder['lines'][number]) =>
   Math.max(0, Math.round(l.quantity * (1 + (l.quantityTolerancePercent ?? 0) / 100) * 10_000) / 10_000 - l.quantityReceived)
+/** The least that must arrive for the line to count as complete (ordered less the under-delivery tolerance). Mirrors the server. */
+const completeFrom = (l: PurchaseOrder['lines'][number]) => Math.round(l.quantity * (1 - (l.underDeliveryTolerancePercent ?? 0) / 100) * 10_000) / 10_000
 const outstandingOf = (l: PurchaseOrder['lines'][number]) => Math.max(0, l.quantity - l.quantityReceived)
 /** The tolerance the server will match this line against: the item's own, else the vendor's, else the company default. */
 const toleranceOf = (l: PurchaseOrder['lines'][number]) => l.priceTolerancePercent ?? DEFAULT_TOLERANCE
@@ -42,7 +44,7 @@ function ReceiveDialog({ order, onClose }: { order: PurchaseOrder; onClose: () =
             return (
               <tr key={l.itemId}>
                 <td>{l.sku}<div className="muted">{l.description}</div></td>
-                <td className="num">{formatNumber(l.quantity)}</td><td className="num">{formatNumber(l.quantityReceived)}</td><td className="num">{formatNumber(outstandingOf(l))}</td>
+                <td className="num">{formatNumber(l.quantity)}</td><td className="num">{formatNumber(l.quantityReceived)}</td><td className="num">{formatNumber(outstandingOf(l))}{completeFrom(l) < l.quantity && <div className="muted">complete from {formatNumber(completeFrom(l))}</div>}</td>
                 <td className="num">{formatNumber(max)}{max > outstandingOf(l) && <div className="muted">+{l.quantityTolerancePercent}% allowed</div>}</td>
                 <td><input type="number" min="0" max={max} step="any" value={qty[l.itemId]} aria-label={`Quantity to receive for ${l.sku}`}
                   onChange={(e) => setQty({ ...qty, [l.itemId]: e.target.value })} />

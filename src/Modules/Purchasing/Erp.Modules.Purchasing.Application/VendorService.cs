@@ -18,7 +18,7 @@ public sealed class VendorService(IPurchasingStore store, ICompanyContext compan
         if (await store.GetVendorByCodeAsync(companyId, request.Code, cancellationToken) is not null)
             throw new InvalidOperationException("A vendor with this code already exists for the company.");
         var vendor = Vendor.Create(companyId, request.Code, request.Name, request.Email, request.Phone,
-            request.PaymentTermsDays ?? 30, clock.UtcNow, request.PriceTolerancePercent, request.QuantityTolerancePercent);
+            request.PaymentTermsDays ?? 30, clock.UtcNow, request.PriceTolerancePercent, request.QuantityTolerancePercent, request.UnderDeliveryTolerancePercent);
         await store.AddVendorAsync(vendor, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Purchasing", "vendor.created", "Vendor", vendor.Id.Value.ToString(), vendor.Code, true, null, cancellationToken);
@@ -38,7 +38,7 @@ public sealed class VendorService(IPurchasingStore store, ICompanyContext compan
     {
         var vendor = await store.GetVendorAsync(PurchasingCompany.Require(companyContext), id, cancellationToken);
         if (vendor is null) return null;
-        vendor.Update(request.Name, request.Email, request.Phone, request.PaymentTermsDays ?? vendor.PaymentTermsDays, request.PriceTolerancePercent, request.QuantityTolerancePercent);
+        vendor.Update(request.Name, request.Email, request.Phone, request.PaymentTermsDays ?? vendor.PaymentTermsDays, request.PriceTolerancePercent, request.QuantityTolerancePercent, request.UnderDeliveryTolerancePercent);
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Purchasing", "vendor.updated", "Vendor", vendor.Id.Value.ToString(), vendor.Code, true, null, cancellationToken);
         return Map(vendor);
@@ -55,5 +55,5 @@ public sealed class VendorService(IPurchasingStore store, ICompanyContext compan
         return Map(vendor);
     }
 
-    private static VendorResponse Map(Vendor v) => new(v.Id.Value, v.Code, v.Name, v.Email, v.Phone, v.PaymentTermsDays, v.IsActive, v.PriceTolerancePercent, v.QuantityTolerancePercent);
+    private static VendorResponse Map(Vendor v) => new(v.Id.Value, v.Code, v.Name, v.Email, v.Phone, v.PaymentTermsDays, v.IsActive, v.PriceTolerancePercent, v.QuantityTolerancePercent, v.UnderDeliveryTolerancePercent);
 }

@@ -21,6 +21,7 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         b.Property(x => x.TaxCode).HasMaxLength(20);
         b.Property(x => x.PriceTolerancePercent).HasPrecision(7, 4);
         b.Property(x => x.QuantityTolerancePercent).HasPrecision(7, 4);
+        b.Property(x => x.UnderDeliveryTolerancePercent).HasPrecision(7, 4);
         b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.CompanyId, x.Sku }).IsUnique();
     }

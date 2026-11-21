@@ -46,22 +46,25 @@ public sealed class Vendor : AggregateRoot<VendorId>
     public decimal? PriceTolerancePercent { get; private set; }
     /// <summary>How far above the ordered quantity this vendor may deliver; none means the company default (no over-delivery).</summary>
     public decimal? QuantityTolerancePercent { get; private set; }
+    /// <summary>How far below the ordered quantity this vendor's delivery still counts as complete; none means exact quantities (company default).</summary>
+    public decimal? UnderDeliveryTolerancePercent { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Vendor Create(CompanyId companyId, string code, string name, string? email, string? phone,
-        int paymentTermsDays, DateTimeOffset createdAt, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null)
+        int paymentTermsDays, DateTimeOffset createdAt, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
     {
         var vendor = new Vendor(new VendorId(Guid.NewGuid()), companyId, code, name, email, phone, paymentTermsDays, createdAt);
         vendor.PriceTolerancePercent = ThreeWayMatch.ValidateTolerance(priceTolerancePercent);
         vendor.QuantityTolerancePercent = ThreeWayMatch.ValidateTolerance(quantityTolerancePercent, "Quantity");
+        vendor.UnderDeliveryTolerancePercent = ThreeWayMatch.ValidateTolerance(underDeliveryTolerancePercent, "Under-delivery");
         return vendor;
     }
 
     public static string NormalizeCode(string code) =>
         string.IsNullOrWhiteSpace(code) ? throw new DomainException("Vendor code is required.") : code.Trim().ToUpperInvariant();
 
-    public void Update(string name, string? email, string? phone, int paymentTermsDays, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null)
+    public void Update(string name, string? email, string? phone, int paymentTermsDays, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
     {
         Name = NormalizeName(name);
         Email = Clean(email);
@@ -69,6 +72,7 @@ public sealed class Vendor : AggregateRoot<VendorId>
         PaymentTermsDays = ValidateTerms(paymentTermsDays);
         PriceTolerancePercent = ThreeWayMatch.ValidateTolerance(priceTolerancePercent);
         QuantityTolerancePercent = ThreeWayMatch.ValidateTolerance(quantityTolerancePercent, "Quantity");
+        UnderDeliveryTolerancePercent = ThreeWayMatch.ValidateTolerance(underDeliveryTolerancePercent, "Under-delivery");
     }
 
     public void Activate() => IsActive = true;
@@ -109,6 +113,10 @@ public sealed record PurchaseOrderLine
     public decimal QuantityDebited { get; private set; }
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
     public decimal OutstandingToReceive => Math.Max(0m, Quantity - QuantityReceived);
+    /// <summary>True once enough has arrived: the ordered quantity less the under-delivery tolerance.</summary>
+    public bool IsComplete(decimal underDeliveryTolerancePercent) =>
+        QuantityReceived >= ThreeWayMatch.MinCompleteQuantity(Quantity, underDeliveryTolerancePercent);
+
     /// <summary>How much more may be received when over-delivery up to the tolerance is accepted.</summary>
     public decimal ReceivableWithTolerance(decimal quantityTolerancePercent) =>
         Math.Max(0m, ThreeWayMatch.MaxReceivable(Quantity, quantityTolerancePercent) - QuantityReceived);
@@ -199,7 +207,9 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
         _lines.SingleOrDefault(x => x.ItemId == itemId) ?? throw new DomainException("The item is not on this purchase order.");
 
     /// <param name="quantityTolerances">Over-delivery tolerance per item (percent); items not listed accept no over-delivery.</param>
-    public void RecordReceipt(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items, IReadOnlyDictionary<Guid, decimal>? quantityTolerances = null)
+    /// <param name="underDeliveryTolerances">Under-delivery tolerance per item (percent); a line within it counts as fully received. Items not listed need the full quantity.</param>
+    public void RecordReceipt(IReadOnlyCollection<(Guid ItemId, decimal Quantity)> items, IReadOnlyDictionary<Guid, decimal>? quantityTolerances = null,
+        IReadOnlyDictionary<Guid, decimal>? underDeliveryTolerances = null)
     {
         if (Status is not (PurchaseOrderStatus.Released or PurchaseOrderStatus.PartiallyReceived))
             throw new DomainException("Goods can only be received against released purchase orders that are not fully received.");
@@ -207,7 +217,7 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
         var checkedItems = ValidateQuantities(items, l => l.ReceivableWithTolerance(ToleranceOf(l)), "receive",
             l => ToleranceOf(l) > 0 ? $"outstanding including the {ToleranceOf(l):0.##}% over-delivery tolerance" : "outstanding");
         foreach (var (itemId, quantity) in checkedItems) LineFor(itemId).ApplyReceipt(quantity);
-        Status = _lines.All(x => x.QuantityReceived >= x.Quantity) ? PurchaseOrderStatus.Received : PurchaseOrderStatus.PartiallyReceived;
+        Status = _lines.All(x => x.IsComplete(underDeliveryTolerances?.GetValueOrDefault(x.ItemId) ?? 0m)) ? PurchaseOrderStatus.Received : PurchaseOrderStatus.PartiallyReceived;
     }
 
     /// <summary>Accepts the vendor's short delivery: no further receipts are expected.</summary>
@@ -297,9 +307,10 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
 
 public sealed record GoodsReceiptLine
 {
-    public GoodsReceiptLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost, decimal quantityTolerancePercent = 0m)
+    public GoodsReceiptLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost, decimal quantityTolerancePercent = 0m, decimal underDeliveryTolerancePercent = 0m)
     {
         QuantityTolerancePercent = quantityTolerancePercent;
+        UnderDeliveryTolerancePercent = underDeliveryTolerancePercent;
         ItemId = itemId;
         Sku = sku;
         Description = description;
@@ -314,6 +325,8 @@ public sealed record GoodsReceiptLine
     public decimal UnitCost { get; }
     /// <summary>The over-delivery tolerance this line was accepted under (item, else vendor, else none).</summary>
     public decimal QuantityTolerancePercent { get; }
+    /// <summary>The under-delivery tolerance in force when this line was received (item, else vendor, else none).</summary>
+    public decimal UnderDeliveryTolerancePercent { get; }
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
 }
 
@@ -387,6 +400,17 @@ public static class ThreeWayMatch
     /// <summary>The over-delivery tolerance that applies to a line: the item's own, else the vendor's, else none.</summary>
     public static decimal EffectiveQuantityTolerance(decimal? itemTolerance, decimal? vendorTolerance) =>
         itemTolerance ?? vendorTolerance ?? QuantityTolerancePercent;
+
+    /// <summary>The company default for under-delivery: none, so a line is complete only when the full quantity has arrived.</summary>
+    public const decimal UnderDeliveryTolerancePercent = 0m;
+
+    /// <summary>The under-delivery tolerance that applies to a line: the item's own, else the vendor's, else none.</summary>
+    public static decimal EffectiveUnderDeliveryTolerance(decimal? itemTolerance, decimal? vendorTolerance) =>
+        itemTolerance ?? vendorTolerance ?? UnderDeliveryTolerancePercent;
+
+    /// <summary>The least that must be received for a line to count as complete.</summary>
+    public static decimal MinCompleteQuantity(decimal orderedQuantity, decimal underDeliveryTolerancePercent) =>
+        decimal.Round(orderedQuantity * (1m - underDeliveryTolerancePercent / 100m), 4);
 
     /// <summary>The most that may be received in total against an ordered quantity.</summary>
     public static decimal MaxReceivable(decimal orderedQuantity, decimal quantityTolerancePercent) =>
