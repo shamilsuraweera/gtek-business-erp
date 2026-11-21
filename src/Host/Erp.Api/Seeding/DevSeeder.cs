@@ -154,6 +154,17 @@ public static class DevSeeder
         _ => (null, null, null)
     };
 
+    /// <summary>Reorder levels (ADR 0030): the printer and the UPS start below theirs, so the demo shows low-stock alerts.</summary>
+    private static decimal? ReorderFor(string sku) => sku switch
+    {
+        "PRN-100" or "UPS-1K" => 10m,
+        "TON-100" => 15m,
+        "LAP-001" => 5m,
+        "LAP-002" => 4m,
+        "CBL-CAT6" => 5m,
+        _ => null
+    };
+
     private static string? TaxCodeFor(string sku) => sku switch
     {
         "CBL-CAT6" => "ZERO",
@@ -217,7 +228,7 @@ public static class DevSeeder
             if (!existing.TryGetValue(sku, out var item))
             {
                 item = await itemService.CreateAsync(new CreateItemRequest(sku, name, uom, price, cost, TaxCodeFor(sku),
-                    ToleranceFor(sku).Price, ToleranceFor(sku).Over, ToleranceFor(sku).Under), ct);
+                    ToleranceFor(sku).Price, ToleranceFor(sku).Over, ToleranceFor(sku).Under, ReorderFor(sku)), ct);
                 existing[sku] = item;
             }
             else if (item.TaxCode is null && TaxCodeFor(sku) is { } taxCode)

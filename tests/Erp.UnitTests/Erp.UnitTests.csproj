@@ -29,5 +29,6 @@
     <ProjectReference Include="..\..\src\Modules\Sales\Erp.Modules.Sales.Domain\Erp.Modules.Sales.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Purchasing\Erp.Modules.Purchasing.Domain\Erp.Modules.Purchasing.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Inventory\Erp.Modules.Inventory.Domain\Erp.Modules.Inventory.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Inventory\Erp.Modules.Inventory.Application\Erp.Modules.Inventory.Application.csproj" />
   </ItemGroup>
 </Project>

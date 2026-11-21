@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useAuth } from '../auth'
 import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
-import { formatDate, formatMoney, formatNumber, today } from '../format'
+import { formatDate, formatMoney, formatNumber, isLowStock, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader } from '../ui'
 import { formatRate } from '../tax'
 import type { Item, StockLedgerEntry, StockLevel, TaxCode } from '../api/types'
@@ -22,14 +22,16 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
   const qtyToleranceValue = qtyTolerance.trim() === '' ? null : Number(qtyTolerance)
   const [underTolerance, setUnderTolerance] = useState(item?.underDeliveryTolerancePercent == null ? '' : String(item.underDeliveryTolerancePercent))
   const underToleranceValue = underTolerance.trim() === '' ? null : Number(underTolerance)
+  const [reorder, setReorder] = useState(item?.reorderLevel == null ? '' : String(item.reorderLevel))
+  const reorderValue = reorder.trim() === '' ? null : Number(reorder)
   const { can } = useAuth()
   const taxCodes = useApiQuery<TaxCode[]>('/finance/tax-codes', { enabled: can(P.accountsRead) })
   // Keep the item's current code selectable even if it was deactivated since.
   const options = (taxCodes.data ?? []).filter((t) => t.isActive || t.code === item?.taxCode)
   const save = useApiMutation<void>(
     () => item
-      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue, underDeliveryTolerancePercent: underToleranceValue } }
-      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue, underDeliveryTolerancePercent: underToleranceValue } },
+      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue, underDeliveryTolerancePercent: underToleranceValue, reorderLevel: reorderValue } }
+      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue, underDeliveryTolerancePercent: underToleranceValue, reorderLevel: reorderValue } },
     onClose,
   )
   return (
@@ -47,6 +49,9 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
           </Field>
           <Field label="Selling price"><input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} required /></Field>
           <Field label="Standard cost" hint="Used to value stock issues (COGS)."><input type="number" min={0} step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} required /></Field>
+          <Field label="Reorder level" hint="Tell people who manage stock, by email as well, when the quantity on hand falls to this level or below. Blank means the item is not monitored; 0 means tell me when it runs out.">
+            <input type="number" min={0} step="any" value={reorder} placeholder="Not monitored" onChange={(e) => setReorder(e.target.value)} />
+          </Field>
           <Field label="Price tolerance (%)" hint="How far a vendor's billed price may differ from the order for this item. Blank defers to the vendor's tolerance, then the company default (2%); 0 means exact prices only.">
             <input type="number" min={0} max={100} step="0.01" value={tolerance} placeholder="Default" onChange={(e) => setTolerance(e.target.value)} />
           </Field>
@@ -145,7 +150,7 @@ export function Items() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No items match.</Empty> : (
             <table className="data">
-              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">Price tol.</th><th className="num">Over-delivery</th><th className="num">Under-delivery</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">Reorder at</th><th className="num">Price tol.</th><th className="num">Over-delivery</th><th className="num">Under-delivery</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map((item) => {
                   const s = level(item.id)
@@ -154,10 +159,11 @@ export function Items() {
                       <td>{item.sku}</td><td>{item.name}</td>
                       <td className="num">{formatMoney(item.unitPrice)}</td><td className="num">{formatMoney(item.unitCost)}</td>
                       <td>{item.taxCode ?? <span className="muted">—</span>}</td>
+                      <td className="num">{item.reorderLevel == null ? <span className="muted">—</span> : formatNumber(item.reorderLevel)}</td>
                       <td className="num">{item.priceTolerancePercent == null ? <span className="muted">—</span> : `${item.priceTolerancePercent}%`}</td>
                       <td className="num">{item.quantityTolerancePercent == null ? <span className="muted">—</span> : `${item.quantityTolerancePercent}%`}</td>
                       <td className="num">{item.underDeliveryTolerancePercent == null ? <span className="muted">—</span> : `${item.underDeliveryTolerancePercent}%`}</td>
-                      <td className="num">{s ? <Badge value={`${formatNumber(s.onHand)} ${item.unitOfMeasure}`} tone={s.onHand <= 0 ? 'bad' : s.onHand <= 8 ? 'warn' : 'neutral'} /> : '—'}</td>
+                      <td className="num">{s ? <Badge value={`${formatNumber(s.onHand)} ${item.unitOfMeasure}`} tone={s.onHand <= 0 ? 'bad' : isLowStock(s) ? 'warn' : 'neutral'} /> : '—'}</td>
                       <td className="num">{s ? formatMoney(s.value) : '—'}</td>
                       <td><Badge value={item.isActive ? 'Active' : 'Inactive'} /></td>
                       <td><div className="row" style={{ justifyContent: 'flex-end' }}>

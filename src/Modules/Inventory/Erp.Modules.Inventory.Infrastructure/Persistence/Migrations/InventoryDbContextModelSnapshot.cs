@@ -50,6 +50,10 @@ namespace Erp.Modules.Inventory.Infrastructure.Persistence.Migrations
                         .HasPrecision(7, 4)
                         .HasColumnType("numeric(7,4)");
 
+                    b.Property<decimal?>("ReorderLevel")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
                     b.Property<string>("Sku")
                         .IsRequired()
                         .HasMaxLength(60)

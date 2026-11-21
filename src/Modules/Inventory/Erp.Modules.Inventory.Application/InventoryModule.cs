@@ -5,9 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Erp.Modules.Inventory.Application;
 
-public sealed record ItemResponse(Guid Id, string Sku, string Name, string UnitOfMeasure, decimal UnitPrice, decimal UnitCost, bool IsActive, string? TaxCode, decimal? PriceTolerancePercent, decimal? QuantityTolerancePercent, decimal? UnderDeliveryTolerancePercent);
-public sealed record CreateItemRequest(string Sku, string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null);
-public sealed record UpdateItemRequest(string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null);
+public sealed record ItemResponse(Guid Id, string Sku, string Name, string UnitOfMeasure, decimal UnitPrice, decimal UnitCost, bool IsActive, string? TaxCode, decimal? PriceTolerancePercent, decimal? QuantityTolerancePercent, decimal? UnderDeliveryTolerancePercent, decimal? ReorderLevel);
+public sealed record CreateItemRequest(string Sku, string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null, decimal? ReorderLevel = null);
+public sealed record UpdateItemRequest(string Name, string? UnitOfMeasure, decimal UnitPrice, decimal UnitCost, string? TaxCode = null, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null, decimal? ReorderLevel = null);
 
 public sealed record LocationResponse(Guid Id, string Code, string Name, bool IsActive);
 public sealed record CreateLocationRequest(string Code, string Name);
@@ -16,7 +16,7 @@ public sealed record ReceiveStockRequest(Guid ItemId, decimal Quantity, decimal?
 public sealed record AdjustStockRequest(Guid ItemId, decimal Quantity, string Reason, DateOnly? Date, Guid? LocationId);
 
 public sealed record StockLevelResponse(
-    Guid ItemId, string Sku, string ItemName, string UnitOfMeasure, decimal OnHand, decimal UnitCost, decimal Value);
+    Guid ItemId, string Sku, string ItemName, string UnitOfMeasure, decimal OnHand, decimal UnitCost, decimal Value, decimal? ReorderLevel, bool IsLow);
 public sealed record StockLedgerEntryResponse(
     Guid Id, Guid ItemId, string Sku, Guid LocationId, decimal Quantity, decimal UnitCost,
     DateOnly PostingDate, DateTimeOffset PostedAt, string SourceType, string SourceReference);
@@ -87,6 +87,7 @@ public static class InventoryModule
         services.AddScoped<IStockService>(sp => sp.GetRequiredService<StockService>());
         services.AddScoped<IInventoryStock>(sp => sp.GetRequiredService<StockService>());
         services.AddScoped<IInventoryCatalog, InventoryCatalog>();
+        services.AddScoped<Erp.Application.Abstractions.IReminderJob, LowStockReminder>();
         return services;
     }
 }

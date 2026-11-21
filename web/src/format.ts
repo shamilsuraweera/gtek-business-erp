@@ -11,3 +11,6 @@ export function formatDate(value: string | null | undefined): string {
 }
 
 export const today = () => new Date().toISOString().slice(0, 10)
+
+/** Low stock: at or below the item's reorder level, or, for an item without one, at or below 8 (the dashboard's long-standing rule). */
+export const isLowStock = (s: { onHand: number; reorderLevel: number | null; isLow: boolean }) => (s.reorderLevel == null ? s.onHand <= 8 : s.isLow)
