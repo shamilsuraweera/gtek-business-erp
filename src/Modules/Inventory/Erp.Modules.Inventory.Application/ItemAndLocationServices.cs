@@ -15,7 +15,7 @@ public sealed class ItemService(IItemStore store, ITaxCatalog taxCatalog, ICompa
             throw new InvalidOperationException("An item with this SKU already exists for the company.");
         await EnsureTaxCodeAsync(request.TaxCode, cancellationToken);
         var item = Item.Create(companyId, request.Sku, request.Name, request.UnitOfMeasure ?? "EA",
-            request.UnitPrice, request.UnitCost, clock.UtcNow, request.TaxCode, request.PriceTolerancePercent);
+            request.UnitPrice, request.UnitCost, clock.UtcNow, request.TaxCode, request.PriceTolerancePercent, request.QuantityTolerancePercent);
         await store.AddAsync(item, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Inventory", "item.created", "Item", item.Id.Value.ToString(), item.Sku, true, null, cancellationToken);
@@ -37,10 +37,10 @@ public sealed class ItemService(IItemStore store, ITaxCatalog taxCatalog, ICompa
         if (item is null) return null;
         // Keeping the item's current code is always allowed (it may have been deactivated since); a new code must be usable.
         if (Item.NormalizeTaxCode(request.TaxCode) != item.TaxCode) await EnsureTaxCodeAsync(request.TaxCode, cancellationToken);
-        item.Update(request.Name, request.UnitOfMeasure ?? item.UnitOfMeasure, request.UnitPrice, request.UnitCost, request.TaxCode, request.PriceTolerancePercent);
+        item.Update(request.Name, request.UnitOfMeasure ?? item.UnitOfMeasure, request.UnitPrice, request.UnitCost, request.TaxCode, request.PriceTolerancePercent, request.QuantityTolerancePercent);
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Inventory", "item.updated", "Item", item.Id.Value.ToString(), item.Sku, true,
-            new Dictionary<string, object?> { ["UnitPrice"] = item.UnitPrice, ["UnitCost"] = item.UnitCost, ["TaxCode"] = item.TaxCode, ["PriceTolerancePercent"] = item.PriceTolerancePercent }, cancellationToken);
+            new Dictionary<string, object?> { ["UnitPrice"] = item.UnitPrice, ["UnitCost"] = item.UnitCost, ["TaxCode"] = item.TaxCode, ["PriceTolerancePercent"] = item.PriceTolerancePercent, ["QuantityTolerancePercent"] = item.QuantityTolerancePercent }, cancellationToken);
         return Map(item);
     }
 
@@ -67,7 +67,7 @@ public sealed class ItemService(IItemStore store, ITaxCatalog taxCatalog, ICompa
     internal static CompanyId RequireCompany(ICompanyContext context) =>
         context.HasCompany ? context.CompanyId : throw new InvalidOperationException("An active company context is required.");
 
-    internal static ItemResponse Map(Item i) => new(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, i.UnitPrice, i.UnitCost, i.IsActive, i.TaxCode, i.PriceTolerancePercent);
+    internal static ItemResponse Map(Item i) => new(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, i.UnitPrice, i.UnitCost, i.IsActive, i.TaxCode, i.PriceTolerancePercent, i.QuantityTolerancePercent);
 }
 
 public sealed class LocationService(ILocationStore store, ICompanyContext companyContext) : ILocationService
@@ -94,6 +94,6 @@ public sealed class InventoryCatalog(IItemStore items, ICompanyContext companyCo
     public async Task<IReadOnlyList<ItemInfo>> GetItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) =>
         (await items.GetManyAsync(
             ItemService.RequireCompany(companyContext), itemIds.Select(x => new ItemId(x)).ToArray(), cancellationToken))
-        .Select(i => new ItemInfo(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, i.UnitPrice, i.UnitCost, i.IsActive, i.TaxCode, i.PriceTolerancePercent))
+        .Select(i => new ItemInfo(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, i.UnitPrice, i.UnitCost, i.IsActive, i.TaxCode, i.PriceTolerancePercent, i.QuantityTolerancePercent))
         .ToArray();
 }

@@ -3,7 +3,7 @@ export interface User { id: string; userName: string; email: string; status: str
 export interface LoginResponse { accessToken: string; tokenType: string; expiresAt: string }
 
 export interface Customer { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean }
-export interface Item { id: string; sku: string; name: string; unitOfMeasure: string; unitPrice: number; unitCost: number; isActive: boolean; taxCode: string | null; priceTolerancePercent: number | null }
+export interface Item { id: string; sku: string; name: string; unitOfMeasure: string; unitPrice: number; unitCost: number; isActive: boolean; taxCode: string | null; priceTolerancePercent: number | null; quantityTolerancePercent: number | null }
 export interface TaxCode { id: string; code: string; name: string; ratePercent: number; isActive: boolean }
 export interface TaxSummary { from: string | null; to: string | null; outputAccountCode: string | null; inputAccountCode: string | null; outputTax: number; inputTax: number; netPayable: number; notes: string[] }
 export interface StockLevel { itemId: string; sku: string; itemName: string; unitOfMeasure: string; onHand: number; unitCost: number; value: number }
@@ -28,9 +28,9 @@ export interface Sequence { id: string; code: string; name: string; prefix: stri
 export interface AuditEntry { id: string; occurredAt: string; actorUserName: string | null; category: string; action: string; entityType: string; entityDisplay: string | null; outcome: string }
 export interface AuditPage { items: AuditEntry[]; page: number; pageSize: number; totalCount: number }
 
-export interface Vendor { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean; priceTolerancePercent: number | null }
+export interface Vendor { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean; priceTolerancePercent: number | null; quantityTolerancePercent: number | null }
 export type PurchaseOrderStatus = 'Draft' | 'Open' | 'Released' | 'PartiallyReceived' | 'Received' | 'Billed' | 'Cancelled'
-export interface PurchaseOrderLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number; quantityReceived: number; quantityBilled: number; quantityReturned: number; quantityDebited: number; debitableQuantity: number; priceTolerancePercent: number | null }
+export interface PurchaseOrderLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number; quantityReceived: number; quantityBilled: number; quantityReturned: number; quantityDebited: number; debitableQuantity: number; priceTolerancePercent: number | null; quantityTolerancePercent: number | null }
 export interface ReceiptSummary { id: string; number: string; receiptDate: string; reference: string; total: number; journalNumber: string }
 export interface ReturnSummary { id: string; number: string; returnDate: string; reason: string; reference: string; total: number; journalNumber: string }
 export interface BillSummary { id: string; number: string; billDate: string; total: number; priceVariance: number; status: 'Open' | 'Paid' }

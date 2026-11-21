@@ -37,7 +37,7 @@ A purchase order is matched against **goods receipts** (what arrived) and **vend
 - Inventory is valued from its own ledger (receipts at order price, issues at standard cost), so it reconciles with the GL.
 - Modules still own separate databases (ADR 0002), so a failed multi-module step compensates earlier steps
   (stock returned, journal reversed) instead of using one transaction.
-- Not covered yet: quantity tolerance (over-delivery). Per-vendor and per-item price tolerance arrived in ADR 0018; returns to vendor and tax followed in ADR 0015 and ADR 0017.
+- Over-delivery tolerance arrived in ADR 0019. Per-vendor and per-item price tolerance arrived in ADR 0018; returns to vendor and tax followed in ADR 0015 and ADR 0017.
 - Migration `PartialReceiptsThreeWayMatch` backfills a single receipt for each previously received order. The original journal
   *number* is preserved; the journal *id* was never stored and the migration must not read the Finance schema, so legacy
   receipts carry an empty journal id.

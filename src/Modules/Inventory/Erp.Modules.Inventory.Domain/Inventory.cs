@@ -42,21 +42,24 @@ public sealed class Item : AggregateRoot<ItemId>
     public string? TaxCode { get; private set; }
     /// <summary>Price tolerance for matching vendor bills of this item to the purchase order; none defers to the vendor, then the company default.</summary>
     public decimal? PriceTolerancePercent { get; private set; }
+    /// <summary>How far above the ordered quantity a delivery of this item may go; none defers to the vendor, then to no over-delivery.</summary>
+    public decimal? QuantityTolerancePercent { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Item Create(CompanyId companyId, string sku, string name, string unitOfMeasure,
-        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null)
+        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null)
     {
         var item = new Item(new ItemId(Guid.NewGuid()), companyId, sku, name, unitOfMeasure, unitPrice, unitCost, createdAt);
         item.TaxCode = NormalizeTaxCode(taxCode);
         item.PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
+        item.QuantityTolerancePercent = ValidateTolerance(quantityTolerancePercent, "Quantity");
         return item;
     }
 
-    public static decimal? ValidateTolerance(decimal? tolerancePercent) =>
+    public static decimal? ValidateTolerance(decimal? tolerancePercent, string kind = "Price") =>
         tolerancePercent is null ? null
-        : tolerancePercent is < 0 or > 100 ? throw new DomainException("Price tolerance must be between 0 and 100%.")
+        : tolerancePercent is < 0 or > 100 ? throw new DomainException($"{kind} tolerance must be between 0 and 100%.")
         : decimal.Round(tolerancePercent.Value, 4);
 
     public static string? NormalizeTaxCode(string? taxCode) =>
@@ -65,10 +68,11 @@ public sealed class Item : AggregateRoot<ItemId>
     public static string NormalizeSku(string sku) =>
         string.IsNullOrWhiteSpace(sku) ? throw new DomainException("Item SKU is required.") : sku.Trim().ToUpperInvariant();
 
-    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null)
+    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null)
     {
         TaxCode = NormalizeTaxCode(taxCode);
         PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
+        QuantityTolerancePercent = ValidateTolerance(quantityTolerancePercent, "Quantity");
         Name = NormalizeName(name);
         UnitOfMeasure = NormalizeUom(unitOfMeasure);
         UnitPrice = RequireNonNegative(unitPrice, "Unit price");

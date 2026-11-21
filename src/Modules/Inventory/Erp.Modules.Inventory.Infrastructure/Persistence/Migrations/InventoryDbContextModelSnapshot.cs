@@ -46,6 +46,10 @@ namespace Erp.Modules.Inventory.Infrastructure.Persistence.Migrations
                         .HasPrecision(7, 4)
                         .HasColumnType("numeric(7,4)");
 
+                    b.Property<decimal?>("QuantityTolerancePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
                     b.Property<string>("Sku")
                         .IsRequired()
                         .HasMaxLength(60)

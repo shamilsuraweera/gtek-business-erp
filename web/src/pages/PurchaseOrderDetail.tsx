@@ -9,6 +9,10 @@ import type { Bill, PurchaseOrder } from '../api/types'
 
 /** The company default (ThreeWayMatch.PriceTolerancePercent), used only if the server sent no per-line tolerance. */
 const DEFAULT_TOLERANCE = 2
+/** The most more of this line that can still be received: what is outstanding plus the over-delivery tolerance. Mirrors the server. */
+const receivable = (l: PurchaseOrder['lines'][number]) =>
+  Math.max(0, Math.round(l.quantity * (1 + (l.quantityTolerancePercent ?? 0) / 100) * 10_000) / 10_000 - l.quantityReceived)
+const outstandingOf = (l: PurchaseOrder['lines'][number]) => Math.max(0, l.quantity - l.quantityReceived)
 /** The tolerance the server will match this line against: the item's own, else the vendor's, else the company default. */
 const toleranceOf = (l: PurchaseOrder['lines'][number]) => l.priceTolerancePercent ?? DEFAULT_TOLERANCE
 /** Goods still billable: held (received less returned) not yet covered by a bill (billed less debited). Mirrors the server. */
@@ -16,8 +20,8 @@ const billable = (l: PurchaseOrder['lines'][number]) => Math.max(0, l.quantityRe
 const variancePercent = (order: number, billed: number) => (order === 0 ? (billed === 0 ? 0 : 100) : ((billed - order) / order) * 100)
 
 function ReceiveDialog({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
-  const open = order.lines.filter((l) => l.quantity - l.quantityReceived > 0)
-  const [qty, setQty] = useState<Record<string, string>>(Object.fromEntries(open.map((l) => [l.itemId, String(l.quantity - l.quantityReceived)])))
+  const open = order.lines.filter((l) => receivable(l) > 0)
+  const [qty, setQty] = useState<Record<string, string>>(Object.fromEntries(open.map((l) => [l.itemId, String(outstandingOf(l))])))
   const [date, setDate] = useState(today())
   const [reference, setReference] = useState('')
   const lines = open.map((l) => ({ itemId: l.itemId, quantity: Number(qty[l.itemId] || 0) })).filter((l) => l.quantity > 0)
@@ -31,15 +35,18 @@ function ReceiveDialog({ order, onClose }: { order: PurchaseOrder; onClose: () =
           <Field label="Delivery note no."><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Vendor's delivery note" /></Field>
         </div>
         <div className="scroll-x"><table className="data">
-          <thead><tr><th>Item</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Outstanding</th><th style={{ width: 140 }}>Receive now</th></tr></thead>
+          <thead><tr><th>Item</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Outstanding</th><th className="num">Max</th><th style={{ width: 140 }}>Receive now</th></tr></thead>
           <tbody>{open.map((l) => {
-            const outstanding = l.quantity - l.quantityReceived
+            const max = receivable(l)
+            const over = Math.max(0, Number(qty[l.itemId] || 0) - outstandingOf(l))
             return (
               <tr key={l.itemId}>
                 <td>{l.sku}<div className="muted">{l.description}</div></td>
-                <td className="num">{formatNumber(l.quantity)}</td><td className="num">{formatNumber(l.quantityReceived)}</td><td className="num">{formatNumber(outstanding)}</td>
-                <td><input type="number" min="0" max={outstanding} step="any" value={qty[l.itemId]} aria-label={`Quantity to receive for ${l.sku}`}
-                  onChange={(e) => setQty({ ...qty, [l.itemId]: e.target.value })} /></td>
+                <td className="num">{formatNumber(l.quantity)}</td><td className="num">{formatNumber(l.quantityReceived)}</td><td className="num">{formatNumber(outstandingOf(l))}</td>
+                <td className="num">{formatNumber(max)}{max > outstandingOf(l) && <div className="muted">+{l.quantityTolerancePercent}% allowed</div>}</td>
+                <td><input type="number" min="0" max={max} step="any" value={qty[l.itemId]} aria-label={`Quantity to receive for ${l.sku}`}
+                  onChange={(e) => setQty({ ...qty, [l.itemId]: e.target.value })} />
+                  {over > 0 && <div className="muted">{formatNumber(over)} over order</div>}</td>
               </tr>
             )
           })}</tbody>
@@ -215,7 +222,7 @@ export function PurchaseOrderDetail() {
           <tbody>{o.lines.map((l) => (
             <tr key={l.itemId}>
               <td>{l.sku}</td><td>{l.description}</td><td className="num">{formatNumber(l.quantity)}</td>
-              <td className="num">{l.quantityReceived >= l.quantity ? <Badge value={formatNumber(l.quantityReceived)} tone="ok" /> : l.quantityReceived > 0 ? <Badge value={`${formatNumber(l.quantityReceived)} of ${formatNumber(l.quantity)}`} tone="warn" /> : '—'}</td>
+              <td className="num">{l.quantityReceived > l.quantity ? <Badge value={`${formatNumber(l.quantityReceived)} (+${formatNumber(l.quantityReceived - l.quantity)} over)`} tone="warn" /> : l.quantityReceived >= l.quantity ? <Badge value={formatNumber(l.quantityReceived)} tone="ok" /> : l.quantityReceived > 0 ? <Badge value={`${formatNumber(l.quantityReceived)} of ${formatNumber(l.quantity)}`} tone="warn" /> : '—'}</td>
               <td className="num">{l.quantityBilled > 0 ? formatNumber(l.quantityBilled) : '—'}</td>
               <td className="num">{l.quantityReturned > 0 ? <Badge value={formatNumber(l.quantityReturned)} tone="warn" /> : '—'}</td>
               <td className="num">{formatMoney(l.unitCost)}</td><td className="num">{formatMoney(l.lineTotal)}</td>

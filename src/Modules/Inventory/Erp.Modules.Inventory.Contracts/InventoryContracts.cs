@@ -1,6 +1,6 @@
 namespace Erp.Modules.Inventory.Contracts;
 
-public sealed record ItemInfo(Guid Id, string Sku, string Name, string UnitOfMeasure, decimal UnitPrice, decimal UnitCost, bool IsActive, string? TaxCode = null, decimal? PriceTolerancePercent = null);
+public sealed record ItemInfo(Guid Id, string Sku, string Name, string UnitOfMeasure, decimal UnitPrice, decimal UnitCost, bool IsActive, string? TaxCode = null, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null);
 
 public sealed record StockMovementCommand(
     Guid ItemId,

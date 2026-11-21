@@ -54,7 +54,7 @@ Notes:
   The API also grants newly introduced permissions to the system administrator role at startup.
 - MVP limitations: default account codes are 1000/1010 cash and bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received
   not invoiced, 4000 revenue, 4100 sales returns, 5000 COGS, 5100 purchase price variance, 2200 output tax payable, 1300 input tax recoverable; manual stock receipts do not post to the ledger;
-  the three-way match price tolerance defaults to 2% and can be set per vendor and per item (ADR 0018), with no over-delivery tolerance; credit notes are at the invoiced
+  the three-way match price tolerance defaults to 2% and can be set per vendor and per item (ADR 0018); over-delivery is refused unless a per-vendor or per-item quantity tolerance allows it (ADR 0019); credit notes are at the invoiced
   price (no partial price adjustments); there is no multi-currency yet.
 - Tax: prices are tax-exclusive. Create tax codes under **Finance → Tax** (the demo has `VAT18` 18% and `ZERO`) and assign one to each item;
   invoices then charge output tax (posted to 2200) and vendor bills record input tax (1300). Credit notes and debit notes return the tax
