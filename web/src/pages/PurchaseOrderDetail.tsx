@@ -64,6 +64,52 @@ function ReceiveDialog({ order, onClose }: { order: PurchaseOrder; onClose: () =
   )
 }
 
+const hasOverride = (l: PurchaseOrder['lines'][number]) =>
+  l.priceToleranceOverride != null || l.quantityToleranceOverride != null || l.underDeliveryToleranceOverride != null
+
+/** Per-order tolerance overrides: each blank field falls back to the item, then the vendor, then the company default. */
+function TolerancesDialog({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
+  type Row = { price: string; over: string; under: string }
+  const str = (n: number | null) => (n == null ? '' : String(n))
+  const [rows, setRows] = useState<Record<string, Row>>(Object.fromEntries(order.lines.map((l) => [l.itemId,
+    { price: str(l.priceToleranceOverride), over: str(l.quantityToleranceOverride), under: str(l.underDeliveryToleranceOverride) }])))
+  const num = (v: string) => (v.trim() === '' ? null : Number(v))
+  const set = (id: string, patch: Partial<Row>) => setRows({ ...rows, [id]: { ...rows[id], ...patch } })
+  const save = useApiMutation<void>(() => ({
+    path: `/purchasing/orders/${order.id}/tolerances`, method: 'PUT',
+    body: { lines: order.lines.map((l) => ({ itemId: l.itemId, priceTolerancePercent: num(rows[l.itemId].price), quantityTolerancePercent: num(rows[l.itemId].over), underDeliveryTolerancePercent: num(rows[l.itemId].under) })) },
+  }), onClose)
+  const cell = (id: string, key: keyof Row, effective: number | null, label: string) => (
+    <td><input type="number" min="0" max="100" step="0.01" value={rows[id][key]} placeholder={effective == null ? 'Default' : `${effective}% (default)`} aria-label={label}
+      onChange={(e) => set(id, { [key]: e.target.value } as Partial<Row>)} /></td>
+  )
+  const status = order.status
+  return (
+    <Modal title={`Order tolerances — ${order.number}`} onClose={onClose} wide>
+      <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }}>
+        <div className="scroll-x"><table className="data">
+          <thead><tr><th>Item</th><th>Price (%)</th><th>Over-delivery (%)</th><th>Under-delivery (%)</th></tr></thead>
+          <tbody>{order.lines.map((l) => (
+            <tr key={l.itemId}>
+              <td>{l.sku}<div className="muted">{l.description}</div></td>
+              {cell(l.itemId, 'price', l.priceToleranceOverride == null ? l.priceTolerancePercent : null, `Price tolerance for ${l.sku}`)}
+              {cell(l.itemId, 'over', l.quantityToleranceOverride == null ? l.quantityTolerancePercent : null, `Over-delivery tolerance for ${l.sku}`)}
+              {cell(l.itemId, 'under', l.underDeliveryToleranceOverride == null ? l.underDeliveryTolerancePercent : null, `Under-delivery tolerance for ${l.sku}`)}
+            </tr>
+          ))}</tbody>
+        </table></div>
+        <p className="hint">These apply to this order only and take priority over the item and vendor settings. Leave a field blank to use the default shown; 0 means none allowed.
+          {(status === 'PartiallyReceived') && ' A looser under-delivery tolerance can complete this part-received order straight away.'}</p>
+        <ErrorNote error={save.error} />
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save tolerances'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 function ReturnDialog({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
   const held = order.lines.filter((l) => l.quantityReceived - l.quantityReturned > 0)
   const [qty, setQty] = useState<Record<string, string>>({})
@@ -199,7 +245,7 @@ export function PurchaseOrderDetail() {
   const navigate = useNavigate()
   const { can } = useAuth()
   const order = useApiQuery<PurchaseOrder>(`/purchasing/orders/${id}`)
-  const [dialog, setDialog] = useState<'receive' | 'bill' | 'return' | null>(null)
+  const [dialog, setDialog] = useState<'receive' | 'bill' | 'return' | 'tolerances' | null>(null)
   const act = useApiMutation<'open' | 'release' | 'cancel' | 'close-short'>((action) => ({ path: `/purchasing/orders/${id}/${action}` }))
 
   if (order.isLoading) return <Loading />
@@ -220,17 +266,18 @@ export function PurchaseOrderDetail() {
       <ErrorNote error={act.error} />
       <section className="card flush scroll-x">
         <table className="data">
-          <thead><tr><th>SKU</th><th>Description</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Billed</th><th className="num">Returned</th><th className="num">Unit cost</th><th className="num">Amount</th></tr></thead>
+          <thead><tr><th>SKU</th><th>Description</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Billed</th><th className="num">Returned</th><th className="num">Tolerance <span className="muted">±price · +over · −under</span></th><th className="num">Unit cost</th><th className="num">Amount</th></tr></thead>
           <tbody>{o.lines.map((l) => (
             <tr key={l.itemId}>
               <td>{l.sku}</td><td>{l.description}</td><td className="num">{formatNumber(l.quantity)}</td>
               <td className="num">{l.quantityReceived > l.quantity ? <Badge value={`${formatNumber(l.quantityReceived)} (+${formatNumber(l.quantityReceived - l.quantity)} over)`} tone="warn" /> : l.quantityReceived >= l.quantity ? <Badge value={formatNumber(l.quantityReceived)} tone="ok" /> : l.quantityReceived > 0 ? <Badge value={`${formatNumber(l.quantityReceived)} of ${formatNumber(l.quantity)}`} tone="warn" /> : '—'}</td>
               <td className="num">{l.quantityBilled > 0 ? formatNumber(l.quantityBilled) : '—'}</td>
               <td className="num">{l.quantityReturned > 0 ? <Badge value={formatNumber(l.quantityReturned)} tone="warn" /> : '—'}</td>
+              <td className="num">{l.priceTolerancePercent ?? 2}% · {l.quantityTolerancePercent ?? 0}% · {l.underDeliveryTolerancePercent ?? 0}%{hasOverride(l) && <div><Badge value="order override" tone="warn" /></div>}</td>
               <td className="num">{formatMoney(l.unitCost)}</td><td className="num">{formatMoney(l.lineTotal)}</td>
             </tr>
           ))}</tbody>
-          <tfoot><tr><td colSpan={7}>Total <span className="muted">(excl. tax — added when billed)</span></td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={8}>Total <span className="muted">(excl. tax — added when billed)</span></td><td className="num">{formatMoney(o.total)}</td></tr></tfoot>
         </table>
       </section>
       {o.notes && <p className="muted" style={{ marginTop: 12 }}>Notes: {o.notes}</p>}
@@ -244,6 +291,7 @@ export function PurchaseOrderDetail() {
           <button className="btn" disabled={act.isPending} onClick={() => { if (confirm('Accept the delivery as complete? The outstanding quantities will no longer be expected.')) act.mutate('close-short') }}>Close short</button>
         )}
         {canReturn && <button className="btn" onClick={() => setDialog('return')}>Return to vendor</button>}
+        {can(P.poOverrideTolerance) && o.status !== 'Billed' && o.status !== 'Cancelled' && <button className="btn" onClick={() => setDialog('tolerances')}>Tolerances</button>}
         {manage && ['Draft', 'Open', 'Released'].includes(o.status) && !hasReceipts && (
           <button className="btn danger" disabled={act.isPending} onClick={() => { if (confirm('Cancel this purchase order?')) act.mutate('cancel') }}>Cancel order</button>
         )}
@@ -300,6 +348,7 @@ export function PurchaseOrderDetail() {
       )}
 
       {dialog === 'receive' && <ReceiveDialog order={o} onClose={() => setDialog(null)} />}
+      {dialog === 'tolerances' && <TolerancesDialog order={o} onClose={() => setDialog(null)} />}
       {dialog === 'return' && <ReturnDialog order={o} onClose={() => setDialog(null)} />}
       {dialog === 'bill' && <BillDialog order={o} onClose={() => setDialog(null)} onCreated={(bill) => navigate(`/bills/${bill.id}`)} />}
     </>

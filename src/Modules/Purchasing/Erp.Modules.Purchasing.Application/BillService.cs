@@ -51,7 +51,7 @@ public sealed class BillService(
                 var quantity = r.Quantity ?? line.ReceivedNotBilled;
                 var unitCost = r.UnitCost ?? line.UnitCost;
                 var (taxCode, taxRate) = taxes[line.ItemId];
-                var tolerance = ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(line.ItemId)?.PriceTolerancePercent, vendor.PriceTolerancePercent);
+                var tolerance = ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(line.ItemId)?.PriceTolerancePercent, vendor.PriceTolerancePercent, line.PriceTolerancePercent);
                 var net = decimal.Round(quantity * unitCost, 2);
                 billLines.Add(new VendorBillLine(line.ItemId, line.Sku, line.Description, quantity, line.UnitCost, unitCost,
                     taxCode, taxRate, TaxMath.Tax(net, taxRate), tolerance));

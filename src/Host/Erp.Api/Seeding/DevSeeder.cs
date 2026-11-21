@@ -356,7 +356,7 @@ public static class DevSeeder
 
             var order = await orderService.CreateAsync(new CreatePurchaseOrderRequest(
                 vendors[vendorCode].Id, date, marker,
-                lines.Select(l => new PurchaseLineRequest(itemIds[l.Sku], l.Qty, l.Cost)).ToArray()), ct);
+                lines.Select(l => new PurchaseLineRequest(itemIds[l.Sku], l.Qty, l.Cost)).ToArray()), false, ct);
             var id = new PurchasingDomain.PurchaseOrderId(order.Id);
             created++;
             if (state == PurchaseState.Draft) continue;
@@ -396,7 +396,7 @@ public static class DevSeeder
         {
             var order = await orders.CreateAsync(new CreatePurchaseOrderRequest(
                 vendors[vendor].Id, date, $"SEED-PO-{n}",
-                lines.Select(l => new PurchaseLineRequest(items[l.Sku].Id, l.Qty, null)).ToArray()), ct);
+                lines.Select(l => new PurchaseLineRequest(items[l.Sku].Id, l.Qty, null)).ToArray()), false, ct);
             var id = new PurchasingDomain.PurchaseOrderId(order.Id);
             await orders.TransitionAsync(id, PurchaseOrderAction.Open, ct);
             await orders.TransitionAsync(id, PurchaseOrderAction.Release, ct);

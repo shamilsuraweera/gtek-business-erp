@@ -277,6 +277,110 @@ public class PurchasingTests
     public void Receipt_line_keeps_the_under_delivery_tolerance_in_force() =>
         Assert.Equal(5m, new GoodsReceiptLine(ItemA, "A", "Item A", 9.5m, 25m, 0m, 5m).UnderDeliveryTolerancePercent);
 
+    // ---- per-order overrides -----------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(1.0, 3.0, 5.0, 5.0)]     // order override wins over item and vendor
+    [InlineData(1.0, 3.0, 0.0, 0.0)]     // an order override of 0 is a real setting
+    [InlineData(1.0, 3.0, null, 1.0)]    // no override: item
+    [InlineData(null, 3.0, null, 3.0)]   // vendor
+    [InlineData(null, null, null, 2.0)]  // company default
+    public void Order_override_beats_item_vendor_and_default_for_price(double? item, double? vendor, double? order, double expected) =>
+        Assert.Equal((decimal)expected, ThreeWayMatch.EffectiveTolerance((decimal?)item, (decimal?)vendor, (decimal?)order));
+
+    [Fact]
+    public void Order_override_beats_item_vendor_and_default_for_quantity_tolerances()
+    {
+        Assert.Equal(7m, ThreeWayMatch.EffectiveQuantityTolerance(1m, 3m, 7m));
+        Assert.Equal(0m, ThreeWayMatch.EffectiveQuantityTolerance(1m, 3m, 0m));
+        Assert.Equal(1m, ThreeWayMatch.EffectiveQuantityTolerance(1m, 3m, null));
+        Assert.Equal(8m, ThreeWayMatch.EffectiveUnderDeliveryTolerance(1m, 3m, 8m));
+        Assert.Equal(0m, ThreeWayMatch.EffectiveUnderDeliveryTolerance(null, null, null));
+    }
+
+    [Fact]
+    public void Lines_can_carry_overrides_from_creation_and_they_are_validated()
+    {
+        var order = PurchaseOrder.Create(Company, "PO-9", VendorRef, new DateOnly(2026, 11, 1), null, DateTimeOffset.UtcNow);
+        order.AddLine(ItemA, "A", "Item A", 10m, 25m, 4m, 6m, 2m);
+        var line = order.LineFor(ItemA);
+        Assert.Equal((4m, 6m, 2m), (line.PriceTolerancePercent, line.QuantityTolerancePercent, line.UnderDeliveryTolerancePercent));
+        var ex = Assert.Throws<DomainException>(() => order.AddLine(ItemB, "B", "Item B", 1m, 1m, null, 101m, null));
+        Assert.Contains("Over-delivery tolerance", ex.Message);
+    }
+
+    [Fact]
+    public void Overrides_can_be_set_and_cleared_on_an_existing_order()
+    {
+        var order = Released();
+        order.SetTolerances([(ItemA, 5m, 10m, 3m)]);
+        Assert.Equal(5m, order.LineFor(ItemA).PriceTolerancePercent);
+        Assert.Null(order.LineFor(ItemB).PriceTolerancePercent);    // lines not listed are untouched
+        order.SetTolerances([(ItemA, null, null, null)]);
+        Assert.Null(order.LineFor(ItemA).PriceTolerancePercent);
+        Assert.Null(order.LineFor(ItemA).UnderDeliveryTolerancePercent);
+    }
+
+    [Fact]
+    public void Override_changes_are_atomic_and_validated()
+    {
+        var order = Released();
+        order.SetTolerances([(ItemA, 5m, null, null)]);
+        Assert.Throws<DomainException>(() => order.SetTolerances([(ItemA, 9m, null, null), (ItemB, -1m, null, null)]));
+        Assert.Throws<DomainException>(() => order.SetTolerances([(ItemA, 1m, null, null), (ItemA, 2m, null, null)]));
+        Assert.Throws<DomainException>(() => order.SetTolerances([]));
+        Assert.Throws<DomainException>(() => order.SetTolerances([(Guid.NewGuid(), 1m, null, null)]));
+    }
+
+    [Fact]
+    public void Overrides_cannot_change_on_a_cancelled_or_fully_billed_order()
+    {
+        var cancelled = Released();
+        cancelled.Cancel();
+        Assert.Throws<DomainException>(() => cancelled.SetTolerances([(ItemA, 1m, null, null)]));
+
+        var billed = Released();
+        billed.RecordReceipt(Qty(10m, 4m));
+        billed.RecordBilling(Qty(10m, 4m));
+        Assert.Equal(PurchaseOrderStatus.Billed, billed.Status);
+        Assert.Throws<DomainException>(() => billed.SetTolerances([(ItemA, 1m, null, null)]));
+    }
+
+    [Fact]
+    public void A_looser_under_delivery_override_completes_a_part_received_order_on_reevaluation()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(9m, 4m));
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status);
+        order.ReevaluateReceipt(Under(5m));
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status);   // 9 < 9.5
+        order.ReevaluateReceipt(Under(10m));
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);            // 9 >= 9
+    }
+
+    [Fact]
+    public void Reevaluation_leaves_other_statuses_alone_and_can_finish_billed_orders()
+    {
+        var released = Released();
+        released.ReevaluateReceipt(Under(100m));
+        Assert.Equal(PurchaseOrderStatus.Released, released.Status);         // nothing received yet: not a receipt event
+
+        var order = Released();
+        order.RecordReceipt(Qty(9m, 4m));
+        order.RecordBilling(Qty(9m, 4m));
+        order.ReevaluateReceipt(Under(10m));
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);              // already billed for everything held
+    }
+
+    [Fact]
+    public void Order_override_changes_the_receiving_limits()
+    {
+        var order = Released();
+        order.SetTolerances([(ItemA, null, 10m, null)]);
+        order.RecordReceipt([(ItemA, 11m)], new Dictionary<Guid, decimal> { [ItemA] = order.LineFor(ItemA).QuantityTolerancePercent ?? 0m });
+        Assert.Equal(11m, order.LineFor(ItemA).QuantityReceived);
+    }
+
     [Fact]
     public void Fully_received_order_accepts_no_more_goods()
     {

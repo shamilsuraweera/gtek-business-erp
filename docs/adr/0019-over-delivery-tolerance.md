@@ -29,5 +29,5 @@ pack sizes) could not be received without amending the order. Warehouses then ei
 ## Consequences
 
 - Whoever can edit a vendor or item can allow over-receipt, so treat vendor and item management as a control over receiving.
-- There is no per-order override. Under-delivery tolerance is ADR 0020.
+- Under-delivery tolerance is ADR 0020 and per-order overrides are ADR 0021.
 - Update requests replace the tolerance: omitting it clears it.

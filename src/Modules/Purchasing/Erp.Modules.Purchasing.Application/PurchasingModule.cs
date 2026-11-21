@@ -8,12 +8,18 @@ public sealed record VendorResponse(Guid Id, string Code, string Name, string? E
 public sealed record CreateVendorRequest(string Code, string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null);
 public sealed record UpdateVendorRequest(string Name, string? Email, string? Phone, int? PaymentTermsDays, decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null);
 
-public sealed record PurchaseLineRequest(Guid ItemId, decimal Quantity, decimal? UnitCost);
+/// <summary>The three tolerance fields are per-order overrides (they need the override-tolerance permission); none defers to the item, then the vendor, then the company default.</summary>
+public sealed record PurchaseLineRequest(Guid ItemId, decimal Quantity, decimal? UnitCost,
+    decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null);
+public sealed record OrderLineToleranceRequest(Guid ItemId, decimal? PriceTolerancePercent, decimal? QuantityTolerancePercent, decimal? UnderDeliveryTolerancePercent);
+/// <summary>Replaces the overrides of the listed lines: a null value clears that override.</summary>
+public sealed record UpdateOrderTolerancesRequest(IReadOnlyList<OrderLineToleranceRequest> Lines);
 public sealed record CreatePurchaseOrderRequest(Guid VendorId, DateOnly? OrderDate, string? Notes, IReadOnlyList<PurchaseLineRequest> Lines);
 public sealed record PurchaseOrderLineResponse(
     Guid ItemId, string Sku, string Description, decimal Quantity, decimal UnitCost, decimal LineTotal,
     decimal QuantityReceived, decimal QuantityBilled, decimal QuantityReturned, decimal QuantityDebited, decimal DebitableQuantity,
-    decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null);
+    decimal? PriceTolerancePercent = null, decimal? QuantityTolerancePercent = null, decimal? UnderDeliveryTolerancePercent = null,
+    decimal? PriceToleranceOverride = null, decimal? QuantityToleranceOverride = null, decimal? UnderDeliveryToleranceOverride = null);
 public sealed record ReceiptSummary(Guid Id, string Number, DateOnly ReceiptDate, string Reference, decimal Total, string JournalNumber);
 public sealed record ReturnSummary(Guid Id, string Number, DateOnly ReturnDate, string Reason, string Reference, decimal Total, string JournalNumber);
 public sealed record BillSummary(Guid Id, string Number, DateOnly BillDate, decimal Total, decimal PriceVariance, BillStatus Status);
@@ -115,7 +121,9 @@ public interface IVendorService
 
 public interface IPurchaseOrderService
 {
-    Task<PurchaseOrderResponse> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken);
+    /// <param name="canOverrideTolerances">Whether the caller may set per-order tolerance overrides on the lines.</param>
+    Task<PurchaseOrderResponse> CreateAsync(CreatePurchaseOrderRequest request, bool canOverrideTolerances, CancellationToken cancellationToken);
+    Task<PurchaseOrderResponse?> SetTolerancesAsync(PurchaseOrderId id, UpdateOrderTolerancesRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyList<PurchaseOrderResponse>> ListAsync(int take, CancellationToken cancellationToken);
     Task<PurchaseOrderResponse?> GetAsync(PurchaseOrderId id, CancellationToken cancellationToken);
     Task<PurchaseOrderResponse?> TransitionAsync(PurchaseOrderId id, PurchaseOrderAction action, CancellationToken cancellationToken);
