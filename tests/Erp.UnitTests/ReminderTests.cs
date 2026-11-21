@@ -24,14 +24,14 @@ public class ReminderTests
     {
         var o = new ReminderOptions();
         Assert.Empty(o.Validate());
-        Assert.Equal((true, 8, 1, 3), (o.Enabled, o.HourUtc, o.RepeatDays, o.PeriodCloseGraceDays));
+        Assert.Equal((true, 8, 1, 3), (o.Enabled, o.Hour, o.RepeatDays, o.PeriodCloseGraceDays));
     }
 
     [Fact]
     public void Every_bad_value_is_reported_with_its_key()
     {
-        var errors = new ReminderOptions { HourUtc = 24, RepeatDays = 0, IntervalMinutes = 0, InitialDelaySeconds = -1, PeriodCloseGraceDays = 61 }.Validate();
-        Assert.Equal(5, errors.Count);
+        var errors = new ReminderOptions { Hour = 24, TimeZone = "Nowhere/Land", RepeatDays = 0, IntervalMinutes = 0, InitialDelaySeconds = -1, PeriodCloseGraceDays = 61 }.Validate();
+        Assert.Equal(6, errors.Count);
         Assert.All(errors, e => Assert.StartsWith("Reminders:", e));
     }
 
@@ -55,6 +55,37 @@ public class ReminderTests
     [InlineData(30, true)]
     public void A_weekly_reminder_waits_for_the_period(int daysAgo, bool due) =>
         Assert.Equal(due, new ReminderOptions { RepeatDays = 7 }.IsDue(Now, At(daysAgo, 10)));
+
+    [Theory]
+    [InlineData("Asia/Colombo", 2, 29, false)]      // 02:29 UTC is 07:59 in Colombo (UTC+5:30): before 08:00
+    [InlineData("Asia/Colombo", 2, 30, true)]       // 02:30 UTC is 08:00 there
+    [InlineData("America/New_York", 12, 59, false)] // 12:59 UTC is 07:59 in New York in November (UTC-5)
+    [InlineData("America/New_York", 13, 0, true)]
+    [InlineData("UTC", 8, 0, true)]
+    public void The_send_hour_is_read_on_the_clock_of_the_configured_time_zone(string zone, int utcHour, int utcMinute, bool due) =>
+        Assert.Equal(due, new ReminderOptions { TimeZone = zone }.IsDue(new DateTimeOffset(2026, 11, 21, utcHour, utcMinute, 0, TimeSpan.Zero), null));
+
+    [Fact]
+    public void Once_per_day_means_per_calendar_day_in_the_time_zone_not_in_utc()
+    {
+        var colombo = new ReminderOptions { TimeZone = "Asia/Colombo" };
+        // Sent 20 Nov 08:30 Colombo = 03:00 UTC. At 21 Nov 07:00 UTC it is 12:30 on the 21st in Colombo: a new day there.
+        var lastSent = new DateTimeOffset(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        Assert.True(colombo.IsDue(new DateTimeOffset(2026, 11, 21, 3, 0, 0, TimeSpan.Zero), lastSent));
+        // Sent 21 Nov 20:00 UTC = 22 Nov 01:30 in Colombo. At 22 Nov 04:00 UTC (09:30 on the 22nd there) that is the SAME local day: not due,
+        // although UTC says a new day began 4 hours earlier.
+        var lateSent = new DateTimeOffset(2026, 11, 21, 20, 0, 0, TimeSpan.Zero);
+        Assert.False(colombo.IsDue(new DateTimeOffset(2026, 11, 22, 4, 0, 0, TimeSpan.Zero), lateSent));
+        Assert.True(new ReminderOptions().IsDue(new DateTimeOffset(2026, 11, 22, 8, 0, 0, TimeSpan.Zero), lateSent));    // UTC: next day, due
+    }
+
+    [Fact]
+    public void An_unknown_time_zone_is_reported_at_start_up_and_never_throws_when_checking_due()
+    {
+        var options = new ReminderOptions { TimeZone = "Nowhere/Land" };
+        Assert.Contains(options.Validate(), e => e.Contains("Reminders:TimeZone") && e.Contains("Nowhere/Land"));
+        Assert.True(options.IsDue(new DateTimeOffset(2026, 11, 21, 9, 0, 0, TimeSpan.Zero), null));       // falls back to UTC
+    }
 
     [Fact]
     public void Sending_late_one_day_does_not_delay_the_next_day()
@@ -167,7 +198,7 @@ public class ReminderTests
     [Fact]
     public async Task Nothing_is_sent_before_the_configured_hour()
     {
-        var (job, notifier) = InvoiceJob([Invoice("INV-1", new DateOnly(2026, 9, 1), 30)], new ReminderOptions { HourUtc = 12 });
+        var (job, notifier) = InvoiceJob([Invoice("INV-1", new DateOnly(2026, 9, 1), 30)], new ReminderOptions { Hour = 12 });
         Assert.Equal(0, await job.RunAsync(default));
         Assert.Empty(notifier.Sent);
     }
@@ -259,7 +290,7 @@ public class ReminderTests
         Assert.Equal(0, await job.RunAsync(default));
         Assert.Empty(notifier.Sent);
 
-        var (early, earlyNotifier) = StockJob([Stocked("A", 5m)], _ => 0m, new ReminderOptions { HourUtc = 12 });
+        var (early, earlyNotifier) = StockJob([Stocked("A", 5m)], _ => 0m, new ReminderOptions { Hour = 12 });
         Assert.Equal(0, await early.RunAsync(default));
         Assert.Empty(earlyNotifier.Sent);
     }

@@ -80,15 +80,18 @@ public interface INotifier
 
 /// <summary>
 /// Scheduled reminders (ADR 0029; configuration section <c>Reminders</c>). A reminder is sent at most once per <see cref="RepeatDays"/> calendar days
-/// per company, and not before <see cref="HourUtc"/> o'clock UTC.
+/// per company, and not before <see cref="Hour"/> o'clock in <see cref="TimeZone"/> (ADR 0036). Only the schedule uses the time zone: what counts
+/// as overdue or ended is judged on UTC dates like everywhere else in the application.
 /// </summary>
 public sealed class ReminderOptions
 {
     public const string Section = "Reminders";
 
     public bool Enabled { get; set; } = true;
-    /// <summary>Earliest hour of the day (UTC) a reminder is sent.</summary>
-    public int HourUtc { get; set; } = 8;
+    /// <summary>The time zone the schedule follows: an IANA id such as "Asia/Colombo" (or a Windows id on Windows). "UTC" by default.</summary>
+    public string TimeZone { get; set; } = "UTC";
+    /// <summary>Earliest hour of the day, in <see cref="TimeZone"/>, a reminder is sent.</summary>
+    public int Hour { get; set; } = 8;
     /// <summary>A reminder is repeated after this many calendar days while the condition lasts.</summary>
     public int RepeatDays { get; set; } = 1;
     public int IntervalMinutes { get; set; } = 60;
@@ -99,21 +102,47 @@ public sealed class ReminderOptions
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();
-        if (HourUtc is < 0 or > 23) errors.Add($"{Section}:HourUtc must be between 0 and 23 (was {HourUtc}).");
+        if (Hour is < 0 or > 23) errors.Add($"{Section}:Hour must be between 0 and 23 (was {Hour}).");
         if (RepeatDays is < 1 or > 90) errors.Add($"{Section}:RepeatDays must be between 1 and 90 (was {RepeatDays}).");
         if (IntervalMinutes is < 1 or > 1440) errors.Add($"{Section}:IntervalMinutes must be between 1 and 1440 (was {IntervalMinutes}).");
         if (InitialDelaySeconds is < 0 or > 3600) errors.Add($"{Section}:InitialDelaySeconds must be between 0 and 3600 (was {InitialDelaySeconds}).");
         if (PeriodCloseGraceDays is < 0 or > 60) errors.Add($"{Section}:PeriodCloseGraceDays must be between 0 and 60 (was {PeriodCloseGraceDays}).");
+        if (!TryResolveTimeZone(out _)) errors.Add($"{Section}:TimeZone '{TimeZone}' is not a time zone this system knows (use an IANA id such as Asia/Colombo or UTC).");
         return errors;
     }
 
-    /// <summary>Whether a reminder last sent at <paramref name="lastSent"/> is due at <paramref name="now"/>.</summary>
+    /// <summary>Whether a reminder last sent at <paramref name="lastSent"/> is due at <paramref name="now"/>, by the clock and calendar of <see cref="TimeZone"/>.</summary>
     public bool IsDue(DateTimeOffset now, DateTimeOffset? lastSent)
     {
-        var utc = now.UtcDateTime;
-        if (utc.Hour < HourUtc) return false;
-        return lastSent is not { } last || DateOnly.FromDateTime(last.UtcDateTime) <= DateOnly.FromDateTime(utc).AddDays(-RepeatDays);
+        var zone = TryResolveTimeZone(out var found) ? found! : TimeZoneInfo.Utc;
+        var local = TimeZoneInfo.ConvertTime(now, zone);
+        if (local.Hour < Hour) return false;
+        return lastSent is not { } last || DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(last, zone).DateTime) <= DateOnly.FromDateTime(local.DateTime).AddDays(-RepeatDays);
     }
+
+    private bool TryResolveTimeZone(out TimeZoneInfo? zone)
+    {
+        try
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById(string.IsNullOrWhiteSpace(TimeZone) ? "UTC" : TimeZone.Trim());
+            return true;
+        }
+        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            zone = null;
+            return false;
+        }
+    }
+}
+
+/// <summary>
+/// A named lock shared by every instance of the application (backed by the database), so scheduled work that must happen once, such as sending
+/// a company's daily reminder, does not run in two instances at the same moment (ADR 0035).
+/// </summary>
+public interface IJobLock
+{
+    /// <summary>The lock if nobody holds it (dispose to release it), or null straight away if another instance does. Never waits.</summary>
+    Task<IAsyncDisposable?> TryAcquireAsync(string name, CancellationToken cancellationToken);
 }
 
 /// <summary>A scheduled check a module runs for the active company; it notifies through <see cref="INotifier"/> when something needs attention.</summary>

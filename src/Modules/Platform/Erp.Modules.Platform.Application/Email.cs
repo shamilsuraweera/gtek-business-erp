@@ -88,7 +88,9 @@ public sealed class EmailOptions
     }
 }
 
-public sealed record OutgoingEmail(string ToAddress, string? ToName, string Subject, string Text, string Html);
+/// <param name="MessageId">A stable identifier of this message, the same on every attempt (the outbox row id). It becomes the <c>Message-ID</c> header, so if a
+/// crash makes the same message go out twice, mail systems and people can recognise the copy as a duplicate.</param>
+public sealed record OutgoingEmail(string ToAddress, string? ToName, string Subject, string Text, string Html, string? MessageId = null);
 
 /// <summary>A send that failed. <see cref="Permanent"/> failures (a rejected address) are not retried.</summary>
 public sealed class EmailDeliveryException(string message, bool permanent, Exception? inner = null) : Exception(message, inner)
@@ -176,7 +178,7 @@ public sealed class EmailDelivery(IEmailOutboxStore store, IEmailSender sender, 
         {
             try
             {
-                await sender.SendAsync(new OutgoingEmail(message.ToAddress, message.ToName, message.Subject, message.TextBody, message.HtmlBody), cancellationToken);
+                await sender.SendAsync(new OutgoingEmail(message.ToAddress, message.ToName, message.Subject, message.TextBody, message.HtmlBody, message.Id.ToString("N")), cancellationToken);
                 message.MarkSent(clock.UtcNow);
                 sent++;
             }

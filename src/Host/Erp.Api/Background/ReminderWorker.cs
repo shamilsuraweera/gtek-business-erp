@@ -46,11 +46,20 @@ public sealed class ReminderWorker(IServiceScopeFactory scopes, ReminderOptions 
         }
 
         var sent = 0;
+        await using var lockScope = scopes.CreateAsyncScope();
         foreach (var company in companies)
         {
             try
             {
                 // A scope per company: its own database contexts, with the company the reminders act for.
+                // One instance at a time per company: the "already sent today?" check and the send must not interleave with another instance's.
+                await using var lease = await lockScope.ServiceProvider.GetRequiredService<IJobLock>().TryAcquireAsync($"reminders:{company.Id}", cancellationToken);
+                if (lease is null)
+                {
+                    logger.LogDebug("Reminders for company {Company} are being run by another instance.", company.Code);
+                    continue;
+                }
+
                 await using var scope = scopes.CreateAsyncScope();
                 scope.ServiceProvider.GetRequiredService<ActiveCompanyContext>().Set(new Erp.SharedKernel.CompanyId(company.Id));
                 foreach (var job in scope.ServiceProvider.GetServices<IReminderJob>())

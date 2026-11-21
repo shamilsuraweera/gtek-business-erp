@@ -12,7 +12,7 @@ delays reporting. Closing is a manual step (ADR 0003 and the accounting period r
 ## Decision
 
 - `PeriodCloseReminder` (an `IReminderJob`, in Platform because periods belong to Platform) uses the machinery of ADR 0029 unchanged:
-  one summary per company per reminder period, `Reminders` configuration (`HourUtc`, `RepeatDays`, ...), a newer summary
+  one summary per company per reminder period, `Reminders` configuration (`Hour`, `RepeatDays`, ...), a newer summary
   replaces the older one, and it clears itself when nothing needs closing.
 - A period **needs closing** when it is **open** and its end date plus `Reminders:PeriodCloseGraceDays` (default 3, 0 to 60) is before today.
   The grace is the time to finish the month's postings; closed and locked periods never count, nor do periods that have not ended.

@@ -255,6 +255,25 @@ public class EmailTests
     }
 
     [Fact]
+    public async Task Every_attempt_at_a_message_carries_the_same_stable_message_id_and_different_messages_differ()
+    {
+        var a = NewMail(); var b = NewMail();
+        var attempts = 0;
+        var sender = new FakeSender(_ => ++attempts == 1 ? new EmailDeliveryException("connection refused", permanent: false) : null);
+        var delivery = new EmailDelivery(new FakeOutbox(a, b), sender, On(), new FixedClock(Now));
+        await delivery.RunOnceAsync(default);                      // a fails once (transient), b is sent
+        a.MarkFailed("retry", false, Now, 5, TimeSpan.Zero);       // due again
+        var again = new EmailDelivery(new FakeOutbox(a), sender, On(), new FixedClock(Now.AddMinutes(5)));
+        await again.RunOnceAsync(default);
+
+        var ids = sender.Sent.Select(x => x.MessageId).ToList();
+        Assert.All(ids, id => Assert.Matches("^[0-9a-f]{32}$", id!));
+        Assert.Equal(a.Id.ToString("N"), sender.Sent.Last().MessageId);
+        Assert.NotEqual(a.Id, b.Id);
+        Assert.Equal(2, ids.Distinct().Count());
+    }
+
+    [Fact]
     public async Task The_claim_uses_the_batch_size_and_a_lease_and_old_messages_are_purged_afterwards()
     {
         var outbox = new FakeOutbox();
