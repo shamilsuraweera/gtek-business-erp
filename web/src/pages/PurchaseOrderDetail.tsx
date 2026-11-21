@@ -5,7 +5,8 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate, formatMoney, formatNumber, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader } from '../ui'
-import type { Bill, PurchaseOrder } from '../api/types'
+import { ToleranceRequestList } from './ToleranceRequests'
+import type { Bill, PurchaseOrder, ToleranceRequest } from '../api/types'
 
 /** The company default (ThreeWayMatch.PriceTolerancePercent), used only if the server sent no per-line tolerance. */
 const DEFAULT_TOLERANCE = 2
@@ -68,16 +69,19 @@ const hasOverride = (l: PurchaseOrder['lines'][number]) =>
   l.priceToleranceOverride != null || l.quantityToleranceOverride != null || l.underDeliveryToleranceOverride != null
 
 /** Per-order tolerance overrides: each blank field falls back to the item, then the vendor, then the company default. */
-function TolerancesDialog({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
+function TolerancesDialog({ order, onClose, request = false }: { order: PurchaseOrder; onClose: () => void; request?: boolean }) {
+  const [reason, setReason] = useState('')
   type Row = { price: string; over: string; under: string }
   const str = (n: number | null) => (n == null ? '' : String(n))
   const [rows, setRows] = useState<Record<string, Row>>(Object.fromEntries(order.lines.map((l) => [l.itemId,
     { price: str(l.priceToleranceOverride), over: str(l.quantityToleranceOverride), under: str(l.underDeliveryToleranceOverride) }])))
   const num = (v: string) => (v.trim() === '' ? null : Number(v))
   const set = (id: string, patch: Partial<Row>) => setRows({ ...rows, [id]: { ...rows[id], ...patch } })
+  const changed = order.lines.filter((l) => !request || str(l.priceToleranceOverride) !== rows[l.itemId].price.trim()
+    || str(l.quantityToleranceOverride) !== rows[l.itemId].over.trim() || str(l.underDeliveryToleranceOverride) !== rows[l.itemId].under.trim())
   const save = useApiMutation<void>(() => ({
-    path: `/purchasing/orders/${order.id}/tolerances`, method: 'PUT',
-    body: { lines: order.lines.map((l) => ({ itemId: l.itemId, priceTolerancePercent: num(rows[l.itemId].price), quantityTolerancePercent: num(rows[l.itemId].over), underDeliveryTolerancePercent: num(rows[l.itemId].under) })) },
+    path: request ? `/purchasing/orders/${order.id}/tolerance-requests` : `/purchasing/orders/${order.id}/tolerances`, method: request ? 'POST' : 'PUT',
+    body: { ...(request ? { reason } : {}), lines: changed.map((l) => ({ itemId: l.itemId, priceTolerancePercent: num(rows[l.itemId].price), quantityTolerancePercent: num(rows[l.itemId].over), underDeliveryTolerancePercent: num(rows[l.itemId].under) })) },
   }), onClose)
   const cell = (id: string, key: keyof Row, effective: number | null, label: string) => (
     <td><input type="number" min="0" max="100" step="0.01" value={rows[id][key]} placeholder={effective == null ? 'Default' : `${effective}% (default)`} aria-label={label}
@@ -85,7 +89,7 @@ function TolerancesDialog({ order, onClose }: { order: PurchaseOrder; onClose: (
   )
   const status = order.status
   return (
-    <Modal title={`Order tolerances — ${order.number}`} onClose={onClose} wide>
+    <Modal title={`${request ? 'Request tolerance change' : 'Order tolerances'} — ${order.number}`} onClose={onClose} wide>
       <form className="stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }}>
         <div className="scroll-x"><table className="data">
           <thead><tr><th>Item</th><th>Price (%)</th><th>Over-delivery (%)</th><th>Under-delivery (%)</th></tr></thead>
@@ -98,12 +102,14 @@ function TolerancesDialog({ order, onClose }: { order: PurchaseOrder; onClose: (
             </tr>
           ))}</tbody>
         </table></div>
+        {request && <Field label="Why is this needed?"><textarea value={reason} onChange={(e) => setReason(e.target.value)} required maxLength={500} rows={2} /></Field>}
+        {request && <p className="hint">Nothing changes until an approver accepts the request. Fields you leave as they are keep their current value.</p>}
         <p className="hint">These apply to this order only and take priority over the item and vendor settings. Leave a field blank to use the default shown; 0 means none allowed.
           {(status === 'PartiallyReceived') && ' A looser under-delivery tolerance can complete this part-received order straight away.'}</p>
         <ErrorNote error={save.error} />
         <div className="modal-actions">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save tolerances'}</button>
+          <button className="btn primary" disabled={save.isPending || changed.length === 0 || (request && !reason.trim())}>{save.isPending ? 'Saving…' : request ? 'Send request' : 'Save tolerances'}</button>
         </div>
       </form>
     </Modal>
@@ -245,7 +251,8 @@ export function PurchaseOrderDetail() {
   const navigate = useNavigate()
   const { can } = useAuth()
   const order = useApiQuery<PurchaseOrder>(`/purchasing/orders/${id}`)
-  const [dialog, setDialog] = useState<'receive' | 'bill' | 'return' | 'tolerances' | null>(null)
+  const requests = useApiQuery<ToleranceRequest[]>(`/purchasing/orders/${id}/tolerance-requests`)
+  const [dialog, setDialog] = useState<'receive' | 'bill' | 'return' | 'tolerances' | 'request' | null>(null)
   const act = useApiMutation<'open' | 'release' | 'cancel' | 'close-short'>((action) => ({ path: `/purchasing/orders/${id}/${action}` }))
 
   if (order.isLoading) return <Loading />
@@ -257,6 +264,7 @@ export function PurchaseOrderDetail() {
   const outstanding = o.lines.some((l) => l.quantity > l.quantityReceived)
   const hasReceipts = o.receipts.length > 0
   const canReturn = can(P.returnsPost) && o.lines.some((l) => l.quantityReceived - l.quantityReturned > 0)
+  const hasPendingRequest = (requests.data ?? []).some((r) => r.status === 'Pending')
   const awaitingDebit = o.lines.filter((l) => l.debitableQuantity > 0)
 
   return (
@@ -292,6 +300,7 @@ export function PurchaseOrderDetail() {
         )}
         {canReturn && <button className="btn" onClick={() => setDialog('return')}>Return to vendor</button>}
         {can(P.poOverrideTolerance) && o.status !== 'Billed' && o.status !== 'Cancelled' && <button className="btn" onClick={() => setDialog('tolerances')}>Tolerances</button>}
+        {manage && !can(P.poOverrideTolerance) && o.status !== 'Billed' && o.status !== 'Cancelled' && !hasPendingRequest && <button className="btn" onClick={() => setDialog('request')}>Request tolerance change</button>}
         {manage && ['Draft', 'Open', 'Released'].includes(o.status) && !hasReceipts && (
           <button className="btn danger" disabled={act.isPending} onClick={() => { if (confirm('Cancel this purchase order?')) act.mutate('cancel') }}>Cancel order</button>
         )}
@@ -302,6 +311,13 @@ export function PurchaseOrderDetail() {
         </div>
       )}
       {o.status === 'PartiallyReceived' && <p className="hint" style={{ marginTop: 12 }}>Part of the order is still outstanding. Receive the rest when it arrives, or close short to accept what was delivered.</p>}
+
+      {(requests.data ?? []).length > 0 && (
+        <section style={{ marginTop: 20 }}>
+          <h3>Tolerance requests</h3>
+          <ToleranceRequestList requests={requests.data ?? []} showOrder={false} />
+        </section>
+      )}
 
       <div className="grid two" style={{ marginTop: 20 }}>
         <section>
@@ -348,6 +364,7 @@ export function PurchaseOrderDetail() {
       )}
 
       {dialog === 'receive' && <ReceiveDialog order={o} onClose={() => setDialog(null)} />}
+      {dialog === 'request' && <TolerancesDialog order={o} request onClose={() => setDialog(null)} />}
       {dialog === 'tolerances' && <TolerancesDialog order={o} onClose={() => setDialog(null)} />}
       {dialog === 'return' && <ReturnDialog order={o} onClose={() => setDialog(null)} />}
       {dialog === 'bill' && <BillDialog order={o} onClose={() => setDialog(null)} onCreated={(bill) => navigate(`/bills/${bill.id}`)} />}

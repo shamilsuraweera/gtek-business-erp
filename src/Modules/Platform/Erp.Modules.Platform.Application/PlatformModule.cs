@@ -404,7 +404,7 @@ public static class Permissions
         (Purchasing.OrdersReceive, "Receive goods", "purchasing", "Receive goods against purchase orders (adds stock and accrues the liability)."),
         (Purchasing.BillsRead, "Read vendor bills", "purchasing", "View vendor bills and payments."),
         (Purchasing.BillsPost, "Post vendor bills", "purchasing", "Enter vendor bills for received purchase orders."),
-        (Purchasing.OrdersOverrideTolerance, "Override order tolerances", "purchasing", "Set per-order price, over-delivery and under-delivery tolerances that take priority over the vendor and item settings."),
+        (Purchasing.OrdersOverrideTolerance, "Approve order tolerance overrides", "purchasing", "Set per-order price, over-delivery and under-delivery tolerances directly, and approve or reject other users' requests for them."),
         (Purchasing.BillsOverride, "Override bill price variance", "purchasing", "Approve vendor bills whose price differs from the purchase order by more than the tolerance."),
         (Purchasing.ReturnsPost, "Return goods to vendors", "purchasing", "Send received goods back to a vendor (reverses stock and the goods-received accrual)."),
         (Purchasing.DebitNotesPost, "Enter vendor debit notes", "purchasing", "Record the vendor's credit for billed goods that were returned."),
@@ -509,6 +509,7 @@ public static class PlatformModule
         services.AddScoped<IPostingPeriodGuard, PostingPeriodGuard>();
         services.AddScoped<IDocumentNumberGenerator, DocumentNumberGenerator>();
         services.AddScoped<IAuditRecorder, AuditRecorder>();
+        services.AddScoped<IUserDirectory, UserDirectory>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

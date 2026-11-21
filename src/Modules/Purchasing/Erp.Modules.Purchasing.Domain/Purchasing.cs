@@ -10,10 +10,12 @@ public readonly record struct VendorPaymentId(Guid Value);
 public readonly record struct VendorReturnId(Guid Value);
 public readonly record struct DebitNoteId(Guid Value);
 public readonly record struct VendorRefundId(Guid Value);
+public readonly record struct ToleranceRequestId(Guid Value);
 
 public enum PurchaseOrderStatus { Draft, Open, Released, PartiallyReceived, Received, Billed, Cancelled }
 public enum BillStatus { Open, Paid, Debited }
 public enum PaymentMethod { Cash, Bank }
+public enum ToleranceRequestStatus { Pending, Approved, Rejected, Withdrawn }
 
 public sealed class Vendor : AggregateRoot<VendorId>
 {

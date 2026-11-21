@@ -103,6 +103,13 @@ public interface IPurchasingStore
     Task AddPaymentAsync(VendorPayment payment, CancellationToken cancellationToken);
     Task<IReadOnlyList<VendorPayment>> ListPaymentsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
 
+    Task AddToleranceRequestAsync(ToleranceRequest request, CancellationToken cancellationToken);
+    Task<ToleranceRequest?> GetToleranceRequestAsync(CompanyId companyId, ToleranceRequestId id, CancellationToken cancellationToken);
+    /// <summary>The order a request belongs to, read without tracking (to take the order lock before loading the request).</summary>
+    Task<PurchaseOrderId?> GetToleranceRequestOrderIdAsync(CompanyId companyId, ToleranceRequestId id, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ToleranceRequest>> ListToleranceRequestsAsync(CompanyId companyId, ToleranceRequestStatus? status, PurchaseOrderId? orderId, int take, CancellationToken cancellationToken);
+    Task<bool> HasPendingToleranceRequestAsync(CompanyId companyId, PurchaseOrderId orderId, CancellationToken cancellationToken);
+
     Task<T> InLockedTransactionAsync<T>(CompanyId companyId, string lockKey, Func<CancellationToken, Task<T>> work, CancellationToken cancellationToken);
 
     /// <summary>Holds several locks at once (e.g. an order and one of its bills). Keys are taken in sorted order to avoid deadlocks.</summary>
@@ -156,6 +163,7 @@ public static class PurchasingModule
         services.AddScoped<IVendorService, VendorService>();
         services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
         services.AddScoped<IBillService, BillService>();
+        services.AddScoped<IToleranceRequestService, ToleranceRequestService>();
         services.AddScoped<IDebitNoteService, DebitNoteService>();
         return services;
     }

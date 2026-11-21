@@ -281,3 +281,37 @@ internal sealed class VendorRefundConfiguration : IEntityTypeConfiguration<Vendo
         b.HasIndex(x => x.DebitNoteId);
     }
 }
+
+internal sealed class ToleranceRequestConfiguration : IEntityTypeConfiguration<ToleranceRequest>
+{
+    public void Configure(EntityTypeBuilder<ToleranceRequest> b)
+    {
+        b.ToTable("ToleranceRequests", "purchasing");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasConversion(x => x.Value, x => new ToleranceRequestId(x));
+        b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new CompanyId(x)).IsRequired();
+        b.Property(x => x.PurchaseOrderId).HasConversion(x => x.Value, x => new PurchaseOrderId(x)).IsRequired();
+        b.Property(x => x.Number).HasMaxLength(50).IsRequired();
+        b.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+        b.Property(x => x.DecisionNote).HasMaxLength(500);
+        b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+        b.OwnsMany(x => x.Lines, l =>
+        {
+            l.ToTable("ToleranceRequestLines", "purchasing");
+            l.WithOwner().HasForeignKey("ToleranceRequestId");
+            l.Property<int>("LineNo");
+            l.HasKey("ToleranceRequestId", "LineNo");
+            l.Property(x => x.ItemId).IsRequired();
+            l.Property(x => x.Sku).HasMaxLength(60).IsRequired();
+            l.Property(x => x.PriceTolerancePercent).HasPrecision(7, 4);
+            l.Property(x => x.QuantityTolerancePercent).HasPrecision(7, 4);
+            l.Property(x => x.UnderDeliveryTolerancePercent).HasPrecision(7, 4);
+        });
+        b.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        b.Ignore(x => x.DomainEvents);
+        b.HasIndex(x => new { x.CompanyId, x.Number }).IsUnique();
+        b.HasIndex(x => new { x.CompanyId, x.Status });
+        // At most one open request per order (also enforced in the service; this is the backstop for races).
+        b.HasIndex(x => x.PurchaseOrderId).IsUnique().HasFilter("\"Status\" = 'Pending'");
+    }
+}

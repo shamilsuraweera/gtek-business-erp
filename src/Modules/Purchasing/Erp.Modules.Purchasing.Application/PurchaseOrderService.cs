@@ -69,12 +69,8 @@ public sealed class PurchaseOrderService(
             var vendor = await store.GetVendorAsync(companyId, order.VendorId, ct)
                 ?? throw new DomainException("The vendor was not found.");
             var before = order.Lines.ToDictionary(l => l.ItemId, l => (l.PriceTolerancePercent, l.QuantityTolerancePercent, l.UnderDeliveryTolerancePercent));
-            order.SetTolerances(request.Lines.Select(l => (l.ItemId, l.PriceTolerancePercent, l.QuantityTolerancePercent, l.UnderDeliveryTolerancePercent)).ToList());
-
-            // A looser under-delivery tolerance may complete a part-received order right away.
-            var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
-            order.ReevaluateReceipt(order.Lines.ToDictionary(l => l.ItemId, l => ThreeWayMatch.EffectiveUnderDeliveryTolerance(
-                items.GetValueOrDefault(l.ItemId)?.UnderDeliveryTolerancePercent, vendor.UnderDeliveryTolerancePercent, l.UnderDeliveryTolerancePercent)));
+            await OrderTolerances.ApplyAsync(order, vendor,
+                request.Lines.Select(l => (l.ItemId, l.PriceTolerancePercent, l.QuantityTolerancePercent, l.UnderDeliveryTolerancePercent)).ToList(), catalog, ct);
 
             await store.SaveChangesAsync(ct);
             var changes = request.Lines.ToDictionary(l => l.ItemId.ToString(), object? (l) =>

@@ -56,6 +56,14 @@ public static class PurchasingEndpoints
             var result = await service.SetTolerancesAsync(new PurchaseOrderId(id), request, ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
         }).RequirePermission(Permissions.Purchasing.OrdersOverrideTolerance);
+        orders.MapPost("/{id:guid}/tolerance-requests", async Task<Results<Created<ToleranceRequestResponse>, NotFound>>(
+            Guid id, CreateToleranceRequest request, IToleranceRequestService service, CancellationToken ct) =>
+        {
+            var result = await service.CreateAsync(new PurchaseOrderId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/purchasing/tolerance-requests/{result.Id}", result);
+        }).RequirePermission(Permissions.Purchasing.OrdersManage);
+        orders.MapGet("/{id:guid}/tolerance-requests", async (Guid id, IToleranceRequestService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(null, new PurchaseOrderId(id), 100, ct))).RequirePermission(Permissions.Purchasing.OrdersRead);
         orders.MapPost("/{id:guid}/open", Transition(PurchaseOrderAction.Open)).RequirePermission(Permissions.Purchasing.OrdersManage);
         orders.MapPost("/{id:guid}/release", Transition(PurchaseOrderAction.Release)).RequirePermission(Permissions.Purchasing.OrdersManage);
         orders.MapPost("/{id:guid}/cancel", Transition(PurchaseOrderAction.Cancel)).RequirePermission(Permissions.Purchasing.OrdersManage);
@@ -82,6 +90,29 @@ public static class PurchasingEndpoints
                 new PurchaseOrderId(id), request ?? new CreateBillRequest(null, null, null), canOverride, ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Created($"/api/v1/purchasing/bills/{result.Id}", result);
         }).RequirePermission(Permissions.Purchasing.BillsPost);
+
+        var toleranceRequests = endpoints.MapGroup("/api/v1/purchasing/tolerance-requests").WithTags("Purchasing").RequireCompanyContext();
+        toleranceRequests.MapGet("/", async (string? status, int? take, IToleranceRequestService service, CancellationToken ct) =>
+            TypedResults.Ok(await service.ListAsync(
+                Enum.TryParse<ToleranceRequestStatus>(status, true, out var s) ? s : null, null, take ?? 100, ct))).RequirePermission(Permissions.Purchasing.OrdersRead);
+        toleranceRequests.MapPost("/{id:guid}/approve", async Task<Results<Ok<ToleranceRequestResponse>, NotFound>>(
+            Guid id, ToleranceDecisionRequest? request, IToleranceRequestService service, CancellationToken ct) =>
+        {
+            var result = await service.ApproveAsync(new ToleranceRequestId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Purchasing.OrdersOverrideTolerance);
+        toleranceRequests.MapPost("/{id:guid}/reject", async Task<Results<Ok<ToleranceRequestResponse>, NotFound>>(
+            Guid id, ToleranceDecisionRequest request, IToleranceRequestService service, CancellationToken ct) =>
+        {
+            var result = await service.RejectAsync(new ToleranceRequestId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Purchasing.OrdersOverrideTolerance);
+        toleranceRequests.MapPost("/{id:guid}/withdraw", async Task<Results<Ok<ToleranceRequestResponse>, NotFound>>(
+            Guid id, IToleranceRequestService service, CancellationToken ct) =>
+        {
+            var result = await service.WithdrawAsync(new ToleranceRequestId(id), ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Purchasing.OrdersManage);
 
         var bills = endpoints.MapGroup("/api/v1/purchasing/bills").WithTags("Purchasing").RequireCompanyContext();
         bills.MapGet("/", async (int? take, IBillService service, CancellationToken ct) =>

@@ -42,6 +42,18 @@ public sealed class DocumentNumberGenerator(INumberSequenceService sequences) : 
     }
 }
 
+/// <summary>Implements the user directory contract on top of Platform users.</summary>
+public sealed class UserDirectory(IUserStore users) : IUserDirectory
+{
+    public async Task<IReadOnlyDictionary<Guid, string>> GetUserNamesAsync(IEnumerable<Guid> userIds, CancellationToken cancellationToken)
+    {
+        var names = new Dictionary<Guid, string>();
+        foreach (var id in userIds.Distinct())
+            if (await users.GetByIdAsync(new UserId(id), cancellationToken) is { } user) names[id] = user.UserName;
+        return names;
+    }
+}
+
 /// <summary>Bridges business-module audit calls to the Platform append-only audit trail.</summary>
 public sealed class AuditRecorder(IAuditTrail audit) : IAuditRecorder
 {

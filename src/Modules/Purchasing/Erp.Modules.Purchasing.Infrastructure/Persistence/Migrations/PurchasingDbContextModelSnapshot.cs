@@ -169,6 +169,62 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                     b.ToTable("PurchaseOrders", "purchasing");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.ToleranceRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DecidedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("RequestedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseOrderId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex("CompanyId", "Number")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "Status");
+
+                    b.ToTable("ToleranceRequests", "purchasing");
+                });
+
             modelBuilder.Entity("Erp.Modules.Purchasing.Domain.Vendor", b =>
                 {
                     b.Property<Guid>("Id")
@@ -631,6 +687,50 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
 
                             b1.WithOwner()
                                 .HasForeignKey("PurchaseOrderId");
+                        });
+
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Erp.Modules.Purchasing.Domain.ToleranceRequest", b =>
+                {
+                    b.OwnsMany("Erp.Modules.Purchasing.Domain.ToleranceRequestLine", "Lines", b1 =>
+                        {
+                            b1.Property<Guid>("ToleranceRequestId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<int>("LineNo")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("LineNo"));
+
+                            b1.Property<Guid>("ItemId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<decimal?>("PriceTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
+
+                            b1.Property<decimal?>("QuantityTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
+
+                            b1.Property<string>("Sku")
+                                .IsRequired()
+                                .HasMaxLength(60)
+                                .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal?>("UnderDeliveryTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
+
+                            b1.HasKey("ToleranceRequestId", "LineNo");
+
+                            b1.ToTable("ToleranceRequestLines", "purchasing");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ToleranceRequestId");
                         });
 
                     b.Navigation("Lines");
