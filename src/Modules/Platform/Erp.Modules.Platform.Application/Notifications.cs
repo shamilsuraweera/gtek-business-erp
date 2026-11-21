@@ -16,6 +16,12 @@ public interface INotificationStore
     Task<Notification?> GetAsync(CompanyId companyId, UserId userId, Guid id, CancellationToken cancellationToken);
     Task<int> MarkAllReadAsync(CompanyId companyId, UserId userId, DateTimeOffset at, CancellationToken cancellationToken);
     Task<int> MarkSubjectReadAsync(CompanyId companyId, string subject, DateTimeOffset at, CancellationToken cancellationToken);
+    /// <summary>
+    /// Deletes, across all companies, read notifications read before <paramref name="readBefore"/> and (if given) unread ones sent before
+    /// <paramref name="unreadBefore"/>, in batches.
+    /// </summary>
+    Task<PurgeResult> PurgeAsync(DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken cancellationToken);
+
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
@@ -26,10 +32,14 @@ public interface INotificationService
     Task<int> UnreadCountAsync(CancellationToken cancellationToken);
     Task<NotificationResponse?> MarkReadAsync(Guid id, CancellationToken cancellationToken);
     Task<int> MarkAllReadAsync(CancellationToken cancellationToken);
+    NotificationRetentionResponse Retention { get; }
 }
 
-public sealed class NotificationService(INotificationStore store, ICurrentUser currentUser, ICompanyContext companyContext, IClock clock) : INotificationService
+public sealed class NotificationService(
+    INotificationStore store, ICurrentUser currentUser, ICompanyContext companyContext, IClock clock, NotificationRetentionOptions retention) : INotificationService
 {
+    public NotificationRetentionResponse Retention => new(retention.Enabled, retention.ReadDays, retention.UnreadDays);
+
     private (CompanyId Company, UserId User) Scope() =>
         (companyContext.HasCompany ? companyContext.CompanyId : throw new InvalidOperationException("An active company context is required."),
          currentUser.UserId ?? throw new InvalidOperationException("A signed-in user is required."));

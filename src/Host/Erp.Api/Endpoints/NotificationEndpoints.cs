@@ -14,6 +14,7 @@ public static class NotificationEndpoints
             TypedResults.Ok(await service.ListAsync(unread ?? false, take ?? 20, ct)));
         group.MapGet("/unread-count", async (INotificationService service, CancellationToken ct) =>
             TypedResults.Ok(new UnreadCountResponse(await service.UnreadCountAsync(ct))));
+        group.MapGet("/retention", (INotificationService service) => TypedResults.Ok(service.Retention));
         group.MapPost("/{id:guid}/read", async Task<Results<Ok<NotificationResponse>, NotFound>>(Guid id, INotificationService service, CancellationToken ct) =>
         {
             var result = await service.MarkReadAsync(id, ct);

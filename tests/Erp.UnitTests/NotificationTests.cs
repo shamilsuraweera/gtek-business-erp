@@ -71,6 +71,12 @@ public class NotificationTests
         public Task<Notification?> GetAsync(CompanyId c, UserId u, Guid id, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> MarkAllReadAsync(CompanyId c, UserId u, DateTimeOffset at, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> MarkSubjectReadAsync(CompanyId c, string subject, DateTimeOffset at, CancellationToken ct) { ResolvedSubject = subject; return Task.FromResult(1); }
+        public (DateTimeOffset ReadBefore, DateTimeOffset? UnreadBefore, int Batch)? Purged { get; private set; }
+        public Task<PurgeResult> PurgeAsync(DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken ct)
+        {
+            Purged = (readBefore, unreadBefore, batchSize);
+            return Task.FromResult(new PurgeResult(2, 1));
+        }
         public Task SaveChangesAsync(CancellationToken ct) => Task.CompletedTask;
     }
 
@@ -130,5 +136,67 @@ public class NotificationTests
         var (notifier, store, _) = Setup(_ => true);
         await notifier.ResolveSubjectAsync("tolerance-request:9", default);
         Assert.Equal("tolerance-request:9", store.ResolvedSubject);
+    }
+
+    // ---- retention ---------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Default_retention_is_valid_and_keeps_read_messages_30_days_and_unread_180()
+    {
+        var o = new NotificationRetentionOptions();
+        Assert.Empty(o.Validate());
+        Assert.Equal((true, 30, 180, 1440, 60, 1000), (o.Enabled, o.ReadDays, o.UnreadDays, o.IntervalMinutes, o.InitialDelaySeconds, o.BatchSize));
+    }
+
+    [Theory]
+    [InlineData(0, 180, "ReadDays")]
+    [InlineData(3651, 3651, "ReadDays")]
+    [InlineData(30, -1, "UnreadDays")]
+    [InlineData(30, 3651, "UnreadDays")]
+    [InlineData(30, 10, "must not be shorter")]     // unread must outlive read
+    public void Invalid_day_settings_are_reported(int read, int unread, string mentions)
+    {
+        var errors = new NotificationRetentionOptions { ReadDays = read, UnreadDays = unread }.Validate();
+        Assert.Contains(errors, e => e.Contains(mentions));
+    }
+
+    [Theory]
+    [InlineData(30, 30)]      // equal is fine
+    [InlineData(30, 0)]       // 0 keeps unread forever
+    [InlineData(1, 3650)]
+    public void Valid_day_settings_are_accepted(int read, int unread) =>
+        Assert.Empty(new NotificationRetentionOptions { ReadDays = read, UnreadDays = unread }.Validate());
+
+    [Fact]
+    public void Every_problem_is_listed_at_once()
+    {
+        var errors = new NotificationRetentionOptions { ReadDays = 0, UnreadDays = 5000, IntervalMinutes = 0, InitialDelaySeconds = -1, BatchSize = 5 }.Validate();
+        Assert.Equal(5, errors.Count);
+        Assert.All(errors, e => Assert.StartsWith("Notifications:Retention:", e));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(10081)]
+    public void The_interval_is_bounded(int minutes) =>
+        Assert.Contains(new NotificationRetentionOptions { IntervalMinutes = minutes }.Validate(), e => e.Contains("IntervalMinutes"));
+
+    [Fact]
+    public async Task A_purge_passes_cutoffs_counted_back_from_now()
+    {
+        var store = new FakeStore();
+        var result = await new NotificationRetention(store, new NotificationRetentionOptions { ReadDays = 7, UnreadDays = 60, BatchSize = 250 }, new FixedClock()).PurgeAsync(default);
+        Assert.Equal(Now.AddDays(-7), store.Purged!.Value.ReadBefore);
+        Assert.Equal(Now.AddDays(-60), store.Purged.Value.UnreadBefore);
+        Assert.Equal(250, store.Purged.Value.Batch);
+        Assert.Equal((2, 1, 3), (result.Read, result.Unread, result.Total));
+    }
+
+    [Fact]
+    public async Task Unread_days_of_zero_means_unread_messages_are_never_purged()
+    {
+        var store = new FakeStore();
+        await new NotificationRetention(store, new NotificationRetentionOptions { UnreadDays = 0 }, new FixedClock()).PurgeAsync(default);
+        Assert.Null(store.Purged!.Value.UnreadBefore);
     }
 }

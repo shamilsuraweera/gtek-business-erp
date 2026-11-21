@@ -32,6 +32,13 @@ builder.Services.AddCors(options => options.AddPolicy("DevFrontend", policy => p
 var connectionString = builder.Configuration.GetConnectionString("Erp")
     ?? "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres";
 
+// Notification retention (ADR 0024). A bad value fails at start-up with every problem listed, instead of silently purging the wrong thing.
+var retention = builder.Configuration.GetSection(NotificationRetentionOptions.Section).Get<NotificationRetentionOptions>() ?? new NotificationRetentionOptions();
+if (retention.Validate() is { Count: > 0 } retentionErrors)
+    throw new InvalidOperationException("Invalid notification retention configuration: " + string.Join(" ", retentionErrors));
+builder.Services.AddSingleton(retention);
+if (retention.Enabled) builder.Services.AddHostedService<Erp.Api.Background.NotificationRetentionWorker>();
+
 builder.Services
     .AddPlatformModule()
     .AddFinanceModule()

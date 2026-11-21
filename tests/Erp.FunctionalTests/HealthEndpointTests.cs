@@ -45,6 +45,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             _client = factory.WithWebHostBuilder(builder =>
             {
                 builder.UseSetting("Authentication:BootstrapSecret", "test-bootstrap-secret");
+                builder.UseSetting("Notifications:Retention:Enabled", "false"); // the purge needs a real database
                 builder.ConfigureTestServices(services =>
                 {
                     services.RemoveAll<DbContextOptions<PlatformDbContext>>();

@@ -34,5 +34,27 @@ public sealed class NotificationStore(PlatformDbContext db) : INotificationStore
         db.Notifications.Where(x => x.CompanyId == companyId && x.Subject == subject && x.ReadAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.ReadAt, at), ct);
 
+    public async Task<PurgeResult> PurgeAsync(DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken ct)
+    {
+        var read = await DeleteInBatchesAsync(
+            db.Notifications.Where(x => x.ReadAt != null && x.ReadAt < readBefore).OrderBy(x => x.ReadAt), batchSize, ct);
+        var unread = unreadBefore is { } cutoff
+            ? await DeleteInBatchesAsync(db.Notifications.Where(x => x.ReadAt == null && x.CreatedAt < cutoff).OrderBy(x => x.CreatedAt), batchSize, ct)
+            : 0;
+        return new PurgeResult(read, unread);
+    }
+
+    private async Task<int> DeleteInBatchesAsync(IOrderedQueryable<Notification> due, int batchSize, CancellationToken ct)
+    {
+        var total = 0;
+        while (true)
+        {
+            var ids = due.Select(x => x.Id).Take(batchSize);
+            var deleted = await db.Notifications.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(ct);
+            total += deleted;
+            if (deleted < batchSize) return total;
+        }
+    }
+
     public Task SaveChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);
 }
