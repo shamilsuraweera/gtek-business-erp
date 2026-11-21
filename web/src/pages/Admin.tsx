@@ -4,7 +4,7 @@ import { useApiMutation, useApiQuery } from '../hooks'
 import { P } from '../perm'
 import { formatDate } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader, Tabs } from '../ui'
-import type { AuditPage, EmailStatus, Period, RetentionSettings, Sequence, User } from '../api/types'
+import type { AuditPage, CategoryRetention, EmailStatus, Period, RetentionSettings, Sequence, User } from '../api/types'
 
 type Tab = 'periods' | 'sequences' | 'users' | 'audit' | 'notifications'
 
@@ -154,6 +154,38 @@ function EmailCard() {
   )
 }
 
+/** One category's own retention, or blank to inherit the company's value. */
+function CategoryRow({ row, manage, onSaved }: { row: CategoryRetention; manage: boolean; onSaved: () => void }) {
+  const str = (n: number | null) => (n == null ? '' : String(n))
+  const num = (v: string) => (v.trim() === '' ? null : Number(v))
+  const [read, setRead] = useState<string | null>(null)
+  const [unread, setUnread] = useState<string | null>(null)
+  const readValue = read ?? str(row.readDaysOverride)
+  const unreadValue = unread ?? str(row.unreadDaysOverride)
+  const save = useApiMutation<{ readDays: number | null; unreadDays: number | null }>((body) => ({
+    path: `/notification-settings/retention/categories/${encodeURIComponent(row.category)}`, method: 'PUT', body,
+  }), () => { setRead(null); setUnread(null); onSaved() })
+  const dirty = readValue !== str(row.readDaysOverride) || unreadValue !== str(row.unreadDaysOverride)
+  const own = row.readDaysOverride != null || row.unreadDaysOverride != null
+  return (
+    <>
+      <tr>
+        <td><strong>{row.category}</strong>{own && <span className="muted"> · own rule</span>}</td>
+        <td><input type="number" min={1} max={3650} aria-label={`${row.category} read days`} value={readValue} placeholder="inherit" disabled={!manage} style={{ width: 90 }} onChange={(e) => setRead(e.target.value)} /></td>
+        <td><input type="number" min={0} max={3650} aria-label={`${row.category} unread days`} value={unreadValue} placeholder="inherit" disabled={!manage} style={{ width: 90 }} onChange={(e) => setUnread(e.target.value)} /></td>
+        <td style={{ whiteSpace: 'nowrap' }}>{row.effectiveReadDays} / {row.effectiveUnreadDays === 0 ? 'kept' : row.effectiveUnreadDays}</td>
+        <td>{manage && (
+          <span style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="btn primary" disabled={!dirty || save.isPending} onClick={() => save.mutate({ readDays: num(readValue), unreadDays: num(unreadValue) })}>Save</button>
+            <button type="button" className="btn" disabled={!own || save.isPending} onClick={() => save.mutate({ readDays: null, unreadDays: null })}>Inherit</button>
+          </span>
+        )}</td>
+      </tr>
+      {save.error != null && <tr><td colSpan={5}><ErrorNote error={save.error} /></td></tr>}
+    </>
+  )
+}
+
 /** How long this company keeps notifications: its own values, or blank to use the system default. */
 function NotificationsTab() {
   const { can, company } = useAuth()
@@ -174,7 +206,8 @@ function NotificationsTab() {
   const manage = can(P.retentionManage)
   const dirty = readValue !== str(s.readDaysOverride) || unreadValue !== str(s.unreadDaysOverride)
   return (
-    <form className="card stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }} style={{ maxWidth: 640 }}>
+    <div className="stack" style={{ maxWidth: 640 }}>
+    <form className="card stack" onSubmit={(e: FormEvent) => { e.preventDefault(); save.mutate() }}>
       <h3 style={{ margin: 0 }}>Notification retention{company ? ` — ${company.name}` : ''}</h3>
       <p className="muted" style={{ margin: 0 }}>Notifications are deleted automatically. Leave a field blank to use the system default.</p>
       {!s.enabled && <div className="note error">The scheduled purge is switched off for this installation, so nothing is deleted regardless of these settings.</div>}
@@ -197,6 +230,15 @@ function NotificationsTab() {
         </div>
       )}
     </form>
+    <section className="card stack">
+      <h3 style={{ margin: 0 }}>By category</h3>
+      <p className="muted" style={{ margin: 0 }}>A category can keep its messages for longer or shorter than the rest of the company. Blank inherits the company value above.</p>
+      <table className="data">
+        <thead><tr><th>Category</th><th>Read days</th><th>Unread days</th><th title="read / unread days">In effect</th><th /></tr></thead>
+        <tbody>{s.categories.map((c) => <CategoryRow key={c.category} row={c} manage={manage} onSaved={() => settings.refetch()} />)}</tbody>
+      </table>
+    </section>
+    </div>
   )
 }
 

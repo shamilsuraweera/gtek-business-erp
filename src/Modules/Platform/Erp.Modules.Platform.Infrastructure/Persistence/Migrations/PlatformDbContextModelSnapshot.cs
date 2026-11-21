@@ -306,6 +306,12 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Category")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("");
+
                     b.Property<int?>("ReadDays")
                         .HasColumnType("integer");
 
@@ -318,7 +324,7 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid");
 
-                    b.HasKey("CompanyId");
+                    b.HasKey("CompanyId", "Category");
 
                     b.ToTable("NotificationRetentionSettings", "platform", t =>
                         {

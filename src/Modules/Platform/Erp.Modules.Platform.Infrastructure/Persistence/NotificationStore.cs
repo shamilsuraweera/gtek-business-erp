@@ -39,6 +39,8 @@ public sealed class NotificationStore(PlatformDbContext db) : INotificationStore
         IQueryable<Notification> inScope = db.Notifications;
         if (scope.Only is { } only) inScope = inScope.Where(x => x.CompanyId == only);
         if (scope.Except is { Count: > 0 } except) inScope = inScope.Where(x => !except.Contains(x.CompanyId));
+        if (scope.Category is { } category) inScope = inScope.Where(x => x.Category == category);
+        if (scope.ExceptCategories is { Count: > 0 } exceptCategories) inScope = inScope.Where(x => !exceptCategories.Contains(x.Category));
 
         var read = await DeleteInBatchesAsync(inScope.Where(x => x.ReadAt != null && x.ReadAt < readBefore).OrderBy(x => x.ReadAt), batchSize, ct);
         var unread = unreadBefore is { } cutoff
@@ -47,8 +49,14 @@ public sealed class NotificationStore(PlatformDbContext db) : INotificationStore
         return new PurgeResult(read, unread);
     }
 
-    public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, CancellationToken ct) =>
-        db.NotificationRetentionSettings.SingleOrDefaultAsync(x => x.CompanyId == companyId, ct);
+    public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, string category, CancellationToken ct) =>
+        db.NotificationRetentionSettings.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.Category == category, ct);
+
+    public async Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken ct) =>
+        await db.NotificationRetentionSettings.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(ct);
+
+    public async Task<IReadOnlyList<string>> ListCategoriesAsync(CompanyId companyId, CancellationToken ct) =>
+        await db.Notifications.AsNoTracking().Where(x => x.CompanyId == companyId).Select(x => x.Category).Distinct().ToListAsync(ct);
 
     public async Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken ct) =>
         await db.NotificationRetentionSettings.AsNoTracking().ToListAsync(ct);

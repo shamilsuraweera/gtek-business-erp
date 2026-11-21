@@ -139,12 +139,14 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
     {
         public void Configure(EntityTypeBuilder<NotificationRetentionSetting> b)
         {
-            b.HasKey(x => x.CompanyId);
+            b.HasKey(x => new { x.CompanyId, x.Category });
             b.Property(x => x.CompanyId).HasConversion(x => x.Value, x => new Erp.SharedKernel.CompanyId(x));
+            b.Property(x => x.Category).HasMaxLength(50).HasDefaultValue(string.Empty).IsRequired();
             b.Property(x => x.UpdatedBy).HasConversion(
                 x => x.HasValue ? x.Value.Value : (Guid?)null,
                 x => x.HasValue ? new Erp.SharedKernel.UserId(x.Value) : null);
             b.Ignore(x => x.InheritsEverything);
+            b.Ignore(x => x.IsCompanyWide);
             b.ToTable("NotificationRetentionSettings", "platform", t =>
             {
                 t.HasCheckConstraint("CK_NotificationRetentionSettings_ReadDays", "\"ReadDays\" IS NULL OR (\"ReadDays\" BETWEEN 1 AND 3650)");

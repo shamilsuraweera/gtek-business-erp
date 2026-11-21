@@ -40,18 +40,25 @@ public sealed class NotificationRetentionOptions
         return (read, unread);
     }
 
-    /// <summary>Problems with a company's overrides (null means inherit), judged against the values that would then apply.</summary>
-    public IReadOnlyList<string> ValidateOverrides(int? readOverride, int? unreadOverride)
+    /// <summary>The retention for a category: its own values, else the company's, else the system defaults (either row may be absent).</summary>
+    public (int ReadDays, int UnreadDays) EffectiveFor(NotificationRetentionSetting? company, NotificationRetentionSetting? category) =>
+        Effective(category?.ReadDays ?? company?.ReadDays, category?.UnreadDays ?? company?.UnreadDays);
+
+    /// <summary>
+    /// Problems with overrides (null means inherit), judged against the values that would then apply. <paramref name="inherited"/> is what
+    /// a null falls back to: the system defaults for a company, the company's effective values for a category.
+    /// </summary>
+    public IReadOnlyList<string> ValidateOverrides(int? readOverride, int? unreadOverride, (int Read, int Unread)? inherited = null, string inheritedLabel = "the system default")
     {
         var errors = new List<string>();
         if (readOverride is < 1 or > 3650) errors.Add($"Read days must be between 1 and 3650 (was {readOverride}).");
         if (unreadOverride is < 0 or > 3650) errors.Add($"Unread days must be 0 (keep forever) or between 1 and 3650 (was {unreadOverride}).");
         if (errors.Count > 0) return errors;
-        var read = readOverride ?? ReadDays;
-        var unread = unreadOverride ?? UnreadDays;
+        var read = readOverride ?? inherited?.Read ?? ReadDays;
+        var unread = unreadOverride ?? inherited?.Unread ?? UnreadDays;
         if (unread != 0 && unread < read)
-            errors.Add($"Unread days ({unread}{(unreadOverride is null ? ", the system default" : "")}) must not be shorter than read days "
-                + $"({read}{(readOverride is null ? ", the system default" : "")}): an unread message should outlive a read one.");
+            errors.Add($"Unread days ({unread}{(unreadOverride is null ? ", " + inheritedLabel : "")}) must not be shorter than read days "
+                + $"({read}{(readOverride is null ? ", " + inheritedLabel : "")}): an unread message should outlive a read one.");
         return errors;
     }
 
@@ -81,14 +88,29 @@ public sealed record NotificationRetentionResponse(bool Enabled, int ReadDays, i
 /// <summary>A company's retention settings next to the system defaults; a null override inherits the default.</summary>
 public sealed record NotificationRetentionSettingsResponse(
     bool Enabled, int SystemReadDays, int SystemUnreadDays, int? ReadDaysOverride, int? UnreadDaysOverride,
-    int EffectiveReadDays, int EffectiveUnreadDays, DateTimeOffset? UpdatedAt, string? UpdatedBy);
+    int EffectiveReadDays, int EffectiveUnreadDays, DateTimeOffset? UpdatedAt, string? UpdatedBy,
+    IReadOnlyList<CategoryRetentionResponse> Categories);
+
+/// <summary>One notification category's retention: its own override (null inherits the company's value) and what is in effect.</summary>
+public sealed record CategoryRetentionResponse(
+    string Category, int? ReadDaysOverride, int? UnreadDaysOverride, int EffectiveReadDays, int EffectiveUnreadDays, DateTimeOffset? UpdatedAt, string? UpdatedBy);
 
 public sealed record UpdateNotificationRetentionRequest(int? ReadDays, int? UnreadDays);
 
-/// <summary>Which companies a purge covers.</summary>
-public sealed record PurgeScope(CompanyId? Only, IReadOnlyCollection<CompanyId>? Except)
+/// <summary>The notification categories the platform's modules send, so they can be given a retention before any message exists.</summary>
+public static class NotificationCategories
 {
-    public static PurgeScope Company(CompanyId id) => new(id, null);
+    public static readonly IReadOnlyList<string> Known = ["approval", "decision"];
+}
+
+/// <summary>
+/// What a purge covers: one company (<see cref="Only"/>) or every company but some (<see cref="Except"/>); and, within a company, one
+/// category (<see cref="Category"/>) or every category but some (<see cref="ExceptCategories"/>).
+/// </summary>
+public sealed record PurgeScope(CompanyId? Only, IReadOnlyCollection<CompanyId>? Except, string? Category = null, IReadOnlyCollection<string>? ExceptCategories = null)
+{
+    public static PurgeScope Company(CompanyId id, IReadOnlyCollection<string>? exceptCategories = null) => new(id, null, null, exceptCategories);
+    public static PurgeScope CompanyCategory(CompanyId id, string category) => new(id, null, category);
     public static PurgeScope AllExcept(IReadOnlyCollection<CompanyId> ids) => new(null, ids);
 }
 
@@ -96,6 +118,8 @@ public interface INotificationRetentionSettings
 {
     Task<NotificationRetentionSettingsResponse> GetAsync(CancellationToken cancellationToken);
     Task<NotificationRetentionSettingsResponse> UpdateAsync(UpdateNotificationRetentionRequest request, CancellationToken cancellationToken);
+    /// <summary>Sets (or, with both values null, clears) the retention of one notification category for the active company.</summary>
+    Task<NotificationRetentionSettingsResponse> UpdateCategoryAsync(string category, UpdateNotificationRetentionRequest request, CancellationToken cancellationToken);
 }
 
 public interface INotificationRetention
@@ -113,16 +137,27 @@ public sealed class NotificationRetention(INotificationStore store, Notification
         var read = 0;
         var unread = 0;
 
-        // Each company with its own settings is purged by them; everyone else by the system defaults.
-        foreach (var setting in overrides)
+        // Most specific first: a category with its own setting, then the rest of that company, then every company without settings.
+        foreach (var company in overrides.GroupBy(x => x.CompanyId))
         {
-            var (readDays, unreadDays) = options.Effective(setting.ReadDays, setting.UnreadDays);
-            var result = await PurgeAsync(PurgeScope.Company(setting.CompanyId), readDays, unreadDays, now, cancellationToken);
+            var companyRow = company.SingleOrDefault(x => x.IsCompanyWide);
+            var categories = company.Where(x => !x.IsCompanyWide).ToList();
+            foreach (var category in categories)
+            {
+                var (categoryRead, categoryUnread) = options.EffectiveFor(companyRow, category);
+                var purged = await PurgeAsync(PurgeScope.CompanyCategory(company.Key, category.Category), categoryRead, categoryUnread, now, cancellationToken);
+                read += purged.Read;
+                unread += purged.Unread;
+            }
+
+            var (readDays, unreadDays) = options.Effective(companyRow?.ReadDays, companyRow?.UnreadDays);
+            var result = await PurgeAsync(PurgeScope.Company(company.Key, categories.Count == 0 ? null : categories.Select(x => x.Category).ToArray()),
+                readDays, unreadDays, now, cancellationToken);
             read += result.Read;
             unread += result.Unread;
         }
 
-        var defaults = await PurgeAsync(PurgeScope.AllExcept(overrides.Select(x => x.CompanyId).ToArray()), options.ReadDays, options.UnreadDays, now, cancellationToken);
+        var defaults = await PurgeAsync(PurgeScope.AllExcept(overrides.Select(x => x.CompanyId).Distinct().ToArray()), options.ReadDays, options.UnreadDays, now, cancellationToken);
         return new PurgeResult(read + defaults.Read, unread + defaults.Unread);
     }
 
@@ -137,27 +172,41 @@ public sealed class NotificationRetentionSettingsService(
     private CompanyId Company =>
         companyContext.HasCompany ? companyContext.CompanyId : throw new InvalidOperationException("An active company context is required.");
 
-    public async Task<NotificationRetentionSettingsResponse> GetAsync(CancellationToken cancellationToken) =>
-        await MapAsync(await store.GetRetentionSettingAsync(Company, cancellationToken), cancellationToken);
+    public Task<NotificationRetentionSettingsResponse> GetAsync(CancellationToken cancellationToken) => MapAsync(cancellationToken);
 
     public async Task<NotificationRetentionSettingsResponse> UpdateAsync(UpdateNotificationRetentionRequest request, CancellationToken cancellationToken)
     {
         if (options.ValidateOverrides(request.ReadDays, request.UnreadDays) is { Count: > 0 } errors)
             throw new DomainException(string.Join(" ", errors));
+        await ApplyAsync(NotificationRetentionSetting.CompanyWide, request, "notification-retention.updated", cancellationToken);
+        return await MapAsync(cancellationToken);
+    }
 
-        var setting = await store.GetRetentionSettingAsync(Company, cancellationToken);
-        var before = $"read {setting?.ReadDays?.ToString() ?? "default"}, unread {setting?.UnreadDays?.ToString() ?? "default"}";
+    public async Task<NotificationRetentionSettingsResponse> UpdateCategoryAsync(string category, UpdateNotificationRetentionRequest request, CancellationToken cancellationToken)
+    {
+        var key = NotificationRetentionSetting.NormaliseCategory(category);
+        if (key.Length == 0) throw new DomainException("A category is required.");
+        var company = await store.GetRetentionSettingAsync(Company, NotificationRetentionSetting.CompanyWide, cancellationToken);
+        if (options.ValidateOverrides(request.ReadDays, request.UnreadDays, options.Effective(company?.ReadDays, company?.UnreadDays), "inherited from the company setting") is { Count: > 0 } errors)
+            throw new DomainException(string.Join(" ", errors));
+        await ApplyAsync(key, request, "notification-retention.category-updated", cancellationToken);
+        return await MapAsync(cancellationToken);
+    }
+
+    private async Task ApplyAsync(string category, UpdateNotificationRetentionRequest request, string action, CancellationToken cancellationToken)
+    {
+        var setting = await store.GetRetentionSettingAsync(Company, category, cancellationToken);
+        var before = $"read {setting?.ReadDays?.ToString() ?? "inherit"}, unread {setting?.UnreadDays?.ToString() ?? "inherit"}";
         if (request.ReadDays is null && request.UnreadDays is null)
         {
             // Inheriting everything is the absence of a row.
             if (setting is not null) store.RemoveRetentionSetting(setting);
-            setting = null;
         }
         else
         {
             if (setting is null)
             {
-                setting = NotificationRetentionSetting.Create(Company);
+                setting = NotificationRetentionSetting.Create(Company, category);
                 await store.AddRetentionSettingAsync(setting, cancellationToken);
             }
 
@@ -165,21 +214,38 @@ public sealed class NotificationRetentionSettingsService(
         }
 
         await store.SaveChangesAsync(cancellationToken);
-        await audit.RecordAsync("Notifications", "notification-retention.updated", "Company", Company.Value.ToString(), null, AuditOutcome.Succeeded,
+        await audit.RecordAsync("Notifications", action, "Company", Company.Value.ToString(), null, AuditOutcome.Succeeded,
             new Dictionary<string, object?>
             {
+                ["Category"] = category.Length == 0 ? "(whole company)" : category,
                 ["Before"] = before,
-                ["After"] = $"read {request.ReadDays?.ToString() ?? "default"}, unread {request.UnreadDays?.ToString() ?? "default"}"
+                ["After"] = $"read {request.ReadDays?.ToString() ?? "inherit"}, unread {request.UnreadDays?.ToString() ?? "inherit"}"
             }, cancellationToken);
         await audit.SaveAsync(cancellationToken);
-        return await MapAsync(setting, cancellationToken);
     }
 
-    private async Task<NotificationRetentionSettingsResponse> MapAsync(NotificationRetentionSetting? setting, CancellationToken cancellationToken)
+    private async Task<NotificationRetentionSettingsResponse> MapAsync(CancellationToken cancellationToken)
     {
-        var (read, unread) = options.Effective(setting?.ReadDays, setting?.UnreadDays);
-        var by = setting?.UpdatedBy is { } id ? (await users.GetByIdAsync(id, cancellationToken))?.UserName : null;
-        return new NotificationRetentionSettingsResponse(options.Enabled, options.ReadDays, options.UnreadDays, setting?.ReadDays, setting?.UnreadDays,
-            read, unread, setting?.UpdatedAt, by);
+        var rows = await store.ListRetentionSettingsAsync(Company, cancellationToken);
+        var company = rows.SingleOrDefault(x => x.IsCompanyWide);
+        var (read, unread) = options.Effective(company?.ReadDays, company?.UnreadDays);
+
+        var names = NotificationCategories.Known
+            .Concat(await store.ListCategoriesAsync(Company, cancellationToken))
+            .Concat(rows.Where(x => !x.IsCompanyWide).Select(x => x.Category))
+            .Distinct().Order().ToList();
+        var categories = new List<CategoryRetentionResponse>();
+        foreach (var name in names)
+        {
+            var row = rows.SingleOrDefault(x => x.Category == name);
+            var (categoryRead, categoryUnread) = options.EffectiveFor(company, row);
+            categories.Add(new CategoryRetentionResponse(name, row?.ReadDays, row?.UnreadDays, categoryRead, categoryUnread, row?.UpdatedAt, await NameAsync(row, cancellationToken)));
+        }
+
+        return new NotificationRetentionSettingsResponse(options.Enabled, options.ReadDays, options.UnreadDays, company?.ReadDays, company?.UnreadDays,
+            read, unread, company?.UpdatedAt, await NameAsync(company, cancellationToken), categories);
     }
+
+    private async Task<string?> NameAsync(NotificationRetentionSetting? setting, CancellationToken cancellationToken) =>
+        setting?.UpdatedBy is { } id ? (await users.GetByIdAsync(id, cancellationToken))?.UserName : null;
 }

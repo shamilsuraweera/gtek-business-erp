@@ -41,6 +41,9 @@ public static class NotificationSettingsEndpoints
         group.MapPut("/", async (UpdateNotificationRetentionRequest request, INotificationRetentionSettings service, CancellationToken ct) =>
             TypedResults.Ok(await service.UpdateAsync(request, ct)))
             .RequirePermission(Erp.Modules.Platform.Application.Permissions.Platform.NotificationRetentionManage);
+        group.MapPut("/categories/{category}", async (string category, UpdateNotificationRetentionRequest request, INotificationRetentionSettings service, CancellationToken ct) =>
+            TypedResults.Ok(await service.UpdateCategoryAsync(category, request, ct)))
+            .RequirePermission(Erp.Modules.Platform.Application.Permissions.Platform.NotificationRetentionManage);
         return endpoints;
     }
 }
