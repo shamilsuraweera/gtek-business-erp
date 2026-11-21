@@ -28,6 +28,8 @@ public interface INotificationStore
     Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken cancellationToken);
     /// <summary>Every row of one company.</summary>
     Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken cancellationToken);
+    /// <summary>The newest notification time for a subject in a company.</summary>
+    Task<DateTimeOffset?> LastForSubjectAsync(CompanyId companyId, string subject, CancellationToken cancellationToken);
     /// <summary>Which of these users have opted out of email for the category.</summary>
     Task<IReadOnlySet<UserId>> ListEmailOptOutsAsync(IReadOnlyCollection<UserId> userIds, string category, CancellationToken cancellationToken);
     /// <summary>The categories a user has opted out of email for.</summary>
@@ -124,6 +126,9 @@ public sealed class Notifier(
 
     public async Task ResolveSubjectAsync(string subject, CancellationToken cancellationToken) =>
         await store.MarkSubjectReadAsync(Company, subject, clock.UtcNow, cancellationToken);
+
+    public Task<DateTimeOffset?> LastSentAsync(string subject, CancellationToken cancellationToken) =>
+        store.LastForSubjectAsync(Company, subject, cancellationToken);
 
     private async Task DeliverAsync(IEnumerable<User> recipients, NotificationMessage message, CancellationToken cancellationToken)
     {

@@ -82,6 +82,7 @@ public class NotificationTests
         public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, string category, CancellationToken ct) => Task.FromResult(Settings.SingleOrDefault(x => x.CompanyId == companyId && x.Category == category));
         public Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult<IReadOnlyList<NotificationRetentionSetting>>(Settings.Where(x => x.CompanyId == companyId).ToList());
         public List<string> Categories { get; } = [];
+        public Task<DateTimeOffset?> LastForSubjectAsync(CompanyId companyId, string subject, CancellationToken ct) => Task.FromResult(Added.Where(n => n.Subject == subject).Select(n => (DateTimeOffset?)n.CreatedAt).Max());
         public List<(UserId User, string Category)> OptOuts { get; } = [];
         public Task<IReadOnlySet<UserId>> ListEmailOptOutsAsync(IReadOnlyCollection<UserId> userIds, string category, CancellationToken ct) =>
             Task.FromResult<IReadOnlySet<UserId>>(OptOuts.Where(o => o.Category == category && userIds.Contains(o.User)).Select(o => o.User).ToHashSet());
@@ -496,7 +497,7 @@ public class NotificationTests
         var service = new UserPreferenceService(users, store, EmailOn());
 
         var first = await service.GetAsync(user.Id, default);
-        Assert.Equal(new[] { "approval", "decision" }, first!.Categories.Select(c => c.Category));
+        Assert.Equal(NotificationCategories.Known.Order(), first!.Categories.Select(c => c.Category));
         Assert.All(first.Categories, c => Assert.True(c.EmailEnabled));
 
         await service.SetEmailCategoryAsync(user.Id, "approval", false, default);

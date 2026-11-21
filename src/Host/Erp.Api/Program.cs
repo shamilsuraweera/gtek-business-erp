@@ -1,3 +1,4 @@
+using Erp.Application.Abstractions;
 using Microsoft.AspNetCore.Diagnostics;
 using Erp.Modules.Finance.Application;
 using Erp.Modules.Finance.Infrastructure;
@@ -45,6 +46,13 @@ if (email.Validate() is { Count: > 0 } emailErrors)
 builder.Services.AddSingleton(email);
 if (email.Enabled) builder.Services.AddHostedService<Erp.Api.Background.EmailDeliveryWorker>();
 if (retention.Enabled) builder.Services.AddHostedService<Erp.Api.Background.NotificationRetentionWorker>();
+
+// Scheduled reminders such as overdue invoices and bills (ADR 0029).
+var reminders = builder.Configuration.GetSection(ReminderOptions.Section).Get<ReminderOptions>() ?? new ReminderOptions();
+if (reminders.Validate() is { Count: > 0 } reminderErrors)
+    throw new InvalidOperationException("Invalid reminder configuration: " + string.Join(" ", reminderErrors));
+builder.Services.AddSingleton(reminders);
+if (reminders.Enabled) builder.Services.AddHostedService<Erp.Api.Background.ReminderWorker>();
 
 builder.Services
     .AddPlatformModule()

@@ -44,6 +44,10 @@ public sealed class SalesStore(SalesDbContext db) : ISalesStore
         return Task.CompletedTask;
     }
 
+    public async Task<IReadOnlyList<SalesInvoice>> ListOverdueInvoicesAsync(CompanyId companyId, DateOnly today, CancellationToken cancellationToken) =>
+        await db.Invoices.AsNoTracking().Where(x => x.CompanyId == companyId && x.Status == InvoiceStatus.Open && x.DueDate < today)
+            .OrderBy(x => x.DueDate).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<SalesInvoice>> ListInvoicesAsync(CompanyId companyId, int take, CancellationToken cancellationToken) =>
         await db.Invoices.AsNoTracking().Where(x => x.CompanyId == companyId)
             .OrderByDescending(x => x.CreatedAt).Take(take).ToListAsync(cancellationToken);

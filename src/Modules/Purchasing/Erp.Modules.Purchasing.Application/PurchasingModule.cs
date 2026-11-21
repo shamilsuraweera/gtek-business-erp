@@ -1,3 +1,4 @@
+using Erp.Application.Abstractions;
 using Erp.Modules.Purchasing.Domain;
 using Erp.SharedKernel;
 using Microsoft.Extensions.DependencyInjection;
@@ -97,6 +98,8 @@ public interface IPurchasingStore
     Task<IReadOnlyList<DebitNote>> ListDebitNotesForBillAsync(CompanyId companyId, VendorBillId billId, CancellationToken cancellationToken);
     Task AddVendorRefundAsync(VendorRefund refund, CancellationToken cancellationToken);
     Task<IReadOnlyList<VendorRefund>> ListVendorRefundsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
+    /// <summary>Open bills whose due date is before <paramref name="today"/>, oldest due first.</summary>
+    Task<IReadOnlyList<VendorBill>> ListOverdueBillsAsync(CompanyId companyId, DateOnly today, CancellationToken cancellationToken);
     Task<IReadOnlyList<VendorBill>> ListBillsAsync(CompanyId companyId, int take, CancellationToken cancellationToken);
     Task<VendorBill?> GetBillAsync(CompanyId companyId, VendorBillId id, CancellationToken cancellationToken);
 
@@ -165,6 +168,7 @@ public static class PurchasingModule
         services.AddScoped<IBillService, BillService>();
         services.AddScoped<IToleranceRequestService, ToleranceRequestService>();
         services.AddScoped<IDebitNoteService, DebitNoteService>();
+        services.AddScoped<IReminderJob, OverdueBillReminder>();
         return services;
     }
 }

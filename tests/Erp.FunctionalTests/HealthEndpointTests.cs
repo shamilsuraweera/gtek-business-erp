@@ -46,6 +46,7 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
             {
                 builder.UseSetting("Authentication:BootstrapSecret", "test-bootstrap-secret");
                 builder.UseSetting("Notifications:Retention:Enabled", "false"); // the purge needs a real database
+                builder.UseSetting("Reminders:Enabled", "false"); // reminders read module tables that the in-memory tests do not have
                 builder.ConfigureTestServices(services =>
                 {
                     services.RemoveAll<DbContextOptions<PlatformDbContext>>();
