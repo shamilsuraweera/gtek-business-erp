@@ -1,3 +1,4 @@
+using Erp.Api.Authentication;
 using Erp.Application.Abstractions;
 using Erp.Modules.Finance.Application;
 using Erp.Modules.Finance.Contracts;
@@ -44,6 +45,7 @@ public static class DevSeeder
         await SeedCreditNotesAsync(sp, log, ct);
         await SeedPurchasingAsync(sp, log, ct);
         await SeedVendorReturnsAsync(sp, log, ct);
+        await SeedToleranceWorkflowAsync(sp, adminId, log, ct);
         log.LogInformation("Seed complete. Sign in as '{User}' / '{Password}' and select company {Company}.",
             AdminUserName, AdminPassword, CompanyCode);
     }
@@ -141,6 +143,17 @@ public static class DevSeeder
     ];
 
     /// <summary>Most goods carry VAT; cable is zero-rated (still reported, no tax); mice are left untaxed to show items without a tax code.</summary>
+    /// <summary>
+    /// Matching tolerances (ADR 0018–0020) on a few items so the demo shows them: the expensive laptop is held to a tight price,
+    /// and cable, which suppliers ship in loose quantities, accepts a delivery a little over or under the order.
+    /// </summary>
+    private static (decimal? Price, decimal? Over, decimal? Under) ToleranceFor(string sku) => sku switch
+    {
+        "LAP-002" => (1m, 0m, 0m),
+        "CBL-CAT6" => (null, 10m, 5m),
+        _ => (null, null, null)
+    };
+
     private static string? TaxCodeFor(string sku) => sku switch
     {
         "CBL-CAT6" => "ZERO",
@@ -203,7 +216,8 @@ public static class DevSeeder
         {
             if (!existing.TryGetValue(sku, out var item))
             {
-                item = await itemService.CreateAsync(new CreateItemRequest(sku, name, uom, price, cost, TaxCodeFor(sku)), ct);
+                item = await itemService.CreateAsync(new CreateItemRequest(sku, name, uom, price, cost, TaxCodeFor(sku),
+                    ToleranceFor(sku).Price, ToleranceFor(sku).Over, ToleranceFor(sku).Under), ct);
                 existing[sku] = item;
             }
             else if (item.TaxCode is null && TaxCodeFor(sku) is { } taxCode)
@@ -345,7 +359,8 @@ public static class DevSeeder
 
         var vendors = (await vendorService.ListAsync(ct)).ToDictionary(x => x.Code);
         foreach (var (code, name, email, terms, tolerance) in Vendors.Where(x => !vendors.ContainsKey(x.Code)))
-            vendors[code] = await vendorService.CreateAsync(new CreateVendorRequest(code, name, email, null, terms, tolerance), ct);
+            vendors[code] = await vendorService.CreateAsync(new CreateVendorRequest(code, name, email, null, terms, tolerance,
+                code == "VEN-004" ? 5m : null, code == "VEN-004" ? 5m : null), ct);   // the importer ships in bulk: 5% over or under is normal
 
         var existing = (await orderService.ListAsync(500, ct)).Select(x => x.Notes).ToHashSet();
         var created = 0;
@@ -437,6 +452,53 @@ public static class DevSeeder
         }
 
         return created;
+    }
+
+    /// <summary>
+    /// Demonstrates the tolerance approval workflow (ADR 0022) and its notifications (ADR 0023): the AP clerk asks for overrides and
+    /// the administrator approves one, rejects one and leaves one pending, so each user has something in the bell. Runs once.
+    /// </summary>
+    private static async Task SeedToleranceWorkflowAsync(IServiceProvider sp, UserId adminId, ILogger log, CancellationToken ct)
+    {
+        var requests = sp.GetRequiredService<IToleranceRequestService>();
+        if ((await requests.ListAsync(null, null, 1, ct)).Count > 0) return;
+
+        var clerk = await sp.GetRequiredService<IUserService>().GetByUserNameAsync(ClerkUserName, ct);
+        if (clerk is null) return;
+        var orders = (await sp.GetRequiredService<IPurchaseOrderService>().ListAsync(500, ct)).Where(o => o.Notes is not null).ToDictionary(o => o.Notes!);
+        var acting = sp.GetRequiredService<ActingUserContext>();
+
+        async Task<ToleranceRequestResponse> RequestAsync(string marker, string sku, decimal? price, decimal? over, decimal? under, string reason)
+        {
+            var order = await sp.GetRequiredService<IPurchaseOrderService>().GetAsync(new PurchasingDomain.PurchaseOrderId(orders[marker].Id), ct);
+            var line = order!.Lines.Single(l => l.Sku == sku);
+            acting.User = new UserId(clerk.Id);
+            try
+            {
+                return (await requests.CreateAsync(new PurchasingDomain.PurchaseOrderId(order.Id),
+                    new CreateToleranceRequest(reason, [new ToleranceRequestLineInput(line.ItemId, price, over, under)]), ct))!;
+            }
+            finally { acting.User = null; }
+        }
+
+        async Task DecideAsync(Func<Task> decide)
+        {
+            acting.User = adminId;
+            try { await decide(); }
+            finally { acting.User = null; }
+        }
+
+        // PO-3 (released): the supplier ships laptops in full cartons, so a little over-delivery is expected. Approved.
+        var approved = await RequestAsync("SEED-PO-3", "LAP-001", null, 5m, null, "Supplier ships laptops in cartons of 5; the last carton may push us over the order.");
+        await DecideAsync(() => requests.ApproveAsync(new PurchasingDomain.ToleranceRequestId(approved.Id), new ToleranceDecisionRequest("Fine for this order."), ct));
+
+        // PO-2 (confirmed): asking to accept a short delivery of switches. Rejected.
+        var rejected = await RequestAsync("SEED-PO-2", "NET-008", null, null, 20m, "Supplier is short of stock; we would take 80% and close the order.");
+        await DecideAsync(() => requests.RejectAsync(new PurchasingDomain.ToleranceRequestId(rejected.Id), new ToleranceDecisionRequest("The contract requires full delivery; escalate to the buyer."), ct));
+
+        // PO-4 (goods received, not yet billed): the vendor has warned the invoice will be higher. Left pending for the administrator.
+        await RequestAsync("SEED-PO-4", "SSD-512", 4m, null, null, "Vendor says the invoice will carry a currency surcharge of about 3%.");
+        log.LogInformation("Tolerance workflow ready (1 approved, 1 rejected, 1 pending request).");
     }
 
     /// <summary>A restricted demo user: enters and pays bills but cannot approve price variances beyond tolerance.</summary>
