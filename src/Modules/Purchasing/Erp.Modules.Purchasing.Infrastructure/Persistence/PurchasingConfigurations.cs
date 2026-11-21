@@ -17,6 +17,7 @@ internal sealed class VendorConfiguration : IEntityTypeConfiguration<Vendor>
         b.Property(x => x.Name).HasMaxLength(200).IsRequired();
         b.Property(x => x.Email).HasMaxLength(200);
         b.Property(x => x.Phone).HasMaxLength(50);
+        b.Property(x => x.PriceTolerancePercent).HasPrecision(7, 4);
         b.Ignore(x => x.DomainEvents);
         b.HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
     }
@@ -127,6 +128,8 @@ internal sealed class VendorBillConfiguration : IEntityTypeConfiguration<VendorB
             l.Property(x => x.UnitCost).HasPrecision(19, 4);
             l.Property(x => x.TaxCode).HasMaxLength(20);
             l.Property(x => x.TaxRate).HasPrecision(7, 4);
+            l.Property(x => x.TolerancePercent).HasPrecision(7, 4).HasDefaultValue(ThreeWayMatch.PriceTolerancePercent);
+            l.Ignore(x => x.WithinTolerance);
             l.Property(x => x.TaxAmount).HasPrecision(19, 4);
             l.Ignore(x => x.LineTotal);
             l.Ignore(x => x.LineGross);

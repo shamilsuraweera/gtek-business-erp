@@ -41,7 +41,8 @@ public sealed class BillService(
             var requested = request.Lines is { Count: > 0 }
                 ? request.Lines.ToList()
                 : order.ReceivedNotBilled().Select(x => new BillLineRequest(x.Key, x.Value, null)).ToList();
-            var taxes = await ResolveTaxAsync(order, ct);
+            var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
+            var taxes = await ResolveTaxAsync(order, items, ct);
             var billLines = new List<VendorBillLine>();
             var overTolerance = new List<string>();
             foreach (var r in requested)
@@ -50,11 +51,12 @@ public sealed class BillService(
                 var quantity = r.Quantity ?? line.ReceivedNotBilled;
                 var unitCost = r.UnitCost ?? line.UnitCost;
                 var (taxCode, taxRate) = taxes[line.ItemId];
+                var tolerance = ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(line.ItemId)?.PriceTolerancePercent, vendor.PriceTolerancePercent);
                 var net = decimal.Round(quantity * unitCost, 2);
                 billLines.Add(new VendorBillLine(line.ItemId, line.Sku, line.Description, quantity, line.UnitCost, unitCost,
-                    taxCode, taxRate, TaxMath.Tax(net, taxRate)));
-                if (!ThreeWayMatch.WithinTolerance(line.UnitCost, unitCost))
-                    overTolerance.Add($"{line.Sku}: billed {unitCost:N2} vs order {line.UnitCost:N2} ({ThreeWayMatch.VariancePercent(line.UnitCost, unitCost):+0.##;-0.##}%)");
+                    taxCode, taxRate, TaxMath.Tax(net, taxRate), tolerance));
+                if (!ThreeWayMatch.WithinTolerance(line.UnitCost, unitCost, tolerance))
+                    overTolerance.Add($"{line.Sku}: billed {unitCost:N2} vs order {line.UnitCost:N2} ({ThreeWayMatch.VariancePercent(line.UnitCost, unitCost):+0.##;-0.##}%, tolerance {tolerance:0.##}%)");
             }
 
             var varianceApproved = false;
@@ -62,7 +64,7 @@ public sealed class BillService(
             {
                 if (!request.OverrideVariance)
                     throw new DomainException(
-                        $"Price variance exceeds the {ThreeWayMatch.PriceTolerancePercent:0.##}% tolerance — {string.Join("; ", overTolerance)}. " +
+                        $"Price variance exceeds tolerance — {string.Join("; ", overTolerance)}. " +
                         "Correct the billed price or have someone with approval rights override the variance.");
                 if (!canOverrideVariance)
                     throw new DomainException("You do not have permission to override a price variance.");
@@ -185,9 +187,8 @@ public sealed class BillService(
     }
 
     /// <summary>The tax code and rate each ordered item carries today. An item with no code is untaxed; a code that is missing or inactive blocks billing.</summary>
-    private async Task<Dictionary<Guid, (string? Code, decimal Rate)>> ResolveTaxAsync(PurchaseOrder order, CancellationToken ct)
+    private async Task<Dictionary<Guid, (string? Code, decimal Rate)>> ResolveTaxAsync(PurchaseOrder order, IReadOnlyDictionary<Guid, ItemInfo> items, CancellationToken ct)
     {
-        var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
         var rates = await taxCatalog.GetAsync(items.Values.Select(x => x.TaxCode).OfType<string>(), ct);
         var result = new Dictionary<Guid, (string?, decimal)>();
         foreach (var line in order.Lines)
@@ -221,8 +222,8 @@ public sealed class BillService(
         b.JournalNumber, b.PriceVariance, b.VarianceOverridden,
         b.Lines.Select(l => new BillLineResponse(
             l.ItemId, l.Sku, l.Description, l.Quantity, l.OrderUnitCost, l.UnitCost, l.LineTotal, l.PriceVariance,
-            l.PriceVariance == 0 ? "Matched" : ThreeWayMatch.WithinTolerance(l.OrderUnitCost, l.UnitCost) ? "Within tolerance" : "Variance approved",
-            debited.GetValueOrDefault((b.Id.Value, l.ItemId)), l.TaxCode, l.TaxRate, l.TaxAmount)).ToArray());
+            l.PriceVariance == 0 ? "Matched" : l.WithinTolerance ? "Within tolerance" : "Variance approved",
+            debited.GetValueOrDefault((b.Id.Value, l.ItemId)), l.TaxCode, l.TaxRate, l.TaxAmount, l.TolerancePercent)).ToArray());
 
     private static VendorPaymentResponse MapPayment(VendorPayment p, string billNumber, string vendorName) => new(
         p.Id.Value, p.Number, p.BillId.Value, billNumber, p.VendorId.Value, vendorName,

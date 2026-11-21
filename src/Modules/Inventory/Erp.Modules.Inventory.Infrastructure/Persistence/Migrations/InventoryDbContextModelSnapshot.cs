@@ -42,6 +42,10 @@ namespace Erp.Modules.Inventory.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<decimal?>("PriceTolerancePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
                     b.Property<string>("Sku")
                         .IsRequired()
                         .HasMaxLength(60)

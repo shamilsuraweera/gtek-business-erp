@@ -12,10 +12,12 @@ function VendorForm({ vendor, onClose }: { vendor?: Vendor; onClose: () => void 
   const [email, setEmail] = useState(vendor?.email ?? '')
   const [phone, setPhone] = useState(vendor?.phone ?? '')
   const [terms, setTerms] = useState(String(vendor?.paymentTermsDays ?? 30))
+  const [tolerance, setTolerance] = useState(vendor?.priceTolerancePercent == null ? '' : String(vendor.priceTolerancePercent))
+  const toleranceValue = tolerance.trim() === '' ? null : Number(tolerance)
   const save = useApiMutation<void>(
     () => vendor
-      ? { path: `/purchasing/vendors/${vendor.id}`, method: 'PUT', body: { name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms) } }
-      : { path: '/purchasing/vendors', body: { code, name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms) } },
+      ? { path: `/purchasing/vendors/${vendor.id}`, method: 'PUT', body: { name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms), priceTolerancePercent: toleranceValue } }
+      : { path: '/purchasing/vendors', body: { code, name, email: email || null, phone: phone || null, paymentTermsDays: Number(terms), priceTolerancePercent: toleranceValue } },
     onClose,
   )
   const submit = (event: FormEvent) => { event.preventDefault(); save.mutate() }
@@ -29,6 +31,9 @@ function VendorForm({ vendor, onClose }: { vendor?: Vendor; onClose: () => void 
           <Field label="Email"><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
           <Field label="Phone"><input value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
           <Field label="Payment terms (days)"><input type="number" min={0} max={365} value={terms} onChange={(e) => setTerms(e.target.value)} required /></Field>
+          <Field label="Price tolerance (%)" hint="How far this vendor's billed prices may differ from the order before a bill needs approval. Blank uses the company default (2%); an item's own tolerance takes priority.">
+            <input type="number" min={0} max={100} step="0.01" value={tolerance} placeholder="Default" onChange={(e) => setTolerance(e.target.value)} />
+          </Field>
         </div>
         <ErrorNote error={save.error} />
         <div className="modal-actions">
@@ -63,13 +68,14 @@ export function Vendors() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No vendors match.</Empty> : (
             <table className="data">
-              <thead><tr><th>Code</th><th>Name</th><th>Contact</th><th className="num">Terms</th><th className="num">Payable</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Contact</th><th className="num">Terms</th><th className="num">Tolerance</th><th className="num">Payable</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map((c) => (
                   <tr key={c.id}>
                     <td>{c.code}</td><td>{c.name}</td>
                     <td>{c.email ?? '—'}<div className="muted">{c.phone ?? ''}</div></td>
                     <td className="num">{c.paymentTermsDays}d</td>
+                    <td className="num">{c.priceTolerancePercent == null ? <span className="muted">default</span> : `${c.priceTolerancePercent}%`}</td>
                     <td className="num">{formatMoney(outstanding(c.id))}</td>
                     <td><Badge value={c.isActive ? 'Active' : 'Inactive'} /></td>
                     <td className="right">

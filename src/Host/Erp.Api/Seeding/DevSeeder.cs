@@ -310,13 +310,14 @@ public static class DevSeeder
         log.LogInformation("Sales ready ({Customers} customers, {Created} new orders).", Customers.Length, created);
     }
 
-    private static readonly (string Code, string Name, string Email, int Terms)[] Vendors =
+    // Tolerance is the vendor's allowed price difference on a bill; none uses the company default (2%).
+    private static readonly (string Code, string Name, string Email, int Terms, decimal? Tolerance)[] Vendors =
     [
-        ("VEN-001", "Asia Pacific Computers", "sales@apcomputers.example", 30),
-        ("VEN-002", "Colombo Peripherals Ltd", "orders@cpl.example", 21),
-        ("VEN-003", "NetWorks Distribution", "accounts@networks.example", 45),
-        ("VEN-004", "Global Storage Imports", "supply@globalstorage.example", 30),
-        ("VEN-005", "PowerGuard Lanka", "info@powerguard.example", 14)
+        ("VEN-001", "Asia Pacific Computers", "sales@apcomputers.example", 30, null),
+        ("VEN-002", "Colombo Peripherals Ltd", "orders@cpl.example", 21, null),
+        ("VEN-003", "NetWorks Distribution", "accounts@networks.example", 45, 5m),
+        ("VEN-004", "Global Storage Imports", "supply@globalstorage.example", 30, null),
+        ("VEN-005", "PowerGuard Lanka", "info@powerguard.example", 14, null)
     ];
 
     private enum PurchaseState { Draft, Open, Released, Cancelled, Received, Billed, Partial, Paid }
@@ -343,8 +344,8 @@ public static class DevSeeder
         var itemIds = items.ToDictionary(x => x.Key, x => x.Value.Id);
 
         var vendors = (await vendorService.ListAsync(ct)).ToDictionary(x => x.Code);
-        foreach (var (code, name, email, terms) in Vendors.Where(x => !vendors.ContainsKey(x.Code)))
-            vendors[code] = await vendorService.CreateAsync(new CreateVendorRequest(code, name, email, null, terms), ct);
+        foreach (var (code, name, email, terms, tolerance) in Vendors.Where(x => !vendors.ContainsKey(x.Code)))
+            vendors[code] = await vendorService.CreateAsync(new CreateVendorRequest(code, name, email, null, terms, tolerance), ct);
 
         var existing = (await orderService.ListAsync(500, ct)).Select(x => x.Notes).ToHashSet();
         var created = 0;

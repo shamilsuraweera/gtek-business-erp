@@ -3,7 +3,7 @@ export interface User { id: string; userName: string; email: string; status: str
 export interface LoginResponse { accessToken: string; tokenType: string; expiresAt: string }
 
 export interface Customer { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean }
-export interface Item { id: string; sku: string; name: string; unitOfMeasure: string; unitPrice: number; unitCost: number; isActive: boolean; taxCode: string | null }
+export interface Item { id: string; sku: string; name: string; unitOfMeasure: string; unitPrice: number; unitCost: number; isActive: boolean; taxCode: string | null; priceTolerancePercent: number | null }
 export interface TaxCode { id: string; code: string; name: string; ratePercent: number; isActive: boolean }
 export interface TaxSummary { from: string | null; to: string | null; outputAccountCode: string | null; inputAccountCode: string | null; outputTax: number; inputTax: number; netPayable: number; notes: string[] }
 export interface StockLevel { itemId: string; sku: string; itemName: string; unitOfMeasure: string; onHand: number; unitCost: number; value: number }
@@ -28,14 +28,14 @@ export interface Sequence { id: string; code: string; name: string; prefix: stri
 export interface AuditEntry { id: string; occurredAt: string; actorUserName: string | null; category: string; action: string; entityType: string; entityDisplay: string | null; outcome: string }
 export interface AuditPage { items: AuditEntry[]; page: number; pageSize: number; totalCount: number }
 
-export interface Vendor { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean }
+export interface Vendor { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean; priceTolerancePercent: number | null }
 export type PurchaseOrderStatus = 'Draft' | 'Open' | 'Released' | 'PartiallyReceived' | 'Received' | 'Billed' | 'Cancelled'
-export interface PurchaseOrderLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number; quantityReceived: number; quantityBilled: number; quantityReturned: number; quantityDebited: number; debitableQuantity: number }
+export interface PurchaseOrderLine { itemId: string; sku: string; description: string; quantity: number; unitCost: number; lineTotal: number; quantityReceived: number; quantityBilled: number; quantityReturned: number; quantityDebited: number; debitableQuantity: number; priceTolerancePercent: number | null }
 export interface ReceiptSummary { id: string; number: string; receiptDate: string; reference: string; total: number; journalNumber: string }
 export interface ReturnSummary { id: string; number: string; returnDate: string; reason: string; reference: string; total: number; journalNumber: string }
 export interface BillSummary { id: string; number: string; billDate: string; total: number; priceVariance: number; status: 'Open' | 'Paid' }
 export interface PurchaseOrder { id: string; number: string; vendorId: string; vendorName: string; orderDate: string; notes: string | null; status: PurchaseOrderStatus; total: number; lines: PurchaseOrderLine[]; receipts: ReceiptSummary[]; bills: BillSummary[]; returns: ReturnSummary[] }
-export interface BillLine { itemId: string; sku: string; description: string; quantity: number; orderUnitCost: number; unitCost: number; lineTotal: number; priceVariance: number; matchStatus: 'Matched' | 'Within tolerance' | 'Variance approved'; quantityDebited: number; taxCode: string | null; taxRate: number; taxAmount: number }
+export interface BillLine { itemId: string; sku: string; description: string; quantity: number; orderUnitCost: number; unitCost: number; lineTotal: number; priceVariance: number; matchStatus: 'Matched' | 'Within tolerance' | 'Variance approved'; quantityDebited: number; taxCode: string | null; taxRate: number; taxAmount: number; tolerancePercent: number }
 export interface Bill { id: string; number: string; vendorReference: string | null; purchaseOrderId: string; vendorId: string; vendorName: string; billDate: string; dueDate: string; subtotal: number; taxTotal: number; total: number; amountPaid: number; amountDebited: number; balance: number; status: 'Open' | 'Paid' | 'Debited'; isOverdue: boolean; journalNumber: string; priceVariance: number; varianceOverridden: boolean; lines: BillLine[] }
 export interface VendorPayment { id: string; number: string; billId: string; billNumber: string; vendorId: string; vendorName: string; paymentDate: string; amount: number; method: 'Cash' | 'Bank'; reference: string; journalNumber: string }
 

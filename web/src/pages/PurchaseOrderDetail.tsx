@@ -7,8 +7,10 @@ import { formatDate, formatMoney, formatNumber, today } from '../format'
 import { Badge, Empty, ErrorNote, Field, Loading, Modal, PageHeader } from '../ui'
 import type { Bill, PurchaseOrder } from '../api/types'
 
-/** Mirrors ThreeWayMatch.PriceTolerancePercent on the server. */
-const TOLERANCE = 2
+/** The company default (ThreeWayMatch.PriceTolerancePercent), used only if the server sent no per-line tolerance. */
+const DEFAULT_TOLERANCE = 2
+/** The tolerance the server will match this line against: the item's own, else the vendor's, else the company default. */
+const toleranceOf = (l: PurchaseOrder['lines'][number]) => l.priceTolerancePercent ?? DEFAULT_TOLERANCE
 /** Goods still billable: held (received less returned) not yet covered by a bill (billed less debited). Mirrors the server. */
 const billable = (l: PurchaseOrder['lines'][number]) => Math.max(0, l.quantityReceived - l.quantityReturned - (l.quantityBilled - l.quantityDebited))
 const variancePercent = (order: number, billed: number) => (order === 0 ? (billed === 0 ? 0 : 100) : ((billed - order) / order) * 100)
@@ -120,7 +122,7 @@ function BillDialog({ order, onClose, onCreated }: { order: PurchaseOrder; onClo
     const quantity = Number(qty[l.itemId] || 0)
     const unitCost = Number(cost[l.itemId] || 0)
     const pct = variancePercent(l.unitCost, unitCost)
-    return { l, quantity, unitCost, pct, outside: Math.abs(pct) > TOLERANCE, variance: quantity * (unitCost - l.unitCost) }
+    return { l, quantity, unitCost, pct, outside: Math.abs(pct) > toleranceOf(l), variance: quantity * (unitCost - l.unitCost) }
   }).filter((r) => r.quantity > 0)
   const outside = rows.some((r) => r.outside)
   const total = rows.reduce((s, r) => s + r.quantity * r.unitCost, 0)
@@ -145,7 +147,7 @@ function BillDialog({ order, onClose, onCreated }: { order: PurchaseOrder; onClo
           <Field label="Bill date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
         </div>
         <div className="scroll-x"><table className="data">
-          <thead><tr><th>Item</th><th className="num">Held, not billed</th><th style={{ width: 120 }}>Bill qty</th><th className="num">Order cost</th><th style={{ width: 130 }}>Billed cost</th><th>Match</th></tr></thead>
+          <thead><tr><th>Item</th><th className="num">Held, not billed</th><th style={{ width: 120 }}>Bill qty</th><th className="num">Order cost</th><th style={{ width: 130 }}>Billed cost</th><th className="num">Tolerance</th><th>Match</th></tr></thead>
           <tbody>{billableLines.map((l) => {
             const unbilled = billable(l)
             const pct = variancePercent(l.unitCost, Number(cost[l.itemId] || 0))
@@ -156,18 +158,19 @@ function BillDialog({ order, onClose, onCreated }: { order: PurchaseOrder; onClo
                 <td><input type="number" min="0" max={unbilled} step="any" value={qty[l.itemId]} aria-label={`Quantity to bill for ${l.sku}`} onChange={(e) => setQty({ ...qty, [l.itemId]: e.target.value })} /></td>
                 <td className="num">{formatMoney(l.unitCost)}</td>
                 <td><input type="number" min="0" step="0.01" value={cost[l.itemId]} aria-label={`Billed unit cost for ${l.sku}`} onChange={(e) => setCost({ ...cost, [l.itemId]: e.target.value })} /></td>
-                <td>{pct === 0 ? <Badge value="Matched" tone="ok" /> : Math.abs(pct) <= TOLERANCE
+                <td className="num">{toleranceOf(l)}%</td>
+                <td>{pct === 0 ? <Badge value="Matched" tone="ok" /> : Math.abs(pct) <= toleranceOf(l)
                   ? <Badge value={`${pct > 0 ? '+' : ''}${pct.toFixed(2)}% ok`} tone="warn" />
                   : <Badge value={`${pct > 0 ? '+' : ''}${pct.toFixed(2)}% over`} tone="bad" />}</td>
               </tr>
             )
           })}</tbody>
-          <tfoot><tr><td colSpan={4}>Bill total (excl. tax) {variance !== 0 && <span className="muted"> · price variance {formatMoney(variance)}</span>}</td><td className="num" colSpan={2}>{formatMoney(total)}</td></tr></tfoot>
+          <tfoot><tr><td colSpan={5}>Bill total (excl. tax) {variance !== 0 && <span className="muted"> · price variance {formatMoney(variance)}</span>}</td><td className="num" colSpan={2}>{formatMoney(total)}</td></tr></tfoot>
         </table></div>
         <p className="hint">Prices exclude tax. Input tax is added from each item's tax code when the bill is posted.</p>
         {outside && (
           <div className="note error">
-            Price differs from the order by more than {TOLERANCE}%. {can(P.billsOverride)
+            Price differs from the order by more than the tolerance ({rows.filter((r) => r.outside).map((r) => `${r.l.sku} ${toleranceOf(r.l)}%`).join(', ')}). {can(P.billsOverride)
               ? <label className="row" style={{ marginTop: 6 }}><input type="checkbox" style={{ width: 'auto' }} checked={override} onChange={(e) => setOverride(e.target.checked)} /> Approve this variance (posted to Purchase Price Variance)</label>
               : 'Correct the billed cost, or ask an approver to enter this bill.'}
           </div>

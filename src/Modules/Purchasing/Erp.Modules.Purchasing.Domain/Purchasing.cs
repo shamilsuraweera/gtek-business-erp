@@ -42,22 +42,29 @@ public sealed class Vendor : AggregateRoot<VendorId>
     public string? Email { get; private set; }
     public string? Phone { get; private set; }
     public int PaymentTermsDays { get; private set; }
+    /// <summary>This vendor's price tolerance for the three-way match; none means the company default applies.</summary>
+    public decimal? PriceTolerancePercent { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Vendor Create(CompanyId companyId, string code, string name, string? email, string? phone,
-        int paymentTermsDays, DateTimeOffset createdAt) =>
-        new(new VendorId(Guid.NewGuid()), companyId, code, name, email, phone, paymentTermsDays, createdAt);
+        int paymentTermsDays, DateTimeOffset createdAt, decimal? priceTolerancePercent = null)
+    {
+        var vendor = new Vendor(new VendorId(Guid.NewGuid()), companyId, code, name, email, phone, paymentTermsDays, createdAt);
+        vendor.PriceTolerancePercent = ThreeWayMatch.ValidateTolerance(priceTolerancePercent);
+        return vendor;
+    }
 
     public static string NormalizeCode(string code) =>
         string.IsNullOrWhiteSpace(code) ? throw new DomainException("Vendor code is required.") : code.Trim().ToUpperInvariant();
 
-    public void Update(string name, string? email, string? phone, int paymentTermsDays)
+    public void Update(string name, string? email, string? phone, int paymentTermsDays, decimal? priceTolerancePercent = null)
     {
         Name = NormalizeName(name);
         Email = Clean(email);
         Phone = Clean(phone);
         PaymentTermsDays = ValidateTerms(paymentTermsDays);
+        PriceTolerancePercent = ThreeWayMatch.ValidateTolerance(priceTolerancePercent);
     }
 
     public void Activate() => IsActive = true;
@@ -347,22 +354,39 @@ public sealed class GoodsReceipt : AggregateRoot<GoodsReceiptId>
 /// <summary>Price tolerance rules for matching a vendor bill to the purchase order.</summary>
 public static class ThreeWayMatch
 {
-    /// <summary>Billed prices may differ from the order price by this much before the bill needs an approved override.</summary>
+    /// <summary>The company-wide default: billed prices may differ from the order price by this much before the bill needs an approved override.</summary>
     public const decimal PriceTolerancePercent = 2m;
+
+    /// <summary>The most a tolerance may be set to.</summary>
+    public const decimal MaxTolerancePercent = 100m;
+
+    /// <summary>The tolerance that applies to a line: the item's own, else the vendor's, else the company default.</summary>
+    public static decimal EffectiveTolerance(decimal? itemTolerance, decimal? vendorTolerance) =>
+        itemTolerance ?? vendorTolerance ?? PriceTolerancePercent;
+
+    /// <summary>Checks an optional tolerance (0 means exact prices only) and returns it rounded to the stored precision.</summary>
+    public static decimal? ValidateTolerance(decimal? tolerancePercent)
+    {
+        if (tolerancePercent is null) return null;
+        if (tolerancePercent < 0 || tolerancePercent > MaxTolerancePercent)
+            throw new DomainException($"Price tolerance must be between 0 and {MaxTolerancePercent:0}%.");
+        return decimal.Round(tolerancePercent.Value, 4);
+    }
 
     public static decimal VariancePercent(decimal orderUnitCost, decimal billedUnitCost) =>
         orderUnitCost == 0 ? (billedUnitCost == 0 ? 0 : 100) : (billedUnitCost - orderUnitCost) / orderUnitCost * 100m;
 
-    public static bool WithinTolerance(decimal orderUnitCost, decimal billedUnitCost) =>
-        Math.Abs(VariancePercent(orderUnitCost, billedUnitCost)) <= PriceTolerancePercent;
+    public static bool WithinTolerance(decimal orderUnitCost, decimal billedUnitCost, decimal tolerancePercent = PriceTolerancePercent) =>
+        Math.Abs(VariancePercent(orderUnitCost, billedUnitCost)) <= tolerancePercent;
 }
 
 public sealed record VendorBillLine
 {
     public VendorBillLine(Guid itemId, string sku, string description, decimal quantity, decimal orderUnitCost, decimal unitCost,
-        string? taxCode = null, decimal taxRate = 0m, decimal taxAmount = 0m)
+        string? taxCode = null, decimal taxRate = 0m, decimal taxAmount = 0m, decimal tolerancePercent = ThreeWayMatch.PriceTolerancePercent)
     {
         if (quantity <= 0) throw new DomainException("Billed quantity must be positive.");
+        TolerancePercent = tolerancePercent;
         if (taxAmount < 0) throw new DomainException("Line tax cannot be negative.");
         TaxCode = taxCode;
         TaxRate = taxRate;
@@ -388,6 +412,9 @@ public sealed record VendorBillLine
     public string? TaxCode { get; }
     public decimal TaxRate { get; }
     public decimal TaxAmount { get; }
+    /// <summary>The price tolerance this line was matched against when the bill was entered (item, else vendor, else company default).</summary>
+    public decimal TolerancePercent { get; }
+    public bool WithinTolerance => ThreeWayMatch.WithinTolerance(OrderUnitCost, UnitCost, TolerancePercent);
     /// <summary>The billed amount before tax.</summary>
     public decimal LineTotal => decimal.Round(Quantity * UnitCost, 2);
     public decimal LineGross => LineTotal + TaxAmount;

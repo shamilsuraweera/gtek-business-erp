@@ -259,21 +259,28 @@ public sealed class PurchaseOrderService(
         var receipts = await store.ListReceiptsForOrderAsync(companyId, order.Id, ct);
         var bills = await store.ListBillsForOrderAsync(companyId, order.Id, ct);
         var returns = await store.ListReturnsForOrderAsync(companyId, order.Id, ct);
+        // The tolerance a bill would be matched against for each line (item, else vendor, else company default).
+        var vendor = await store.GetVendorAsync(companyId, order.VendorId, ct);
+        var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
+        var tolerances = order.Lines.ToDictionary(l => l.ItemId,
+            l => ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(l.ItemId)?.PriceTolerancePercent, vendor?.PriceTolerancePercent));
         return Map(order, vendorName,
             receipts.OrderBy(r => r.ReceiptDate).ThenBy(r => r.Number)
                 .Select(r => new ReceiptSummary(r.Id.Value, r.Number, r.ReceiptDate, r.Reference, r.Total, r.JournalNumber)).ToArray(),
             bills.OrderBy(b => b.BillDate).ThenBy(b => b.Number)
                 .Select(b => new BillSummary(b.Id.Value, b.Number, b.BillDate, b.Total, b.PriceVariance, b.Status)).ToArray(),
             returns.OrderBy(r => r.ReturnDate).ThenBy(r => r.Number)
-                .Select(r => new ReturnSummary(r.Id.Value, r.Number, r.ReturnDate, r.Reason, r.Reference, r.Total, r.JournalNumber)).ToArray());
+                .Select(r => new ReturnSummary(r.Id.Value, r.Number, r.ReturnDate, r.Reason, r.Reference, r.Total, r.JournalNumber)).ToArray(),
+            tolerances);
     }
 
     internal static PurchaseOrderResponse Map(
         PurchaseOrder o, string vendorName, IReadOnlyList<ReceiptSummary> receipts, IReadOnlyList<BillSummary> bills,
-        IReadOnlyList<ReturnSummary> returns) => new(
+        IReadOnlyList<ReturnSummary> returns, IReadOnlyDictionary<Guid, decimal>? tolerances = null) => new(
         o.Id.Value, o.Number, o.VendorId.Value, vendorName, o.OrderDate, o.Notes, o.Status, o.Total,
         o.Lines.Select(l => new PurchaseOrderLineResponse(
             l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost, l.LineTotal, l.QuantityReceived, l.QuantityBilled,
-            l.QuantityReturned, l.QuantityDebited, l.DebitableQuantity)).ToArray(),
+            l.QuantityReturned, l.QuantityDebited, l.DebitableQuantity,
+            tolerances?.GetValueOrDefault(l.ItemId))).ToArray(),
         receipts, bills, returns);
 }
