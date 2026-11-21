@@ -88,4 +88,37 @@ public class InventoryTests
         var ex = Assert.Throws<DomainException>(() => item.Update("U", "EA", 10m, 5m, null, null, null, 100.5m));
         Assert.Contains("Under-delivery tolerance", ex.Message);
     }
+
+    [Fact]
+    public void Reorder_level_is_optional_validated_and_changeable()
+    {
+        var item = Item.Create(Company, "R-1", "R", "EA", 10m, 5m, DateTimeOffset.UtcNow, null, null, null, null, 5m);
+        Assert.Equal(5m, item.ReorderLevel);
+        item.Update("R", "EA", 10m, 5m, null, null, null, null, 0m);
+        Assert.Equal(0m, item.ReorderLevel);                       // 0 is a real level: tell me when it runs out
+        item.Update("R", "EA", 10m, 5m, null, null, null, null, null);
+        Assert.Null(item.ReorderLevel);                            // not monitored
+        var ex = Assert.Throws<DomainException>(() => item.Update("R", "EA", 10m, 5m, null, null, null, null, -1m));
+        Assert.Contains("reorder level", ex.Message);
+        Assert.Equal(2.5m, Item.Create(Company, "R-2", "R", "EA", 1m, 1m, DateTimeOffset.UtcNow, reorderLevel: 2.5m).ReorderLevel);
+    }
+
+    [Theory]
+    [InlineData(6, 5, false)]
+    [InlineData(5, 5, true)]      // at the level counts
+    [InlineData(0, 5, true)]
+    [InlineData(-2, 5, true)]
+    [InlineData(0, 0, true)]
+    public void An_item_is_low_at_or_below_its_level(double onHand, double level, bool low) =>
+        Assert.Equal(low, Item.Create(Company, "L-1", "L", "EA", 1m, 1m, DateTimeOffset.UtcNow, reorderLevel: (decimal)level).IsLow((decimal)onHand));
+
+    [Fact]
+    public void Unmonitored_and_inactive_items_are_never_low()
+    {
+        var plain = Item.Create(Company, "L-2", "L", "EA", 1m, 1m, DateTimeOffset.UtcNow);
+        Assert.False(plain.IsLow(0m));
+        var inactive = Item.Create(Company, "L-3", "L", "EA", 1m, 1m, DateTimeOffset.UtcNow, reorderLevel: 10m);
+        inactive.Deactivate();
+        Assert.False(inactive.IsLow(0m));
+    }
 }

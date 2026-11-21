@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { useApiQuery } from '../hooks'
 import { P } from '../perm'
-import { formatDate, formatMoney } from '../format'
+import { formatDate, formatMoney, isLowStock } from '../format'
 import { Badge, Empty, Kpi, Loading, PageHeader } from '../ui'
 import type { AccountMapping, Bill, Invoice, Order, StockLevel, TaxSummary, TrialBalance } from '../api/types'
 
@@ -68,7 +68,7 @@ export function Dashboard() {
   const statuses = ['Draft', 'Open', 'Released', 'Invoiced', 'Cancelled'] as const
   const counts = statuses.map((s) => ({ status: s, count: (orders.data ?? []).filter((o) => o.status === s).length }))
   const maxCount = Math.max(...counts.map((c) => c.count), 1)
-  const lowStock = (stock.data ?? []).filter((s) => s.onHand <= 8).sort((a, b) => a.onHand - b.onHand).slice(0, 6)
+  const lowStock = (stock.data ?? []).filter(isLowStock).sort((a, b) => a.onHand - b.onHand).slice(0, 6)
   const recent = (invoices.data ?? []).slice(0, 6)
   const loading = tb.isLoading || invoices.isLoading || orders.isLoading || stock.isLoading
 

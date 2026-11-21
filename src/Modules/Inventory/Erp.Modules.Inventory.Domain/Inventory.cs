@@ -46,17 +46,22 @@ public sealed class Item : AggregateRoot<ItemId>
     public decimal? QuantityTolerancePercent { get; private set; }
     /// <summary>How far below the ordered quantity a delivery of this item still counts as complete; none defers to the vendor, then to exact quantities.</summary>
     public decimal? UnderDeliveryTolerancePercent { get; private set; }
+    /// <summary>
+    /// The on-hand quantity at or below which the item counts as low and people who manage stock are told (ADR 0030); none means the item is not monitored.
+    /// </summary>
+    public decimal? ReorderLevel { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Item Create(CompanyId companyId, string sku, string name, string unitOfMeasure,
-        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
+        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null, decimal? reorderLevel = null)
     {
         var item = new Item(new ItemId(Guid.NewGuid()), companyId, sku, name, unitOfMeasure, unitPrice, unitCost, createdAt);
         item.TaxCode = NormalizeTaxCode(taxCode);
         item.PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
         item.QuantityTolerancePercent = ValidateTolerance(quantityTolerancePercent, "Quantity");
         item.UnderDeliveryTolerancePercent = ValidateTolerance(underDeliveryTolerancePercent, "Under-delivery");
+        item.ReorderLevel = ValidateReorderLevel(reorderLevel);
         return item;
     }
 
@@ -65,14 +70,23 @@ public sealed class Item : AggregateRoot<ItemId>
         : tolerancePercent is < 0 or > 100 ? throw new DomainException($"{kind} tolerance must be between 0 and 100%.")
         : decimal.Round(tolerancePercent.Value, 4);
 
+    public static decimal? ValidateReorderLevel(decimal? reorderLevel) =>
+        reorderLevel is null ? null
+        : reorderLevel < 0 ? throw new DomainException("The reorder level cannot be negative.")
+        : decimal.Round(reorderLevel.Value, 4);
+
+    /// <summary>Whether <paramref name="onHand"/> is at or below the reorder level of an active, monitored item.</summary>
+    public bool IsLow(decimal onHand) => IsActive && ReorderLevel is { } level && onHand <= level;
+
     public static string? NormalizeTaxCode(string? taxCode) =>
         string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
 
     public static string NormalizeSku(string sku) =>
         string.IsNullOrWhiteSpace(sku) ? throw new DomainException("Item SKU is required.") : sku.Trim().ToUpperInvariant();
 
-    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
+    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null, decimal? reorderLevel = null)
     {
+        ReorderLevel = ValidateReorderLevel(reorderLevel);
         TaxCode = NormalizeTaxCode(taxCode);
         PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
         QuantityTolerancePercent = ValidateTolerance(quantityTolerancePercent, "Quantity");

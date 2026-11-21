@@ -3,10 +3,10 @@ export interface User { id: string; userName: string; email: string; status: str
 export interface LoginResponse { accessToken: string; tokenType: string; expiresAt: string }
 
 export interface Customer { id: string; code: string; name: string; email: string | null; phone: string | null; paymentTermsDays: number; isActive: boolean }
-export interface Item { id: string; sku: string; name: string; unitOfMeasure: string; unitPrice: number; unitCost: number; isActive: boolean; taxCode: string | null; priceTolerancePercent: number | null; quantityTolerancePercent: number | null; underDeliveryTolerancePercent: number | null }
+export interface Item { id: string; sku: string; name: string; unitOfMeasure: string; unitPrice: number; unitCost: number; isActive: boolean; taxCode: string | null; priceTolerancePercent: number | null; quantityTolerancePercent: number | null; underDeliveryTolerancePercent: number | null; reorderLevel: number | null }
 export interface TaxCode { id: string; code: string; name: string; ratePercent: number; isActive: boolean }
 export interface TaxSummary { from: string | null; to: string | null; outputAccountCode: string | null; inputAccountCode: string | null; outputTax: number; inputTax: number; netPayable: number; notes: string[] }
-export interface StockLevel { itemId: string; sku: string; itemName: string; unitOfMeasure: string; onHand: number; unitCost: number; value: number }
+export interface StockLevel { itemId: string; sku: string; itemName: string; unitOfMeasure: string; onHand: number; unitCost: number; value: number; reorderLevel: number | null; isLow: boolean }
 export interface StockLedgerEntry { id: string; itemId: string; sku: string; locationId: string; quantity: number; unitCost: number; postingDate: string; postedAt: string; sourceType: string; sourceReference: string }
 
 export type OrderStatus = 'Draft' | 'Open' | 'Released' | 'Invoiced' | 'Cancelled'

@@ -1,5 +1,7 @@
 using System.Reflection;
 using Erp.Application.Abstractions;
+using Erp.Modules.Inventory.Application;
+using Erp.Modules.Inventory.Domain;
 using Erp.Modules.Platform.Application;
 using Erp.Modules.Purchasing.Application;
 using Erp.Modules.Purchasing.Domain;
@@ -197,6 +199,71 @@ public class ReminderTests
         Assert.Contains("BILL-7", message.Body);
     }
 
+    // ---- low stock ------------------------------------------------------------------------------------------------
+
+    private static Item Stocked(string sku, decimal? level, bool active = true)
+    {
+        var item = Item.Create(Company, sku, "Name of " + sku, "EA", 10m, 5m, Now, reorderLevel: level);
+        if (!active) item.Deactivate();
+        return item;
+    }
+
+    private static (LowStockReminder Job, FakeNotifier Notifier) StockJob(IReadOnlyList<Item> items, Func<Item, decimal> onHand, ReminderOptions? options = null)
+    {
+        var notifier = new FakeNotifier();
+        var itemStore = Stub<IItemStore>("ListAsync", _ => Task.FromResult(items));
+        var stock = Stub<IStockStore>("OnHandByItemAsync", _ => Task.FromResult<IReadOnlyList<ItemQuantity>>(items.Select(i => new ItemQuantity(i.Id, onHand(i), 0m)).ToList()));
+        return (new LowStockReminder(itemStore, stock, notifier, new FixedCompany(), new FixedClock(), options ?? new ReminderOptions()), notifier);
+    }
+
+    [Fact]
+    public async Task Low_items_are_summarised_most_urgent_first_for_the_people_who_manage_stock()
+    {
+        var items = new[] { Stocked("A", 10m), Stocked("B", 10m), Stocked("C", 10m), Stocked("D", null), Stocked("E", 10m, active: false) };
+        var qty = new Dictionary<string, decimal> { ["A"] = 4m, ["B"] = 0m, ["C"] = 11m, ["D"] = 0m, ["E"] = 0m };
+        var (job, notifier) = StockJob(items, i => qty[i.Sku]);
+        Assert.Equal(1, await job.RunAsync(default));
+
+        var (permission, message) = Assert.Single(notifier.Sent);
+        Assert.Equal(LowStockReminder.Recipients, permission);
+        Assert.Equal(("low-stock", "low-stock", "/items", true), (message.Category, message.Subject, message.Link, message.Email));
+        Assert.Equal("2 items are low on stock", message.Title);       // A and B; C is above, D is unmonitored, E is inactive
+        Assert.StartsWith("1 out of stock. Lowest: B (Name of B) has 0 EA left, reorder level 10.", message.Body);
+        Assert.Equal(["low-stock"], notifier.Resolved);
+    }
+
+    [Fact]
+    public async Task One_low_item_reads_naturally_and_decimals_are_trimmed()
+    {
+        var (job, notifier) = StockJob([Stocked("A", 2.5m)], _ => 1.25m);
+        await job.RunAsync(default);
+        var message = notifier.Sent.Single().Message;
+        Assert.Equal("1 item is low on stock", message.Title);
+        Assert.Equal("Lowest: A (Name of A) has 1.25 EA left, reorder level 2.5.", message.Body);
+    }
+
+    [Fact]
+    public async Task Nothing_low_sends_nothing_and_clears_the_old_summary()
+    {
+        var (job, notifier) = StockJob([Stocked("A", 5m), Stocked("B", null)], i => 50m);
+        Assert.Equal(0, await job.RunAsync(default));
+        Assert.Empty(notifier.Sent);
+        Assert.Equal(["low-stock"], notifier.Resolved);
+    }
+
+    [Fact]
+    public async Task Low_stock_is_not_repeated_within_the_period_and_waits_for_the_hour()
+    {
+        var (job, notifier) = StockJob([Stocked("A", 5m)], _ => 0m);
+        notifier.Last = At(0, 8);
+        Assert.Equal(0, await job.RunAsync(default));
+        Assert.Empty(notifier.Sent);
+
+        var (early, earlyNotifier) = StockJob([Stocked("A", 5m)], _ => 0m, new ReminderOptions { HourUtc = 12 });
+        Assert.Equal(0, await early.RunAsync(default));
+        Assert.Empty(earlyNotifier.Sent);
+    }
+
     // ---- wiring ---------------------------------------------------------------------------------------------------
 
     [Fact]
@@ -206,5 +273,7 @@ public class ReminderTests
         Assert.Equal(Permissions.Purchasing.PaymentsRecord, OverdueBillReminder.Recipients);
         Assert.Contains(OverdueInvoiceReminder.Category, NotificationCategories.Known);
         Assert.Contains(OverdueBillReminder.Category, NotificationCategories.Known);
+        Assert.Equal(Permissions.Inventory.StockManage, LowStockReminder.Recipients);
+        Assert.Contains(LowStockReminder.Category, NotificationCategories.Known);
     }
 }

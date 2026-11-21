@@ -63,7 +63,7 @@ public sealed class StockService(
             {
                 var level = quantities.GetValueOrDefault(i.Id);
                 // Value comes from the ledger (receipts at their own cost, issues at standard cost) so it matches the GL.
-                return new StockLevelResponse(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, level?.Quantity ?? 0m, i.UnitCost, level?.Value ?? 0m);
+                return new StockLevelResponse(i.Id.Value, i.Sku, i.Name, i.UnitOfMeasure, level?.Quantity ?? 0m, i.UnitCost, level?.Value ?? 0m, i.ReorderLevel, i.IsLow(level?.Quantity ?? 0m));
             })
             .ToArray();
     }
