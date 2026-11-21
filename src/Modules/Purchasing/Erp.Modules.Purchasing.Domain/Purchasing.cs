@@ -105,6 +105,12 @@ public sealed record PurchaseOrderLine
     public string Description { get; }
     public decimal Quantity { get; }
     public decimal UnitCost { get; }
+    /// <summary>Per-order override of the price tolerance for this line; none defers to the item, then the vendor, then the company default.</summary>
+    public decimal? PriceTolerancePercent { get; private set; }
+    /// <summary>Per-order override of the over-delivery tolerance for this line.</summary>
+    public decimal? QuantityTolerancePercent { get; private set; }
+    /// <summary>Per-order override of the under-delivery tolerance for this line.</summary>
+    public decimal? UnderDeliveryTolerancePercent { get; private set; }
     public decimal QuantityReceived { get; private set; }
     public decimal QuantityBilled { get; private set; }
     /// <summary>Goods sent back to the vendor.</summary>
@@ -128,6 +134,13 @@ public sealed record PurchaseOrderLine
     public decimal ReceivedNotBilled => Math.Max(0m, NetReceived - NetBilled);
     /// <summary>Billed goods that were sent back: a debit note from the vendor is due for these.</summary>
     public decimal DebitableQuantity => Math.Max(0m, NetBilled - NetReceived);
+
+    internal void SetTolerances(decimal? price, decimal? quantity, decimal? underDelivery)
+    {
+        PriceTolerancePercent = ThreeWayMatch.ValidateTolerance(price);
+        QuantityTolerancePercent = ThreeWayMatch.ValidateTolerance(quantity, "Over-delivery");
+        UnderDeliveryTolerancePercent = ThreeWayMatch.ValidateTolerance(underDelivery, "Under-delivery");
+    }
 
     internal void ApplyReceipt(decimal quantity) => QuantityReceived += quantity;
     internal void ApplyBilling(decimal quantity) => QuantityBilled += quantity;
@@ -174,12 +187,40 @@ public sealed class PurchaseOrder : AggregateRoot<PurchaseOrderId>
         DateOnly orderDate, string? notes, DateTimeOffset createdAt) =>
         new(new PurchaseOrderId(Guid.NewGuid()), companyId, number, vendorId, orderDate, notes, createdAt);
 
-    public void AddLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost)
+    public void AddLine(Guid itemId, string sku, string description, decimal quantity, decimal unitCost,
+        decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
     {
         if (Status != PurchaseOrderStatus.Draft) throw new DomainException("Only draft purchase orders can be changed.");
         if (_lines.Any(x => x.ItemId == itemId))
             throw new DomainException($"Item '{sku}' is already on this order; combine the quantities into one line.");
-        _lines.Add(new PurchaseOrderLine(itemId, sku, description, quantity, unitCost));
+        var line = new PurchaseOrderLine(itemId, sku, description, quantity, unitCost);
+        line.SetTolerances(priceTolerancePercent, quantityTolerancePercent, underDeliveryTolerancePercent);
+        _lines.Add(line);
+    }
+
+    /// <summary>
+    /// Sets or clears (null) the per-order tolerance overrides of the listed lines. Allowed until the order is billed in full or cancelled.
+    /// </summary>
+    public void SetTolerances(IReadOnlyCollection<(Guid ItemId, decimal? Price, decimal? Quantity, decimal? UnderDelivery)> overrides)
+    {
+        if (Status is PurchaseOrderStatus.Cancelled or PurchaseOrderStatus.Billed)
+            throw new DomainException("Tolerances cannot be changed on a cancelled or fully billed purchase order.");
+        if (overrides.Count == 0) throw new DomainException("Specify at least one line.");
+        if (overrides.Select(x => x.ItemId).Distinct().Count() != overrides.Count)
+            throw new DomainException("Each item can appear only once.");
+        foreach (var o in overrides) LineFor(o.ItemId).SetTolerances(o.Price, o.Quantity, o.UnderDelivery);
+    }
+
+    /// <summary>
+    /// Re-checks receipt completeness after a tolerance changed: a part-received order whose lines are all complete under the
+    /// (new) under-delivery tolerances becomes Received, as if closed short.
+    /// </summary>
+    public void ReevaluateReceipt(IReadOnlyDictionary<Guid, decimal> underDeliveryTolerances)
+    {
+        if (Status != PurchaseOrderStatus.PartiallyReceived) return;
+        if (!_lines.All(x => x.IsComplete(underDeliveryTolerances.GetValueOrDefault(x.ItemId)))) return;
+        Status = PurchaseOrderStatus.Received;
+        CompleteIfFullyBilled();
     }
 
     public void Open()
@@ -391,22 +432,22 @@ public static class ThreeWayMatch
     public const decimal MaxTolerancePercent = 100m;
 
     /// <summary>The tolerance that applies to a line: the item's own, else the vendor's, else the company default.</summary>
-    public static decimal EffectiveTolerance(decimal? itemTolerance, decimal? vendorTolerance) =>
-        itemTolerance ?? vendorTolerance ?? PriceTolerancePercent;
+    public static decimal EffectiveTolerance(decimal? itemTolerance, decimal? vendorTolerance, decimal? orderLineTolerance = null) =>
+        orderLineTolerance ?? itemTolerance ?? vendorTolerance ?? PriceTolerancePercent;
 
     /// <summary>The company default for over-delivery: none, so a delivery may not exceed the order unless a tolerance says so.</summary>
     public const decimal QuantityTolerancePercent = 0m;
 
     /// <summary>The over-delivery tolerance that applies to a line: the item's own, else the vendor's, else none.</summary>
-    public static decimal EffectiveQuantityTolerance(decimal? itemTolerance, decimal? vendorTolerance) =>
-        itemTolerance ?? vendorTolerance ?? QuantityTolerancePercent;
+    public static decimal EffectiveQuantityTolerance(decimal? itemTolerance, decimal? vendorTolerance, decimal? orderLineTolerance = null) =>
+        orderLineTolerance ?? itemTolerance ?? vendorTolerance ?? QuantityTolerancePercent;
 
     /// <summary>The company default for under-delivery: none, so a line is complete only when the full quantity has arrived.</summary>
     public const decimal UnderDeliveryTolerancePercent = 0m;
 
     /// <summary>The under-delivery tolerance that applies to a line: the item's own, else the vendor's, else none.</summary>
-    public static decimal EffectiveUnderDeliveryTolerance(decimal? itemTolerance, decimal? vendorTolerance) =>
-        itemTolerance ?? vendorTolerance ?? UnderDeliveryTolerancePercent;
+    public static decimal EffectiveUnderDeliveryTolerance(decimal? itemTolerance, decimal? vendorTolerance, decimal? orderLineTolerance = null) =>
+        orderLineTolerance ?? itemTolerance ?? vendorTolerance ?? UnderDeliveryTolerancePercent;
 
     /// <summary>The least that must be received for a line to count as complete.</summary>
     public static decimal MinCompleteQuantity(decimal orderedQuantity, decimal underDeliveryTolerancePercent) =>

@@ -41,11 +41,21 @@ public static class PurchasingEndpoints
             var result = await service.GetAsync(new PurchaseOrderId(id), ct);
             return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
         }).RequirePermission(Permissions.Purchasing.OrdersRead);
-        orders.MapPost("/", async (CreatePurchaseOrderRequest request, IPurchaseOrderService service, CancellationToken ct) =>
+        orders.MapPost("/", async (CreatePurchaseOrderRequest request, IPurchaseOrderService service, ICurrentUser currentUser,
+            IRolePermissionStore permissions, CancellationToken ct) =>
         {
-            var result = await service.CreateAsync(request, ct);
+            // Per-order tolerance overrides loosen the matching controls, so they need their own permission.
+            var canOverride = currentUser.UserId is { } userId &&
+                await permissions.UserHasPermissionAsync(userId, Permissions.Purchasing.OrdersOverrideTolerance, ct);
+            var result = await service.CreateAsync(request, canOverride, ct);
             return TypedResults.Created($"/api/v1/purchasing/orders/{result.Id}", result);
         }).RequirePermission(Permissions.Purchasing.OrdersManage);
+        orders.MapPut("/{id:guid}/tolerances", async Task<Results<Ok<PurchaseOrderResponse>, NotFound>>(
+            Guid id, UpdateOrderTolerancesRequest request, IPurchaseOrderService service, CancellationToken ct) =>
+        {
+            var result = await service.SetTolerancesAsync(new PurchaseOrderId(id), request, ct);
+            return result is null ? TypedResults.NotFound() : TypedResults.Ok(result);
+        }).RequirePermission(Permissions.Purchasing.OrdersOverrideTolerance);
         orders.MapPost("/{id:guid}/open", Transition(PurchaseOrderAction.Open)).RequirePermission(Permissions.Purchasing.OrdersManage);
         orders.MapPost("/{id:guid}/release", Transition(PurchaseOrderAction.Release)).RequirePermission(Permissions.Purchasing.OrdersManage);
         orders.MapPost("/{id:guid}/cancel", Transition(PurchaseOrderAction.Cancel)).RequirePermission(Permissions.Purchasing.OrdersManage);

@@ -52,6 +52,9 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
             l.Property(x => x.QuantityBilled).HasPrecision(19, 4);
             l.Property(x => x.QuantityReturned).HasPrecision(19, 4);
             l.Property(x => x.QuantityDebited).HasPrecision(19, 4);
+            l.Property(x => x.PriceTolerancePercent).HasPrecision(7, 4);
+            l.Property(x => x.QuantityTolerancePercent).HasPrecision(7, 4);
+            l.Property(x => x.UnderDeliveryTolerancePercent).HasPrecision(7, 4);
             l.Ignore(x => x.LineTotal);
             l.Ignore(x => x.OutstandingToReceive);
             l.Ignore(x => x.ReceivedNotBilled);

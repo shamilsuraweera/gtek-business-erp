@@ -25,8 +25,10 @@ public sealed class PurchaseOrderService(
     public const string ReceiptSequence = "GRN";
     public const string ReturnSequence = "RTV";
 
-    public async Task<PurchaseOrderResponse> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken)
+    public async Task<PurchaseOrderResponse> CreateAsync(CreatePurchaseOrderRequest request, bool canOverrideTolerances, CancellationToken cancellationToken)
     {
+        if (!canOverrideTolerances && request.Lines.Any(HasToleranceOverride))
+            throw new DomainException("You do not have permission to set per-order tolerances.");
         var companyId = PurchasingCompany.Require(companyContext);
         var vendor = await store.GetVendorAsync(companyId, new VendorId(request.VendorId), cancellationToken)
             ?? throw new DomainException("The vendor was not found.");
@@ -43,14 +45,50 @@ public sealed class PurchaseOrderService(
         {
             if (!items.TryGetValue(line.ItemId, out var item)) throw new DomainException("An item on the order was not found.");
             if (!item.IsActive) throw new DomainException($"Item '{item.Sku}' is inactive.");
-            order.AddLine(item.Id, item.Sku, item.Name, line.Quantity, line.UnitCost ?? item.UnitCost);
+            order.AddLine(item.Id, item.Sku, item.Name, line.Quantity, line.UnitCost ?? item.UnitCost,
+                line.PriceTolerancePercent, line.QuantityTolerancePercent, line.UnderDeliveryTolerancePercent);
         }
 
         await store.AddOrderAsync(order, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
         await audit.RecordAsync("Purchasing", "order.created", "PurchaseOrder", order.Id.Value.ToString(), order.Number, true,
-            new Dictionary<string, object?> { ["Vendor"] = vendor.Code, ["Total"] = order.Total }, cancellationToken);
+            new Dictionary<string, object?> { ["Vendor"] = vendor.Code, ["Total"] = order.Total, ["ToleranceOverrides"] = request.Lines.Count(HasToleranceOverride) }, cancellationToken);
         return Map(order, vendor.Name, [], [], []);
+    }
+
+    private static bool HasToleranceOverride(PurchaseLineRequest l) =>
+        l.PriceTolerancePercent is not null || l.QuantityTolerancePercent is not null || l.UnderDeliveryTolerancePercent is not null;
+
+    public async Task<PurchaseOrderResponse?> SetTolerancesAsync(PurchaseOrderId id, UpdateOrderTolerancesRequest request, CancellationToken cancellationToken)
+    {
+        var companyId = PurchasingCompany.Require(companyContext);
+        return await store.InLockedTransactionAsync<PurchaseOrderResponse?>(companyId, $"order:{id.Value}", async ct =>
+        {
+            var order = await store.GetOrderAsync(companyId, id, ct);
+            if (order is null) return null;
+            var vendor = await store.GetVendorAsync(companyId, order.VendorId, ct)
+                ?? throw new DomainException("The vendor was not found.");
+            var before = order.Lines.ToDictionary(l => l.ItemId, l => (l.PriceTolerancePercent, l.QuantityTolerancePercent, l.UnderDeliveryTolerancePercent));
+            order.SetTolerances(request.Lines.Select(l => (l.ItemId, l.PriceTolerancePercent, l.QuantityTolerancePercent, l.UnderDeliveryTolerancePercent)).ToList());
+
+            // A looser under-delivery tolerance may complete a part-received order right away.
+            var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
+            order.ReevaluateReceipt(order.Lines.ToDictionary(l => l.ItemId, l => ThreeWayMatch.EffectiveUnderDeliveryTolerance(
+                items.GetValueOrDefault(l.ItemId)?.UnderDeliveryTolerancePercent, vendor.UnderDeliveryTolerancePercent, l.UnderDeliveryTolerancePercent)));
+
+            await store.SaveChangesAsync(ct);
+            var changes = request.Lines.ToDictionary(l => l.ItemId.ToString(), object? (l) =>
+            {
+                var line = order.LineFor(l.ItemId);
+                var was = before[l.ItemId];
+                return $"price {was.PriceTolerancePercent?.ToString("0.##") ?? "-"}→{line.PriceTolerancePercent?.ToString("0.##") ?? "-"}, " +
+                    $"over {was.QuantityTolerancePercent?.ToString("0.##") ?? "-"}→{line.QuantityTolerancePercent?.ToString("0.##") ?? "-"}, " +
+                    $"under {was.UnderDeliveryTolerancePercent?.ToString("0.##") ?? "-"}→{line.UnderDeliveryTolerancePercent?.ToString("0.##") ?? "-"}";
+            });
+            changes["Status"] = order.Status.ToString();
+            await audit.RecordAsync("Purchasing", "order.tolerances.overridden", "PurchaseOrder", order.Id.Value.ToString(), order.Number, true, changes, ct);
+            return await MapFullAsync(order, vendor.Name, companyId, ct);
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<PurchaseOrderResponse>> ListAsync(int take, CancellationToken cancellationToken)
@@ -112,9 +150,9 @@ public sealed class PurchaseOrderService(
             // Over-delivery tolerance per line: the item's own, else the vendor's, else none.
             var catalogItems = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
             var tolerances = order.Lines.ToDictionary(l => l.ItemId, l => ThreeWayMatch.EffectiveQuantityTolerance(
-                catalogItems.GetValueOrDefault(l.ItemId)?.QuantityTolerancePercent, vendor.QuantityTolerancePercent));
+                catalogItems.GetValueOrDefault(l.ItemId)?.QuantityTolerancePercent, vendor.QuantityTolerancePercent, l.QuantityTolerancePercent));
             var underTolerances = order.Lines.ToDictionary(l => l.ItemId, l => ThreeWayMatch.EffectiveUnderDeliveryTolerance(
-                catalogItems.GetValueOrDefault(l.ItemId)?.UnderDeliveryTolerancePercent, vendor.UnderDeliveryTolerancePercent));
+                catalogItems.GetValueOrDefault(l.ItemId)?.UnderDeliveryTolerancePercent, vendor.UnderDeliveryTolerancePercent, l.UnderDeliveryTolerancePercent));
             var lines = wanted.Select(w =>
             {
                 var line = order.LineFor(w.Item1);
@@ -269,11 +307,11 @@ public sealed class PurchaseOrderService(
         var vendor = await store.GetVendorAsync(companyId, order.VendorId, ct);
         var items = (await catalog.GetItemsAsync(order.Lines.Select(l => l.ItemId).ToArray(), ct)).ToDictionary(x => x.Id);
         var tolerances = order.Lines.ToDictionary(l => l.ItemId,
-            l => ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(l.ItemId)?.PriceTolerancePercent, vendor?.PriceTolerancePercent));
+            l => ThreeWayMatch.EffectiveTolerance(items.GetValueOrDefault(l.ItemId)?.PriceTolerancePercent, vendor?.PriceTolerancePercent, l.PriceTolerancePercent));
         var quantityTolerances = order.Lines.ToDictionary(l => l.ItemId,
-            l => ThreeWayMatch.EffectiveQuantityTolerance(items.GetValueOrDefault(l.ItemId)?.QuantityTolerancePercent, vendor?.QuantityTolerancePercent));
+            l => ThreeWayMatch.EffectiveQuantityTolerance(items.GetValueOrDefault(l.ItemId)?.QuantityTolerancePercent, vendor?.QuantityTolerancePercent, l.QuantityTolerancePercent));
         var underDeliveryTolerances = order.Lines.ToDictionary(l => l.ItemId,
-            l => ThreeWayMatch.EffectiveUnderDeliveryTolerance(items.GetValueOrDefault(l.ItemId)?.UnderDeliveryTolerancePercent, vendor?.UnderDeliveryTolerancePercent));
+            l => ThreeWayMatch.EffectiveUnderDeliveryTolerance(items.GetValueOrDefault(l.ItemId)?.UnderDeliveryTolerancePercent, vendor?.UnderDeliveryTolerancePercent, l.UnderDeliveryTolerancePercent));
         return Map(order, vendorName,
             receipts.OrderBy(r => r.ReceiptDate).ThenBy(r => r.Number)
                 .Select(r => new ReceiptSummary(r.Id.Value, r.Number, r.ReceiptDate, r.Reference, r.Total, r.JournalNumber)).ToArray(),
@@ -292,6 +330,7 @@ public sealed class PurchaseOrderService(
         o.Lines.Select(l => new PurchaseOrderLineResponse(
             l.ItemId, l.Sku, l.Description, l.Quantity, l.UnitCost, l.LineTotal, l.QuantityReceived, l.QuantityBilled,
             l.QuantityReturned, l.QuantityDebited, l.DebitableQuantity,
-            tolerances?.GetValueOrDefault(l.ItemId), quantityTolerances?.GetValueOrDefault(l.ItemId), underDeliveryTolerances?.GetValueOrDefault(l.ItemId))).ToArray(),
+            tolerances?.GetValueOrDefault(l.ItemId), quantityTolerances?.GetValueOrDefault(l.ItemId), underDeliveryTolerances?.GetValueOrDefault(l.ItemId),
+            l.PriceTolerancePercent, l.QuantityTolerancePercent, l.UnderDeliveryTolerancePercent)).ToArray(),
         receipts, bills, returns);
 }

@@ -26,7 +26,7 @@ An order with any shortfall stayed `PartiallyReceived` until someone pressed *Cl
 
 ## Consequences
 
-- Changing a tolerance does not re-evaluate orders already partially received; their status updates at the next receipt or *Close short*.
+- Changing a vendor's or item's tolerance does not re-evaluate orders already partially received; their status updates at the next receipt or *Close short*. Changing an order's own override (ADR 0021) does re-evaluate that order immediately.
 - Whoever can edit a vendor or item can decide how short a delivery may be before an order closes, so treat vendor and item management
   as a control over receiving.
-- Not covered: tolerance by absolute quantity, per-order overrides, and automatically cancelling an unreceived shortfall.
+- Not covered: tolerance by absolute quantity, and automatically cancelling an unreceived shortfall.

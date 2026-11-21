@@ -351,6 +351,7 @@ public static class Permissions
         public const string OrdersRead = "purchasing.orders.read";
         public const string OrdersManage = "purchasing.orders.manage";
         public const string OrdersReceive = "purchasing.orders.receive";
+        public const string OrdersOverrideTolerance = "purchasing.orders.override-tolerance";
         public const string BillsRead = "purchasing.bills.read";
         public const string BillsPost = "purchasing.bills.post";
         public const string BillsOverride = "purchasing.bills.override-variance";
@@ -403,6 +404,7 @@ public static class Permissions
         (Purchasing.OrdersReceive, "Receive goods", "purchasing", "Receive goods against purchase orders (adds stock and accrues the liability)."),
         (Purchasing.BillsRead, "Read vendor bills", "purchasing", "View vendor bills and payments."),
         (Purchasing.BillsPost, "Post vendor bills", "purchasing", "Enter vendor bills for received purchase orders."),
+        (Purchasing.OrdersOverrideTolerance, "Override order tolerances", "purchasing", "Set per-order price, over-delivery and under-delivery tolerances that take priority over the vendor and item settings."),
         (Purchasing.BillsOverride, "Override bill price variance", "purchasing", "Approve vendor bills whose price differs from the purchase order by more than the tolerance."),
         (Purchasing.ReturnsPost, "Return goods to vendors", "purchasing", "Send received goods back to a vendor (reverses stock and the goods-received accrual)."),
         (Purchasing.DebitNotesPost, "Enter vendor debit notes", "purchasing", "Record the vendor's credit for billed goods that were returned."),

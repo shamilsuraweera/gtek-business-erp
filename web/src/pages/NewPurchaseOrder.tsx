@@ -1,21 +1,27 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth'
 import { useApiMutation, useApiQuery } from '../hooks'
+import { P } from '../perm'
 import { formatMoney, today } from '../format'
 import { ErrorNote, Field, Loading, PageHeader } from '../ui'
 import type { Item, PurchaseOrder, StockLevel, Vendor } from '../api/types'
 
-interface Line { key: number; itemId: string; quantity: string; unitCost: string }
+interface Line { key: number; itemId: string; quantity: string; unitCost: string; price: string; over: string; under: string }
+const blankLine = (key: number): Line => ({ key, itemId: '', quantity: '1', unitCost: '', price: '', over: '', under: '' })
+const num = (v: string) => (v.trim() === '' ? null : Number(v))
 
 export function NewPurchaseOrder() {
   const navigate = useNavigate()
+  const { can } = useAuth()
+  const [overrides, setOverrides] = useState(false)
   const vendors = useApiQuery<Vendor[]>('/purchasing/vendors')
   const items = useApiQuery<Item[]>('/inventory/items')
   const stock = useApiQuery<StockLevel[]>('/inventory/stock')
   const [vendorId, setVendorId] = useState('')
   const [orderDate, setOrderDate] = useState(today())
   const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState<Line[]>([{ key: 1, itemId: '', quantity: '1', unitCost: '' }])
+  const [lines, setLines] = useState<Line[]>([blankLine(1)])
 
   const activeItems = (items.data ?? []).filter((i) => i.isActive)
   const onHand = (id: string) => stock.data?.find((s) => s.itemId === id)?.onHand
@@ -26,7 +32,8 @@ export function NewPurchaseOrder() {
   const create = useApiMutation<void, PurchaseOrder>(
     () => ({
       path: '/purchasing/orders',
-      body: { vendorId, orderDate, notes: notes || null, lines: lines.map((l) => ({ itemId: l.itemId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) })) },
+      body: { vendorId, orderDate, notes: notes || null, lines: lines.map((l) => ({ itemId: l.itemId, quantity: Number(l.quantity), unitCost: Number(l.unitCost),
+        ...(overrides ? { priceTolerancePercent: num(l.price), quantityTolerancePercent: num(l.over), underDeliveryTolerancePercent: num(l.under) } : {}) })) },
     }),
     (order) => navigate(`/purchase-orders/${order.id}`),
   )
@@ -52,7 +59,7 @@ export function NewPurchaseOrder() {
         </section>
         <section className="card flush scroll-x">
           <table className="data">
-            <thead><tr><th style={{ width: '40%' }}>Item</th><th className="num">On hand</th><th>Quantity</th><th>Unit cost</th><th className="num">Line total (excl. tax)</th><th /></tr></thead>
+            <thead><tr><th style={{ width: '40%' }}>Item</th><th className="num">On hand</th><th>Quantity</th><th>Unit cost</th><th className="num">Line total (excl. tax)</th>{overrides && <><th style={{ width: 110 }}>Price tol. %</th><th style={{ width: 110 }}>Over %</th><th style={{ width: 110 }}>Under %</th></>}<th /></tr></thead>
             <tbody>
               {lines.map((l) => (
                 <tr key={l.key}>
@@ -66,13 +73,19 @@ export function NewPurchaseOrder() {
                   <td><input type="number" min="0.0001" step="any" value={l.quantity} onChange={(e) => update(l.key, { quantity: e.target.value })} required aria-label="Quantity" /></td>
                   <td><input type="number" min="0" step="0.01" value={l.unitCost} onChange={(e) => update(l.key, { unitCost: e.target.value })} required aria-label="Unit cost" /></td>
                   <td className="num">{formatMoney(Number(l.quantity || 0) * Number(l.unitCost || 0))}</td>
+                  {overrides && <>
+                    <td><input type="number" min="0" max="100" step="0.01" placeholder="Default" value={l.price} onChange={(e) => update(l.key, { price: e.target.value })} aria-label="Price tolerance override" /></td>
+                    <td><input type="number" min="0" max="100" step="0.01" placeholder="Default" value={l.over} onChange={(e) => update(l.key, { over: e.target.value })} aria-label="Over-delivery tolerance override" /></td>
+                    <td><input type="number" min="0" max="100" step="0.01" placeholder="Default" value={l.under} onChange={(e) => update(l.key, { under: e.target.value })} aria-label="Under-delivery tolerance override" /></td>
+                  </>}
                   <td><button type="button" className="icon-btn" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((c) => c.filter((x) => x.key !== l.key))}>×</button></td>
                 </tr>
               ))}
             </tbody>
             <tfoot><tr><td colSpan={4}>
-              <button type="button" className="btn small" onClick={() => setLines((c) => [...c, { key: Date.now(), itemId: '', quantity: '1', unitCost: '' }])}>Add line</button>
-            </td><td className="num">{formatMoney(total)}</td><td /></tr></tfoot>
+              <button type="button" className="btn small" onClick={() => setLines((c) => [...c, blankLine(Date.now())])}>Add line</button>
+              {can(P.poOverrideTolerance) && <label className="row" style={{ display: 'inline-flex', marginLeft: 16 }}><input type="checkbox" style={{ width: 'auto' }} checked={overrides} onChange={(e) => setOverrides(e.target.checked)} /> Set tolerance overrides for this order</label>}
+            </td><td className="num">{formatMoney(total)}</td>{overrides && <td colSpan={3} />}<td /></tr></tfoot>
           </table>
         </section>
         <ErrorNote error={create.error} />

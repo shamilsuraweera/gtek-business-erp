@@ -584,6 +584,10 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                             b1.Property<Guid>("ItemId")
                                 .HasColumnType("uuid");
 
+                            b1.Property<decimal?>("PriceTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
+
                             b1.Property<decimal>("Quantity")
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
@@ -604,10 +608,18 @@ namespace Erp.Modules.Purchasing.Infrastructure.Persistence.Migrations
                                 .HasPrecision(19, 4)
                                 .HasColumnType("numeric(19,4)");
 
+                            b1.Property<decimal?>("QuantityTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
+
                             b1.Property<string>("Sku")
                                 .IsRequired()
                                 .HasMaxLength(60)
                                 .HasColumnType("character varying(60)");
+
+                            b1.Property<decimal?>("UnderDeliveryTolerancePercent")
+                                .HasPrecision(7, 4)
+                                .HasColumnType("numeric(7,4)");
 
                             b1.Property<decimal>("UnitCost")
                                 .HasPrecision(19, 4)
