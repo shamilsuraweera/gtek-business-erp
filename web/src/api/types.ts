@@ -57,5 +57,6 @@ export interface AppNotification { id: string; category: string; title: string; 
 export interface RetentionSettings { enabled: boolean; systemReadDays: number; systemUnreadDays: number; readDaysOverride: number | null; unreadDaysOverride: number | null; effectiveReadDays: number; effectiveUnreadDays: number; updatedAt: string | null; updatedBy: string | null; categories: CategoryRetention[] }
 export interface CategoryRetention { category: string; readDaysOverride: number | null; unreadDaysOverride: number | null; effectiveReadDays: number; effectiveUnreadDays: number; updatedAt: string | null; updatedBy: string | null }
 
-export interface UserPreferences { emailNotifications: boolean; emailAvailable: boolean; email: string }
+export interface EmailCategoryPreference { category: string; emailEnabled: boolean }
+export interface UserPreferences { emailNotifications: boolean; emailAvailable: boolean; email: string; categories: EmailCategoryPreference[] }
 export interface EmailStatus { enabled: boolean; host: string | null; port: number | null; fromAddress: string | null; pending: number; failed: number; sentLast24Hours: number; lastError: string | null; lastSentAt: string | null; oldestPendingAt: string | null }

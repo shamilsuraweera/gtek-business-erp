@@ -17,6 +17,7 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
+    public DbSet<UserEmailOptOut> UserEmailOptOuts => Set<UserEmailOptOut>();
     public DbSet<NotificationRetentionSetting> NotificationRetentionSettings => Set<NotificationRetentionSetting>();
     public DbSet<NumberSequence> NumberSequences => Set<NumberSequence>();
     public DbSet<AccountingPeriod> AccountingPeriods => Set<AccountingPeriod>();

@@ -558,6 +558,20 @@ namespace Erp.Modules.Platform.Infrastructure.Persistence.Migrations
                     b.ToTable("UserCompanyAccess", "platform");
                 });
 
+            modelBuilder.Entity("Erp.Modules.Platform.Domain.UserEmailOptOut", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("UserId", "Category");
+
+                    b.ToTable("UserEmailOptOuts", "platform");
+                });
+
             modelBuilder.Entity("Erp.Modules.Platform.Infrastructure.Persistence.RolePermissionEntity", b =>
                 {
                     b.Property<Guid>("RoleId")

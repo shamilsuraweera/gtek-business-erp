@@ -155,6 +155,17 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
         }
     }
 
+    public sealed class UserEmailOptOutConfiguration : IEntityTypeConfiguration<UserEmailOptOut>
+    {
+        public void Configure(EntityTypeBuilder<UserEmailOptOut> b)
+        {
+            b.HasKey(x => new { x.UserId, x.Category });
+            b.Property(x => x.UserId).HasConversion(x => x.Value, x => new Erp.SharedKernel.UserId(x));
+            b.Property(x => x.Category).HasMaxLength(50).IsRequired();
+            b.ToTable("UserEmailOptOuts", "platform");
+        }
+    }
+
     public sealed class UserCompanyAccessConfiguration : IEntityTypeConfiguration<UserCompanyAccess>
     {
         public void Configure(EntityTypeBuilder<UserCompanyAccess> b)

@@ -217,19 +217,26 @@ public sealed class EmailStatusService(IEmailOutboxStore store, EmailOptions opt
     }
 }
 
-public sealed record UserPreferencesResponse(bool EmailNotifications, bool EmailAvailable, string Email);
+public sealed record UserPreferencesResponse(bool EmailNotifications, bool EmailAvailable, string Email, IReadOnlyList<EmailCategoryPreference> Categories);
+
+/// <summary>Whether the user wants email for one notification category (only meaningful while email notifications are on).</summary>
+public sealed record EmailCategoryPreference(string Category, bool EmailEnabled);
+
 public sealed record UpdateUserPreferencesRequest(bool EmailNotifications);
+public sealed record UpdateEmailCategoryRequest(bool Enabled);
 
 public interface IUserPreferenceService
 {
     Task<UserPreferencesResponse?> GetAsync(UserId userId, CancellationToken cancellationToken);
     Task<UserPreferencesResponse?> SetEmailNotificationsAsync(UserId userId, bool enabled, CancellationToken cancellationToken);
+    /// <summary>Turns email for one notification category on or off for the user.</summary>
+    Task<UserPreferencesResponse?> SetEmailCategoryAsync(UserId userId, string category, bool enabled, CancellationToken cancellationToken);
 }
 
-public sealed class UserPreferenceService(IUserStore users, EmailOptions options) : IUserPreferenceService
+public sealed class UserPreferenceService(IUserStore users, INotificationStore notifications, EmailOptions options) : IUserPreferenceService
 {
     public async Task<UserPreferencesResponse?> GetAsync(UserId userId, CancellationToken cancellationToken) =>
-        await users.GetByIdAsync(userId, cancellationToken) is { } user ? Map(user) : null;
+        await users.GetByIdAsync(userId, cancellationToken) is { } user ? await MapAsync(user, cancellationToken) : null;
 
     public async Task<UserPreferencesResponse?> SetEmailNotificationsAsync(UserId userId, bool enabled, CancellationToken cancellationToken)
     {
@@ -237,8 +244,24 @@ public sealed class UserPreferenceService(IUserStore users, EmailOptions options
         if (user is null) return null;
         user.SetEmailNotifications(enabled);
         await users.SaveChangesAsync(cancellationToken);
-        return Map(user);
+        return await MapAsync(user, cancellationToken);
     }
 
-    private UserPreferencesResponse Map(User user) => new(user.EmailNotifications, options.Enabled, user.Email);
+    public async Task<UserPreferencesResponse?> SetEmailCategoryAsync(UserId userId, string category, bool enabled, CancellationToken cancellationToken)
+    {
+        var user = await users.GetByIdAsync(userId, cancellationToken);
+        if (user is null) return null;
+        var key = NotificationRetentionSetting.NormaliseCategory(category);
+        if (key.Length == 0) throw new DomainException("A category is required.");
+        await notifications.SetEmailOptOutAsync(userId, key, optedOut: !enabled, cancellationToken);
+        return await MapAsync(user, cancellationToken);
+    }
+
+    private async Task<UserPreferencesResponse> MapAsync(User user, CancellationToken cancellationToken)
+    {
+        var optedOut = (await notifications.ListEmailOptOutCategoriesAsync(user.Id, cancellationToken)).ToHashSet();
+        var categories = NotificationCategories.Known.Concat(optedOut).Distinct().Order()
+            .Select(c => new EmailCategoryPreference(c, !optedOut.Contains(c))).ToList();
+        return new UserPreferencesResponse(user.EmailNotifications, options.Enabled, user.Email, categories);
+    }
 }

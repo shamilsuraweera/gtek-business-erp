@@ -4,6 +4,8 @@ import { useApiMutation, useApiQuery } from './hooks'
 import type { AppNotification, UserPreferences } from './api/types'
 
 /** How often the unread count is refreshed while the page is open. */
+/** Friendly names for the categories the modules send; unknown ones show their own name. */
+const CATEGORY_LABELS: Record<string, string> = { approval: 'Approval requests', decision: 'Decisions on my requests' }
 const POLL_MS = 30_000
 
 function timeAgo(iso: string): string {
@@ -26,6 +28,9 @@ export function NotificationBell() {
   const policy = useApiQuery<{ enabled: boolean; readDays: number; unreadDays: number }>('/notifications/retention', { enabled: open })
   const prefs = useApiQuery<UserPreferences>('/auth/me/preferences', { enabled: open })
   const setEmail = useApiMutation<boolean>((enabled) => ({ path: '/auth/me/preferences', method: 'PUT', body: { emailNotifications: enabled } }))
+  const setCategory = useApiMutation<{ category: string; enabled: boolean }>((v) => ({
+    path: `/auth/me/preferences/email-categories/${encodeURIComponent(v.category)}`, method: 'PUT', body: { enabled: v.enabled },
+  }))
   const read = useApiMutation<string>((id) => ({ path: `/notifications/${id}/read` }))
   const readAll = useApiMutation<void>(() => ({ path: '/notifications/read-all' }))
   const unread = count.data?.count ?? 0
@@ -77,8 +82,20 @@ export function NotificationBell() {
             <label className="bell-foot row" style={{ cursor: 'pointer' }}>
               <input type="checkbox" style={{ width: 'auto' }} checked={setEmail.isPending ? setEmail.variables === true : prefs.data.emailNotifications} disabled={setEmail.isPending}
                 onChange={(e) => setEmail.mutate(e.target.checked)} />
-              <span>Email me approval requests and decisions<span className="muted"> ({prefs.data.email})</span></span>
+              <span>Email me notifications<span className="muted"> ({prefs.data.email})</span></span>
             </label>
+          )}
+          {prefs.data?.emailAvailable && prefs.data.emailNotifications && (
+            <div className="bell-foot stack" style={{ gap: 4, paddingLeft: 20 }}>
+              {prefs.data.categories.map((c) => (
+                <label key={c.category} className="row" style={{ cursor: 'pointer' }}>
+                  <input type="checkbox" style={{ width: 'auto' }} aria-label={`Email ${c.category}`}
+                    checked={setCategory.isPending && setCategory.variables?.category === c.category ? setCategory.variables.enabled : c.emailEnabled}
+                    disabled={setCategory.isPending} onChange={(e) => setCategory.mutate({ category: c.category, enabled: e.target.checked })} />
+                  <span>{CATEGORY_LABELS[c.category] ?? c.category}</span>
+                </label>
+              ))}
+            </div>
           )}
           {policy.data?.enabled && (
             <p className="muted bell-foot">

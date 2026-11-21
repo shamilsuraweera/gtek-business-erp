@@ -231,6 +231,39 @@ public sealed class NotificationRetentionPostgreSqlTests
         }
     }
 
+    [Fact]
+    public async Task Email_opt_outs_are_stored_once_per_user_and_category_and_looked_up_in_bulk()
+    {
+        var options = CreateOptions(RequireConnectionString());
+        var a = new UserId(Guid.NewGuid());
+        var b = new UserId(Guid.NewGuid());
+        try
+        {
+            await using (var context = new PlatformDbContext(options))
+            {
+                var store = new NotificationStore(context);
+                await store.SetEmailOptOutAsync(a, "approval", true, default);
+                await store.SetEmailOptOutAsync(a, "approval", true, default);       // idempotent
+                await store.SetEmailOptOutAsync(b, "decision", true, default);
+            }
+
+            await using var read = new PlatformDbContext(options);
+            var reader = new NotificationStore(read);
+            Assert.Equal([a], (await reader.ListEmailOptOutsAsync([a, b], "approval", default)).ToArray());
+            Assert.Equal([b], (await reader.ListEmailOptOutsAsync([a, b], "decision", default)).ToArray());
+            Assert.Equal(["approval"], await reader.ListEmailOptOutCategoriesAsync(a, default));
+
+            await using (var change = new PlatformDbContext(options))
+                await new NotificationStore(change).SetEmailOptOutAsync(a, "approval", false, default);
+            Assert.Empty(await reader.ListEmailOptOutCategoriesAsync(a, default));
+        }
+        finally
+        {
+            await using var cleanup = new PlatformDbContext(options);
+            await cleanup.UserEmailOptOuts.Where(x => x.UserId == a || x.UserId == b).ExecuteDeleteAsync();
+        }
+    }
+
     private static async Task<List<string>> TitlesAsync(DbContextOptions<PlatformDbContext> options, CompanyId company)
     {
         await using var context = new PlatformDbContext(options);
