@@ -134,13 +134,17 @@ public static class EmailComposer
         text.AppendLine(greeting).AppendLine().AppendLine(message.Title);
         if (!string.IsNullOrWhiteSpace(message.Body)) text.AppendLine().AppendLine(message.Body);
         if (link is not null) text.AppendLine().AppendLine($"Open it here: {link}");
-        text.AppendLine().AppendLine("You receive this because it needs your attention in GTEK ERP. You can turn these emails off in the notification panel.");
+        text.AppendLine().AppendLine(message.Mandatory
+            ? "This is a security notice about your GTEK ERP account. It is sent whatever your email settings are."
+            : "You receive this because it needs your attention in GTEK ERP. You can turn these emails off in the notification panel.");
 
         static string E(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
         var html = $"<p>{E(greeting)}</p><p><strong>{E(message.Title)}</strong></p>"
             + (string.IsNullOrWhiteSpace(message.Body) ? string.Empty : $"<p>{E(message.Body)}</p>")
             + (link is null ? string.Empty : $"<p><a href=\"{E(link)}\">Open it in {E(options.FromName)}</a></p>")
-            + "<p style=\"color:#667085;font-size:12px\">You receive this because it needs your attention. You can turn these emails off in the notification panel.</p>";
+            + "<p style=\"color:#667085;font-size:12px\">" + (message.Mandatory
+                ? "This is a security notice about your account. It is sent whatever your email settings are."
+                : "You receive this because it needs your attention. You can turn these emails off in the notification panel.") + "</p>";
         return new OutgoingEmail(toAddress, toName, subject, text.ToString(), html);
     }
 
@@ -253,13 +257,15 @@ public sealed class UserPreferenceService(IUserStore users, INotificationStore n
         if (user is null) return null;
         var key = NotificationRetentionSetting.NormaliseCategory(category);
         if (key.Length == 0) throw new DomainException("A category is required.");
+        if (NotificationCategories.Mandatory.Contains(key)) throw new DomainException($"Emails in the '{key}' category are security notices and cannot be turned off.");
         await notifications.SetEmailOptOutAsync(userId, key, optedOut: !enabled, cancellationToken);
         return await MapAsync(user, cancellationToken);
     }
 
     private async Task<UserPreferencesResponse> MapAsync(User user, CancellationToken cancellationToken)
     {
-        var optedOut = (await notifications.ListEmailOptOutCategoriesAsync(user.Id, cancellationToken)).ToHashSet();
+        // A stale opt-out of a category that has since become mandatory is ignored and not offered.
+        var optedOut = (await notifications.ListEmailOptOutCategoriesAsync(user.Id, cancellationToken)).Where(c => !NotificationCategories.Mandatory.Contains(c)).ToHashSet();
         var categories = NotificationCategories.Known.Concat(optedOut).Distinct().Order()
             .Select(c => new EmailCategoryPreference(c, !optedOut.Contains(c))).ToList();
         return new UserPreferencesResponse(user.EmailNotifications, options.Enabled, user.Email, categories);

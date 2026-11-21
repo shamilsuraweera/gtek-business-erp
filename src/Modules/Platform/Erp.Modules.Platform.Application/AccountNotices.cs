@@ -26,8 +26,9 @@ public enum AccountAccessChange
 }
 
 /// <summary>
-/// Best effort, after the change is saved: a problem here is logged and never undoes or fails the administrator's change. Nothing is sent to a
-/// person for their own action, when email is off, when they turned email off, or when they opted out of the <see cref="Category"/> category.
+/// Best effort, after the change is saved: a problem here is logged and never undoes or fails the administrator's change. These are
+/// <b>mandatory</b> security notices (ADR 0034): they ignore the recipient's email preferences. Nothing is sent to a person for their own
+/// action, when email is off for the installation, or when they have no address.
 /// </summary>
 public sealed class AccountNotices(
     IUserStore users, ICompanyStore companies, INotificationStore notifications, IEmailOutboxStore outbox,
@@ -68,12 +69,11 @@ public sealed class AccountNotices(
         try
         {
             var user = await users.GetByIdAsync(target, cancellationToken);
-            if (user is not { EmailNotifications: true } || string.IsNullOrWhiteSpace(user.Email)) return;
-            if ((await notifications.ListEmailOptOutsAsync([target], Category, cancellationToken)).Contains(target)) return;
+            if (user is null || string.IsNullOrWhiteSpace(user.Email)) return;
 
             var by = actor is { } id ? (await users.GetByIdAsync(id, cancellationToken))?.UserName ?? "An administrator" : "An administrator";
             var (title, body) = compose(user, by);
-            var mail = EmailComposer.Compose(new NotificationMessage(Category, title, body, "/", null, true), user.Email, user.UserName, emailOptions);
+            var mail = EmailComposer.Compose(new NotificationMessage(Category, title, body, "/", null, Email: true, Mandatory: true), user.Email, user.UserName, emailOptions);
             await outbox.AddRangeAsync([EmailMessage.Create(null, user.Id, mail.ToAddress, mail.ToName, mail.Subject, mail.Text, mail.Html, clock.UtcNow)], cancellationToken);
             await notifications.SaveChangesAsync(cancellationToken);
         }

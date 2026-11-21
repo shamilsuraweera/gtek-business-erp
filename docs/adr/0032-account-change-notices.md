@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The opt-out described here was replaced by mandatory delivery in ADR 0034.
 
 ## Context
 

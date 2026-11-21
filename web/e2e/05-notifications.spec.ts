@@ -30,7 +30,7 @@ test('email can be switched off overall and per category, and the choice persist
   const category = (name: string) => page.getByLabel(`Email ${name}`)
 
   await bell().click()
-  for (const name of ['approval', 'decision', 'overdue-invoice', 'overdue-bill', 'low-stock', 'period-close', 'account'])
+  for (const name of ['approval', 'decision', 'overdue-invoice', 'overdue-bill', 'low-stock', 'period-close'])
     await expect(category(name)).toBeChecked()
 
   await category('approval').click()
@@ -45,6 +45,8 @@ test('email can be switched off overall and per category, and the choice persist
   await expect(category('approval')).toHaveCount(0)
   await master.click()
   await expect(category('approval')).not.toBeChecked()                              // ...and the choice survived
+
+  await expect(category('account')).toHaveCount(0)                                  // security notices are not a choice
 
   await category('approval').click()                                                // put it back for the other tests
   await expect(category('approval')).toBeChecked()
