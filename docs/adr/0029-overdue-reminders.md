@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The schedule's time zone became configurable in ADR 0036 (`HourUtc` is now `Hour`), and the multi-instance limitation below was addressed by ADR 0035.
 
 ## Context
 

@@ -1,435 +1,227 @@
 # GTEK Business ERP
 
-GTEK Business ERP is a .NET 10 modular-monolith ERP platform with a React web
-client. The local MVP demonstrates two complete workflows:
+[![CI](https://github.com/shamilsuraweera/gtek-business-erp/actions/workflows/ci.yml/badge.svg)](https://github.com/shamilsuraweera/gtek-business-erp/actions/workflows/ci.yml)
 
-> **Order-to-cash:** customer → sales order → invoice (stock issue + ledger posting) → payment, with credit notes, returns to stock and refunds
+A multi-company business ERP built as a **.NET 10 modular monolith** with a **React 19 web client** and **PostgreSQL**. It runs two complete
+business cycles end to end, with a ledger that always balances, and tells people what needs their attention in the app and by email.
+
+> **Order to cash:** customer → sales order → invoice (stock issue and ledger posting) → payment, with credit notes, returns to stock and refunds
 >
-> **Procure-to-pay:** vendor → purchase order → goods receipts (partial deliveries, stock in, GRNI accrual) → vendor bills matched to the order and receipts → payment, with returns to vendor, debit notes and vendor refunds
+> **Procure to pay:** vendor → purchase order → goods receipts → vendor bill matched to the order and receipts (three-way match) → payment, with
+> returns to vendor, debit notes and vendor refunds
 
-| Module | What works today |
+**Status:** a working, tested local system (see [Project status](#project-status)). It has not been deployed to production and has no production
+deployment configuration yet.
+
+## Contents
+
+[What it does](#what-it-does) · [Quick start](#quick-start) · [Demo data](#demo-data-and-what-to-try) · [Configuration](#configuration) ·
+[Testing and CI](#testing-and-ci) · [Architecture](#architecture-and-repository-layout) · [API](#api) · [Project status](#project-status) · [Documentation](#documentation)
+
+## What it does
+
+| Area | Capabilities |
 |---|---|
-| Platform | Companies, users, JWT sign-in, roles/permissions, company access, audit trail, number sequences, accounting periods |
-| Finance | Chart of accounts, balanced journals, reversals, trial balance (append-only ledger) |
-| Inventory | Items, locations, append-only stock ledger, receipts/adjustments, oversell protection |
-| Sales | Customers, orders (draft → confirmed → released → invoiced), invoices, payments, credit notes and returns (stock and COGS reversed at original cost), refunds |
-| Purchasing | Vendors, purchase orders, partial goods receipts (stock at PO cost), close short, three-way matched vendor bills, price-variance approval, payments, returns to vendor, debit notes, vendor refunds |
-| Web (`web/`) | Dashboard, sales, purchasing, inventory, ledger and administration screens |
+| **Platform** | Multiple companies; users with JWT sign-in; global roles and fine-grained permissions; per-user company access; append-only audit trail; company-scoped number sequences; accounting periods (open, close, lock) |
+| **Finance** | Chart of accounts; balanced journals and reversals; trial balance; configurable account mapping; tax codes with output and input tax and a net-payable summary; an append-only ledger |
+| **Inventory** | Items (with price, cost, tax code, matching tolerances and an optional reorder level); locations; append-only stock ledger; receipts and adjustments; oversell protection |
+| **Sales** | Customers; orders (draft → confirmed → released → invoiced); invoices with tax; payments; credit notes and returns to stock at original cost; refunds; receivables ageing |
+| **Purchasing** | Vendors; purchase orders; partial goods receipts; close short; three-way matched vendor bills with price tolerances; price-variance approval; payments; returns to vendor, debit notes, vendor refunds |
+| **Web app** | Dashboard, sales, purchasing, inventory, ledger and administration screens that show only what the signed-in user's role allows |
 
-## Run the MVP locally
+Things that cut across the modules:
 
-Prerequisites: .NET SDK 10, Node 22+, and PostgreSQL on `localhost:5432`.
-
-```bash
-# 1. Create the role and database once (needs a Postgres superuser)
-sudo -u postgres psql -f scripts/dev-db.sql
-
-# 2. Create src/Host/Erp.Api/appsettings.Development.json (git-ignored)
-#    { "ConnectionStrings": { "Erp": "Host=localhost;Port=5432;Database=gtek_erp;Username=gtek;Password=gtek_dev" },
-#      "Authentication": { "BootstrapSecret": "dev-bootstrap-secret",
-#                          "Jwt": { "SigningKey": "<run: openssl rand -base64 32>" } } }
-
-# 3. Apply every module's migrations and load demo data (idempotent)
-scripts/dev-setup.sh --seed
-
-# 4. Start the API (http://localhost:5004) and the web app (http://localhost:5173)
-dotnet run --project src/Host/Erp.Api
-cd web && npm install && npm run dev
-```
-
-Sign in as **`admin` / `Admin#123456`** and pick the **GTEK Demo (Pvt) Ltd** company.
-A restricted demo user, **`apclerk` / `Clerk#1234567`**, can receive goods and enter and pay bills
-but cannot approve price variances beyond the tolerance (2% by default) or open Finance and Administration.
-The demo data contains 15 items with opening stock, 8 customers, 5 vendors, and
-sales and purchase orders in every state (drafts through paid and overdue documents).
-It also shows the matching tolerances and the approval workflow: the importer VEN-004 allows 5% over or under delivery, VEN-003 allows a 5% price
-difference, the laptop LAP-002 is held to a 1% price and cable accepts 10% over and 5% under. Three tolerance requests from the AP clerk are
-seeded: one approved, one rejected and one pending, so the administrator's bell shows 1 unread and the clerk's shows 2.
-
-Notes:
-
-- Migrations are never applied automatically at API start (ADR 0012); use
-  `scripts/dev-setup.sh`.
-- Re-running `--seed` is safe. To start over, drop and recreate the `gtek_erp` database.
-- Integration tests need a disposable database: `ERP_TEST_DATABASE_CONNECTION="Host=localhost;Database=gtek_erp_test;Username=gtek;Password=gtek_dev"`.
-- Posting accounts are configurable: sales, purchasing and inventory post to *roles* (receivable, revenue, inventory, payable, GRNI, …)
-  that you map to your own ledger accounts under **Finance → Account mapping**; unmapped roles use the default codes below (ADR 0016).
-  The API also grants newly introduced permissions to the system administrator role at startup.
-- MVP limitations: default account codes are 1000/1010 cash and bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received
-  not invoiced, 4000 revenue, 4100 sales returns, 5000 COGS, 5100 purchase price variance, 2200 output tax payable, 1300 input tax recoverable; manual stock receipts do not post to the ledger;
-  the three-way match price tolerance defaults to 2% and can be set per vendor and per item (ADR 0018); over-delivery is refused unless a per-vendor or per-item quantity tolerance allows it (ADR 0019), and a short delivery completes the order automatically only within an under-delivery tolerance (ADR 0020), otherwise use *Close short*; any of the three tolerances can be overridden per order line directly by users with the *Approve order tolerance overrides* permission (ADR 0021), or by request: anyone who manages orders can raise a request with a reason, and an approver other than the requester approves or rejects it (ADR 0022); approvers and requesters are told through the notification bell in the top bar (ADR 0023) and, when email is configured, by email (ADR 0026), which each user can switch off overall or per category from the bell panel (ADR 0028); open invoices and bills past their due date are summarised for the people who record payments, in the app and by email, once a day from 08:00 (`Reminders` configuration: `Hour` and `TimeZone`, default UTC; ADRs 0029 and 0036), and items at or below their reorder level are summarised the same way for the people who manage stock (ADR 0030), and ended accounting periods that are still open (after `Reminders:PeriodCloseGraceDays`, default 3) for the people who manage periods (ADR 0031); people are also emailed when an administrator creates their account, changes their company access or roles, or deactivates them, as security notices that cannot be switched off (ADRs 0032 and 0034), and read messages are purged after 30 days, unread ones after 180, configurable under `Notifications:Retention` (ADR 0024), and each company can set its own under Administration → Notifications (ADR 0025), optionally per notification category (ADR 0027); credit notes are at the invoiced
-  price (no partial price adjustments); there is no multi-currency yet.
-- Tax: prices are tax-exclusive. Create tax codes under **Finance → Tax** (the demo has `VAT18` 18% and `ZERO`) and assign one to each item;
-  invoices then charge output tax (posted to 2200) and vendor bills record input tax (1300). Credit notes and debit notes return the tax
-  that was charged, and **Finance → Tax** shows the net payable for any period (ADR 0017). Items with no tax code carry no tax.
+- **Matching tolerances.** Vendor bills are matched to orders and receipts within a price tolerance (2% by default, settable per vendor, per item
+  and per order line), an over-delivery tolerance and an under-delivery tolerance. Changing them on an order needs the right permission, or a
+  **request that a different approver approves or rejects** (four-eyes). ADRs 0013, 0018 to 0022.
+- **Notifications.** An in-app bell tells people what needs them: tolerance requests and decisions, and scheduled summaries of overdue
+  invoices, overdue bills, items at or below their reorder level (net of what is already on order) and accounting periods that ended but are still
+  open. Messages are purged after a configurable retention, per company and per category. ADRs 0023 to 0025, 0027, 0029 to 0031, 0037.
+- **Email** (off until configured). The same events can be emailed through an outbox with retries, so a mail-server outage never fails a business
+  operation. Each user can switch email off overall or per category. Changes to *your own account or access* (account created, access or roles
+  changed, deactivated) are **security notices** that cannot be switched off. ADRs 0026, 0028, 0032, 0034.
+- **Safe to run on several instances.** Email delivery claims rows with a lease, and scheduled reminders take a database lock so nobody is told
+  twice. ADRs 0026, 0035.
+- **Audit and integrity.** Administrative and security actions are recorded in an append-only audit history. Posted financial history is never
+  edited; corrections are reversals. ADRs 0003, 0010.
 
 ## Quick start
 
-### 1. Install prerequisites
+### Prerequisites
 
-- .NET SDK 10.0.400
-- PostgreSQL running on `localhost:5432`
-- Optional: Docker Desktop, if you prefer the included PostgreSQL container
+- .NET SDK 10 (`global.json` allows any 10.0.x feature band) and the `dotnet-ef` tool: `dotnet tool install --global dotnet-ef`
+- PostgreSQL on `localhost:5432` (CI and the compose file use 16; or `docker compose up -d postgres`, see [PostgreSQL notes](#postgresql-notes))
+- Node 22+ and npm for the web app
+- Optional: `psql`, Python 3 and a browser, for the smoke test and browser tests
 
-### 2. Create the development database
+The commands below are for a Unix shell; on Windows use the same commands in PowerShell with the obvious changes (environment variables, line
+continuation).
 
-Create the database once if it does not already exist:
-
-```powershell
-psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
-```
-
-If PostgreSQL asks for a password, enter the password for your local
-`postgres` user.
-
-Phase 1.6 includes company-scoped number sequences. Configure them through
-`/api/v1/number-sequences` with `platform.number-sequences.manage`, then reserve
-numbers through `POST /api/v1/number-sequences/{code}/next` with
-`platform.number-sequences.read`. PostgreSQL row locking makes issuance safe
-across concurrent API instances. Gaps are allowed and reserved values are never
-reused.
-
-The development connection is configured in the ignored
-`src/Host/Erp.Api/appsettings.Development.json` file. Do not commit real
-credentials. You can also override it for one PowerShell session:
-
-```powershell
-$env:ConnectionStrings__Erp = "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres;Password=<your-password>"
-```
-
-### 3. Restore, build, and test
-
-Run these commands from the repository root:
-
-```powershell
-dotnet restore
-dotnet build
-dotnet test
-```
-
-### 4. Start the API
-
-```powershell
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
-```
-
-The development launch profile uses:
-
-- HTTP: `http://localhost:5004`
-- HTTPS: `https://localhost:7104`
-
-Keep the terminal running while you use the API. Stop the application with
-`Ctrl+C`.
-
-### 5. Verify that it is running
-
-In a second PowerShell terminal:
-
-```powershell
-Invoke-WebRequest http://localhost:5004/api/v1/health
-```
-
-A successful response has HTTP status `200`.
-
-## Available API functionality
-
-The current API exposes the Phase 1.6 platform endpoints and representative
-company-scoped endpoints:
-
-| Method | Endpoint | Current behavior |
-|---|---|---|
-| `GET` | `/api/v1/health` | Returns `200` when the API host is running |
-| `POST` | `/api/v1/companies` | Creates an active company |
-| `GET` | `/api/v1/companies` | Lists persisted companies |
-| `GET` | `/api/v1/companies/{id}` | Gets a company by ID |
-| `GET` | `/api/v1/companies/by-code/{code}` | Gets a company by normalized code |
-| `PUT` | `/api/v1/companies/{id}/name` | Renames a company |
-| `POST` | `/api/v1/companies/{id}/activate` | Activates a company |
-| `POST` | `/api/v1/companies/{id}/deactivate` | Deactivates a company |
-| `GET` | `/api/v1/finance/accounts` | Representative company-scoped endpoint |
-| `POST` | `/api/v1/auth/login` | Authenticates a user and returns a JWT |
-| `GET` | `/api/v1/auth/me` | Returns the authenticated user |
-| `GET` | `/api/v1/auth/me/companies` | Lists companies available to the authenticated user |
-| `GET` | `/api/v1/users` | Lists users for a bootstrap administrator |
-| `GET` | `/api/v1/users/{userId}/companies` | Lists companies assigned to a user |
-| `POST` | `/api/v1/users/{userId}/companies/{companyId}` | Grants or restores company access |
-| `DELETE` | `/api/v1/users/{userId}/companies/{companyId}` | Revokes company access |
-| `GET` | `/api/v1/companies/{companyId}/users` | Lists users with company access |
-| `GET` | `/api/v1/audit` | Queries append-only audit history with bounded pagination and filters |
-| `GET` | `/api/v1/number-sequences` | Lists number sequences for the active company |
-| `POST` | `/api/v1/number-sequences` | Creates a company-scoped number sequence |
-| `PUT` | `/api/v1/number-sequences/{id}/configuration` | Changes safe formatting configuration without resetting `NextValue` |
-| `POST` | `/api/v1/number-sequences/{code}/next` | Atomically reserves the next number |
-| `GET` | `/openapi/v1.json` | Returns the generated OpenAPI document |
-
-Examples:
-
-```powershell
-Invoke-WebRequest http://localhost:5004/api/v1/health
-Invoke-RestMethod http://localhost:5004/api/v1/companies
-Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts -Headers @{ "X-Company-Id" = "<company-id>" }
-Invoke-RestMethod http://localhost:5004/openapi/v1.json
-```
-
-The Sales, Inventory and Finance endpoints live under `/api/v1/sales`, `/api/v1/inventory`
-and `/api/v1/finance`; browse them in the OpenAPI document at `/openapi/v1.json`.
-
-## Domain functionality available in Phase 1.6
-
-Although the API is intentionally small, the solution includes the Phase 1.6
-company-management slice and representative domain foundations:
-
-- Platform: `Company`, `User`, `Role`, and `Permission`
-- Finance: accounts, currencies, accounting periods, journals, and immutable
-  general-ledger entries
-- Sales: customers and controlled sales-order lifecycle transitions
-- Purchasing: vendors and controlled purchase-order lifecycle transitions
-- Inventory: items, locations, units of measure, and immutable item-ledger
-  entries
-- Shared kernel: aggregate roots, domain events, domain exceptions, company
-  identifiers, clock abstraction, and company-context abstraction
-- Audit: append-only Platform audit entries for security and administrative
-  operations, queried with `platform.audit.read`
-
-Audit history is not application logging and is not a financial ledger. The
-audit API is system-scoped, so it does not require `X-Company-Id`; use
-`companyId` to filter history for a company. Supported filters include
-`from`, `to`, `actorUserId`, `companyId`, `category`, `action`, `entityType`,
-`entityId`, and `outcome`. Results default to 50 entries and are capped at 200,
-ordered newest first.
-
-The domain tests currently verify balanced journals, rejected unbalanced
-journals, controlled sales-order transitions, immutable posted ledger records,
-and persistence schema ownership.
-
-## PostgreSQL options
-
-### Use local PostgreSQL
-
-This is the recommended setup for the current development environment:
-
-```powershell
-$env:PGPASSWORD = "postgres"
-psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
-psql -U postgres -h localhost -d gtek_erp -f .\scripts\database\apply-platform-migration.sql
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
-```
-
-The dependency-safe `20261005164810_PlatformBaseline` migration is authoritative
-for new databases and future schema changes.
-
-```powershell
-$env:ConnectionStrings__Erp = "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres;Password=postgres"
-dotnet ef database update --connection $env:ConnectionStrings__Erp --project .\src\Modules\Platform\Erp.Modules.Platform.Infrastructure\Erp.Modules.Platform.Infrastructure.csproj --startup-project .\src\Host\Erp.Api\Erp.Api.csproj
-```
-
-Existing SQL-bootstrap databases require a backup and explicit schema validation
-before adoption:
-
-```powershell
-.\scripts\database\adopt-platform-bootstrap.ps1 -ConnectionString $env:ConnectionStrings__Erp
-.\scripts\database\adopt-platform-bootstrap.ps1 -ConnectionString $env:ConnectionStrings__Erp -Apply
-```
-
-The first command is read-only. The second records the baseline only after
-validation succeeds. See [ADR 0012](docs/adr/0012-database-migration-authority.md).
-
-### Use Docker PostgreSQL
-
-Docker is optional and is retained for other contributors:
-
-```powershell
-docker compose up -d postgres
-docker compose ps
-docker compose logs -f postgres
-```
-
-The Docker defaults use a separate `gtek` database user. Docker maps port `5432`
-on the host, so stop or reconfigure it if a local PostgreSQL service already
-uses that port:
-
-```powershell
-docker compose down
-```
-
-Environment variables can override the Docker defaults:
-
-```powershell
-$env:POSTGRES_DB = "gtek_erp"
-$env:POSTGRES_USER = "gtek"
-$env:POSTGRES_PASSWORD = "development-only-password"
-docker compose up -d postgres
-```
-
-## Repository commands
-
-```powershell
-# Restore NuGet packages
-dotnet restore
-
-# Compile the complete solution
-dotnet build
-
-# Run all tests
-dotnet test
-
-# Run only unit tests
-dotnet test .\tests\Erp.UnitTests\Erp.UnitTests.csproj
-
-# Run only architecture tests
-dotnet test .\tests\Erp.ArchitectureTests\Erp.ArchitectureTests.csproj
-
-# Start the API
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
-```
-
-## Smoke test and CI
-
-`scripts/smoke/run.sh` runs the business flows against a **real API, real PostgreSQL and a real SMTP conversation** (ADR 0033): it creates
-a throwaway database, migrates and seeds it, starts the API with email and reminders switched on, and runs `scripts/smoke/smoke.py` (Python
-standard library only, with a built-in SMTP sink). It covers sign-in and permissions, order to cash, three-way match, the tolerance approval
-workflow and its emails, email preferences, the scheduled reminders, account-change notices, a rejected address not failing an operation,
-retention settings, and that the ledger still balances.
-
-It then runs the **browser flows** (`web/e2e`, Playwright, ten tests) against the same API through the dev server: signing in and
-role-dependent navigation, creating an order and invoicing and paying it in the UI, the reminders in the notification bell, a tolerance
-request raised by a clerk and rejected and approved by an approver, notifications and the per-category email switches, per-category retention,
-and reorder levels. A browser test fails on any uncaught page error or 5xx response, whatever its assertions.
+### 1. Create the role and database (once, as a PostgreSQL superuser)
 
 ```bash
-scripts/smoke/run.sh               # all sections (about two minutes)
-scripts/smoke/run.sh reminders     # only sections whose title contains the word
-SMOKE_KEEP=1 scripts/smoke/run.sh  # keep the database and the API log (/tmp/gtek-smoke-api.log) afterwards
-SMOKE_BROWSER=0 scripts/smoke/run.sh   # API checks only
+sudo -u postgres psql -f scripts/dev-db.sql        # creates role gtek (password gtek_dev) and database gtek_erp
 ```
 
-The browser flows need the web dependencies and a browser once: `cd web && npm ci && npx playwright install chromium` (or point
-`E2E_CHROMIUM` at an installed Chrome). To run or debug them on their own against a running API and dev server:
-`cd web && npx playwright test` (add `--ui` or `--headed` to watch).
+### 2. Configure the API
 
-It needs the .NET SDK, the `dotnet-ef` tool, `psql`, `python3`, Node 20+ and a PostgreSQL server you can create databases on
-(`SMOKE_PG_ADMIN`, default `postgresql://gtek:gtek_dev@localhost:5432/postgres`). `.github/workflows/ci.yml` runs it, the unit,
-architecture, integration and functional tests, and the web build on every push and pull request.
-
-## Architecture and boundaries
-
-This is a modular monolith:
-
-- `Erp.Api` is the composition root.
-- Each active module owns its Domain, Application, Infrastructure, and
-  Contracts projects.
-- Each module owns its persistence schema.
-- Domain projects do not reference EF Core or ASP.NET Core.
-- Financial values use `decimal`, never `float` or `double`.
-- Posted financial history is immutable and corrections will use explicit
-  reversal or correction transactions.
-
-See [ERP-IMPLEMENTATION-SPECIFICATION.md](ERP-IMPLEMENTATION-SPECIFICATION.md)
-for the complete Phases 1–12 roadmap and
-[docs/USER-GUIDE.md](docs/USER-GUIDE.md) for the detailed operator/developer
-guide.
-
-## Authentication and user management
-
-Phase 1.6 includes local JWT authentication, database-backed user management,
-and policy-based roles and permissions.
-Set secrets through environment variables rather than committed configuration:
-
-```powershell
-$env:Authentication__BootstrapSecret = "operator-supplied-bootstrap-secret"
-$env:Authentication__Jwt__SigningKey = "<base64-encoded-32-byte-key>"
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
-```
-
-In Development, the API can generate an ephemeral signing key when one is not
-configured. Configure a persistent key for any environment where tokens must
-survive restarts. Create the first user once:
-
-```powershell
-$body = '{"userName":"admin","email":"admin@example.com","password":"use-a-long-unique-password"}'
-curl.exe -X POST http://localhost:5004/api/v1/users `
-  -H "Content-Type: application/json" `
-  -H "X-Bootstrap-Secret: $env:Authentication__BootstrapSecret" `
-  -d $body
-```
-
-Then log in and call the authenticated user endpoint:
-
-```powershell
-$login = curl.exe -s -X POST http://localhost:5004/api/v1/auth/login `
-  -H "Content-Type: application/json" `
-  -d '{"userName":"admin","password":"use-a-long-unique-password"}' | ConvertFrom-Json
-curl.exe http://localhost:5004/api/v1/auth/me -H "Authorization: Bearer $($login.accessToken)"
-```
-
-`GET /api/v1/users`, user lifecycle endpoints, and company-management
-endpoints require the appropriate current server-side permission. The
-authentication identity does not select a company; company-scoped requests
-require `X-Company-Id` and active `UserCompanyAccess`.
-
-## Current limitations
-
-Phase 1.6 does not yet include:
-
-- A web frontend
-- Company-specific roles or permissions
-- Database-backed finance account queries
-- Journal-posting API endpoints
-- Sales, purchasing, inventory, invoicing, or payment workflows
-- Reporting, integrations, or production deployment configuration
-
-Do not treat the representative endpoints as a completed ERP feature set.
-### Roles and permissions
-
-Phase 1.6 uses the server-side permission model and explicit company scope.
-Permissions use stable
-`module.resource.action` codes, roles contain explicit permission assignments,
-and users have global role assignments. The initial catalogue includes
-`platform.companies.*`, `platform.users.*`, `platform.roles.*`,
-`platform.permissions.read`, `platform.audit.read`, and
-`finance.accounts.read`.
-
-Protected endpoints return `401` for an unauthenticated request and `403` for
-an authenticated user without the declared permission. Permissions are
-resolved from PostgreSQL at request time and are not copied into JWTs.
-Company access is not copied into JWTs. It is resolved server-side before
-CompanyContext is established, so revocation affects an existing token.
-`SYSTEM_ADMIN` receives company-access permissions through normal role
-assignments but has no implicit access to every company. Grant access with
-`POST /api/v1/users/{userId}/companies/{companyId}` and discover selectable
-companies with `GET /api/v1/auth/me/companies`; neither endpoint requires an
-active company header.
-
-## Email
-
-Approval requests and their decisions can be emailed as well as shown in the app. Email is **off by default**; turn it on in the API's
-configuration (appsettings or environment variables, e.g. `Email__Host`):
+Create `src/Host/Erp.Api/appsettings.Development.json` (git-ignored):
 
 ```json
-"Email": {
-  "Enabled": true,
-  "Host": "smtp.example.com",
-  "Port": 587,
-  "Security": "StartTls",          // None | StartTls | SslOnConnect
-  "Username": "mailer",
-  "Password": "…",                 // keep secrets out of source control: use an environment variable or secret store
-  "FromAddress": "erp@example.com",
-  "FromName": "GTEK ERP",
-  "BaseUrl": "https://erp.example.com"   // the web app's address, used for the links in the emails
+{
+  "ConnectionStrings": { "Erp": "Host=localhost;Port=5432;Database=gtek_erp;Username=gtek;Password=gtek_dev" },
+  "Authentication": {
+    "BootstrapSecret": "dev-bootstrap-secret",
+    "Jwt": { "SigningKey": "<output of: openssl rand -base64 32>" }
+  }
 }
 ```
 
-The API refuses to start with a clear list of problems if email is enabled but incomplete. Optional tuning: `PollSeconds` (20), `MaxAttempts` (5),
-`RetryMinutes` (`[1, 5, 30, 120, 720]`), `KeepSentDays` (14) and `KeepFailedDays` (90). Each user can turn emails off from the notification bell, and
-Administration → Notifications shows what is waiting or has failed. See ADR 0026. For local testing, point `Host` at any SMTP catcher
-(for example `127.0.0.1:1025` with `Security` set to `None`).
+### 3. Apply the migrations and load demo data
 
-**Keeping the SMTP password out of configuration.** Besides appsettings and environment variables, any setting can be supplied as a **secret
-file**: a file named like the setting with `__` for `:` whose content is the value, in `/run/secrets` (where Docker and Kubernetes mount secrets)
-or in the folder named by `ERP_SECRETS_DIR`. For example `/run/secrets/Email__Password`. Secret files are read last, so they win over every
-other source; a trailing newline is ignored, and a missing folder is fine (ADR 0038).
+```bash
+bash scripts/dev-setup.sh --seed      # migrates every module's schema, then seeds the demo company (safe to re-run)
+```
 
-Other email behaviour worth knowing: scheduled reminders follow `Reminders:TimeZone` and `Reminders:Hour` (ADR 0036) and are protected against two
-API instances sending twice (ADR 0035); emails about changes to your own account and access are security notices that cannot be switched off
-(ADR 0034); each email carries a stable `Message-ID` so a rare resend can be recognised; low-stock alerts do not count an item whose shortfall is
-already covered by released purchase orders (ADR 0037).
+Migrations are never applied automatically when the API starts (ADR 0012); this script is how you apply them. To start over, drop and recreate
+the `gtek_erp` database and run it again.
+
+### 4. Start the API and the web app
+
+```bash
+# terminal 1: the API on http://localhost:5004
+ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Host/Erp.Api --no-launch-profile --urls http://localhost:5004
+
+# terminal 2: the web app on http://localhost:5173 (proxies /api to the API)
+cd web && npm install && npm run dev
+```
+
+Open **http://localhost:5173** and sign in as **`admin` / `Admin#123456`**, company **GTEK Demo (Pvt) Ltd**. Check the API with
+`curl http://localhost:5004/api/v1/health`.
+
+## Demo data and what to try
+
+The seeder creates a company with a chart of accounts, tax codes (`VAT18`, `ZERO`), 15 items with opening stock, 8 customers, 5 vendors, sales
+and purchase orders in every state, overdue invoices and bills, and a tolerance-approval history. Accounting months before September 2026 are closed;
+September 2026 onwards stay open, so months that have ended and are still open are what the period-close reminder reports.
+
+| User | Password | Can do |
+|---|---|---|
+| `admin` | `Admin#123456` | Everything, including administration and approving tolerance requests |
+| `apclerk` | `Clerk#1234567` | Receive goods, enter and pay bills, raise tolerance requests; cannot open Finance or Administration or approve their own requests |
+
+Things worth trying:
+
+1. **Order to cash:** *Sales orders → New order*, confirm, release, create the invoice, record a payment, then open *Ledger and reports* and see "Balanced".
+2. **Approvals:** as `apclerk` open a purchase order and choose *Request tolerance change*; sign in as `admin` and approve or reject it under *Tolerance requests*.
+3. **The bell:** a couple of minutes after the API starts, the reminders appear (overdue invoices and bills, low stock, open periods). The panel also holds your email switches.
+4. **Reorder levels:** *Items and stock → Edit* an item and set a reorder level; the printer starts below its seeded level.
+5. **Administration:** accounting periods, number sequences, users (access and roles), the audit log, and notification retention per company and per category.
+
+For emails, run any SMTP catcher (for example `docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit`, inbox on :8025) and start the API with
+`Email__Enabled=true Email__Host=127.0.0.1 Email__Port=1025 Email__Security=None Email__FromAddress=erp@gtek.local Email__BaseUrl=http://localhost:5173`.
+
+## Configuration
+
+Settings come from `appsettings*.json`, environment variables (`Section__Key`), and **secret files** (below). Later sources win.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `ConnectionStrings:Erp` | local `gtek_erp` | PostgreSQL connection |
+| `Authentication:BootstrapSecret` | none | Allows creating the first administrator |
+| `Authentication:Jwt:SigningKey` | ephemeral in Development | Base64 32-byte key for tokens; set a persistent one anywhere tokens must survive restarts |
+| `Email:*` | `Enabled: false` | SMTP host, port, security (`None`/`StartTls`/`SslOnConnect`), credentials, `FromAddress`, `FromName`, `BaseUrl`; retry and retention tuning. An incomplete configuration stops start-up with every problem listed (ADR 0026) |
+| `Reminders:*` | on, 08:00, UTC | `Enabled`, `TimeZone` (IANA id), `Hour`, `RepeatDays` (1), `IntervalMinutes` (60), `InitialDelaySeconds`, `PeriodCloseGraceDays` (3) (ADRs 0029, 0031, 0036) |
+| `Notifications:Retention:*` | read 30 days, unread 180 | System default retention; each company can override it, per category (ADRs 0024, 0025, 0027) |
+| `ERP_SECRETS_DIR` | `/run/secrets` | Folder of secret files (ADR 0038) |
+| `ERP_DATABASE_CONNECTION` | — | Connection used by `dotnet ef` and `scripts/dev-setup.sh` |
+| `ERP_TEST_DATABASE_CONNECTION` | — | A disposable database for the PostgreSQL integration tests |
+
+**Secret files.** Any setting can be supplied as a file named like the setting with `__` for `:`, for example `/run/secrets/Email__Password`
+(where Docker and Kubernetes mount secrets). Secret files are read last, so they win; a trailing newline is ignored and a missing folder is fine.
+Keep the SMTP password, the signing key and the database password out of appsettings.
+
+Posting accounts are configurable: sales, purchasing and inventory post to *roles* (receivable, revenue, inventory, payable, goods received not
+invoiced, and so on) that you map to your own ledger accounts under *Finance → Account mapping* (ADR 0016). Unmapped roles use the defaults:
+1000/1010 cash and bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received not invoiced, 2200 output tax, 1300 input tax,
+4000 revenue, 4100 sales returns, 5000 cost of goods sold, 5100 purchase price variance.
+
+## Testing and CI
+
+| Suite | Command | What it covers |
+|---|---|---|
+| Unit | `dotnet test tests/Erp.UnitTests` | Domain rules, application services, reminders, email, notifications (417 tests) |
+| Architecture | `dotnet test tests/Erp.ArchitectureTests` | Module boundaries and dependency rules (3) |
+| Functional | `dotnet test tests/Erp.FunctionalTests` | The HTTP host on an in-memory database (10) |
+| Integration | `dotnet test tests/Erp.IntegrationTests` | Real SQL on PostgreSQL: locks, outbox claims, purges, queries (27). Needs `ERP_TEST_DATABASE_CONNECTION`, migrated with `scripts/dev-setup.sh` |
+| **Smoke + browser** | `scripts/smoke/run.sh` | A real API, PostgreSQL and SMTP conversation (84 checks), then Playwright browser flows (10 tests); about two and a half minutes (ADR 0033) |
+
+`dotnet test` runs the first four (the integration tests need the environment variable). `scripts/smoke/run.sh` builds a throwaway database, seeds it,
+starts the API with email and reminders switched on, runs `scripts/smoke/smoke.py` (standard library only, with a built-in SMTP sink) and then the
+browser tests in `web/e2e`. Options: a section word to run only matching sections, `SMOKE_BROWSER=0`, `SMOKE_KEEP=1`. The browser flows need
+`cd web && npm ci && npx playwright install chromium` once (or `E2E_CHROMIUM=/path/to/chrome`).
+
+**GitHub Actions** (`.github/workflows/ci.yml`) runs on every push and pull request: build and test, the web build, and the smoke test with the browser
+flows; failure artifacts (Playwright traces) are kept for a week.
+
+## Architecture and repository layout
+
+```text
+src/
+  BuildingBlocks/   SharedKernel (aggregate roots, domain events, ids) and Application.Abstractions (cross-module contracts)
+  Host/Erp.Api      composition root: endpoints, authentication, hosted workers (email, reminders, retention), dev seeder
+  Modules/          Platform, Finance, Inventory, Sales, Purchasing; each has Domain, Application, Infrastructure (and Contracts)
+tests/              unit, architecture, functional, integration
+web/                React 19 + Vite + TypeScript + TanStack Query; e2e/ holds the Playwright tests
+scripts/            dev-setup.sh, dev-db.sql, smoke/ (smoke test and its runner)
+docs/               user guide, status, architecture decision records (docs/adr)
+```
+
+Rules the code follows (enforced by the architecture tests where they can be):
+
+- Modules talk only through contracts in `Erp.Application.Abstractions` or a module's `Contracts` project, never each other's tables.
+- Each module owns its PostgreSQL schema and its migrations history (ADRs 0001, 0002). Domain projects do not reference EF Core or ASP.NET.
+- Every company-scoped request carries `X-Company-Id`, and access is checked on the server (ADRs 0004, 0006, 0009).
+- Money is `decimal`. Posted ledger and stock history is append-only; corrections are reversals (ADR 0003).
+- Permissions are resolved on the server at request time, not copied into tokens (ADR 0008).
+
+### PostgreSQL notes
+
+`docker compose up -d postgres` starts a PostgreSQL 16 container with a separate `gtek` user (override with `POSTGRES_DB`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD`; it maps port 5432, so stop any local server first). Adopting a database created by the early SQL bootstrap needs the scripts
+in `scripts/database` and a backup (ADR 0012).
+
+## API
+
+All endpoints are under `/api/v1`; the generated OpenAPI document is at `/openapi/v1.json`, and `src/Host/Erp.Api/Erp.Api.http` has requests to try.
+Sign in with `POST /api/v1/auth/login` and send the token as `Authorization: Bearer …`; company-scoped calls also need `X-Company-Id`.
+
+| Group | Examples |
+|---|---|
+| `auth`, `users`, `roles`, `companies` | sign-in, current user and preferences, user and role administration, company access |
+| `accounting-periods`, `number-sequences`, `audit` | period close and lock, document numbering, audit history |
+| `finance/…` | accounts, journals, trial balance, account mapping, tax codes and the tax summary |
+| `inventory/…` | items, locations, stock levels, receipts and adjustments |
+| `sales/…` | customers, orders, invoices and payments, credit notes and refunds |
+| `purchasing/…` | vendors, orders, receipts, bills, payments, debit notes, tolerance requests |
+| `notifications`, `notification-settings/…` | the bell, retention settings, email status |
+
+The first user is created once with the bootstrap secret (`POST /api/v1/users` with the `X-Bootstrap-Secret` header); after that, users are
+managed by administrators. The demo seeder does this for you.
+
+## Project status
+
+The full detail is in [docs/STATUS.md](docs/STATUS.md). In short:
+
+- **Built and tested:** both business cycles, tax, matching tolerances with an approval workflow, notifications, email, scheduled reminders,
+  multi-company administration, audit, and a web client covering all of it. 457 automated tests plus a live smoke and browser test, all run in CI.
+- **Not built:** multi-currency, reporting beyond the trial balance, tax summary and ageing, integrations, per-location reorder levels,
+  password change or reset, company-specific roles, bounce handling for email, and production deployment configuration.
+
+## Documentation
+
+- [docs/USER-GUIDE.md](docs/USER-GUIDE.md): how to run, use and administer the application
+- [docs/STATUS.md](docs/STATUS.md): what is built, what is not, and known limitations
+- [docs/adr/](docs/adr/README.md): the architecture decision records (0001 to 0038), indexed by topic
+- [ERP-IMPLEMENTATION-SPECIFICATION.md](ERP-IMPLEMENTATION-SPECIFICATION.md): the long-term phase roadmap this project follows
+- [CONTRIBUTING.md](CONTRIBUTING.md): what to run before a change is done

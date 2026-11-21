@@ -1,433 +1,198 @@
-# GTEK Business ERP User and Developer Guide
+# GTEK Business ERP: user and operator guide
 
-## 1. What this application is
+How to run, use and administer the application. For a quick start see the [README](../README.md); for what is and is not built see
+[STATUS](STATUS.md); for the reasoning behind decisions see the [decision records](adr/README.md).
 
-The current release is **Phase 1.7** of the GTEK Business ERP. It provides the
-technical foundation for a modular monolith:
+## Contents
 
-- A .NET 10 ASP.NET Core API host
-- PostgreSQL connection, platform persistence, and the initial platform schema
-- Platform, Finance, Sales, Purchasing, and Inventory module boundaries
-- Initial domain rules and immutable ledger concepts
-- OpenAPI metadata
-- Health checks, problem-details responses, and structured logging
-- Unit, integration, architecture, and functional tests
+1. [What the application is](#1-what-the-application-is)
+2. [Running it](#2-running-it)
+3. [Signing in and finding your way](#3-signing-in-and-finding-your-way)
+4. [Working with the screens](#4-working-with-the-screens)
+5. [Notifications, email and reminders](#5-notifications-email-and-reminders)
+6. [Administration](#6-administration)
+7. [Roles and permissions](#7-roles-and-permissions)
+8. [Using the API directly](#8-using-the-api-directly)
+9. [Databases and migrations](#9-databases-and-migrations)
+10. [Troubleshooting](#10-troubleshooting)
 
-It is not yet a complete end-user ERP. There is no browser UI; authentication
-is provided through the documented API login endpoint, and current read endpoints intentionally return representative empty
-collections. Phase 1.7 now includes database-backed company management, local
-authentication, policy-based permissions, and explicit user-company access.
-It also records intentional security and administrative audit history.
+## 1. What the application is
 
-## 2. Start the application with local PostgreSQL
+A multi-company ERP: a .NET 10 API over PostgreSQL and a React web client. It handles two business cycles end to end:
 
-### Prerequisites
+- **Order to cash:** customer, sales order, invoice (the stock leaves and the ledger is posted in one step), payment; credit notes, returns to stock and refunds.
+- **Procure to pay:** vendor, purchase order, goods receipts, vendor bill matched to the order and receipts, payment; returns to vendor, debit notes and vendor refunds.
 
-Install:
+Around them: a chart of accounts, journals and a trial balance; tax codes; stock levels; multiple companies with per-user access; roles and
+permissions; an audit trail; and notifications, email and scheduled reminders that tell people what needs them.
 
-1. .NET SDK 10.0.400
-2. PostgreSQL with a server listening on `localhost:5432`
-3. `psql` on your PATH, or another PostgreSQL client
+The ledger is **append-only**: posted entries are never edited, and a mistake is corrected with a reversal. Money is exact (`decimal`), and the trial
+balance must always balance.
 
-### Create the database
+## 2. Running it
 
-Using the local `postgres` administrator:
+Follow the [README quick start](../README.md#quick-start): create the database, configure the API, run `bash scripts/dev-setup.sh --seed`, start the
+API on port 5004 and the web app on port 5173, then open http://localhost:5173.
 
-```powershell
-psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
+The API never changes the database schema by itself; migrations are applied by `scripts/dev-setup.sh` (see [section 9](#9-databases-and-migrations)).
+To start over with fresh demo data, drop and recreate the database and run the script again.
+
+## 3. Signing in and finding your way
+
+Sign in with a user name and password. If you have access to more than one company, choose it from **Company** in the top bar; everything you see
+afterwards belongs to that company. The demo has one company and two users:
+
+| User | Password | Role |
+|---|---|---|
+| `admin` | `Admin#123456` | Administrator: everything, including approving tolerance requests |
+| `apclerk` | `Clerk#1234567` | Accounts-payable clerk: purchasing day-to-day, cannot open Finance or Administration |
+
+The left menu shows only the areas your role allows, and buttons you cannot use are hidden. If you can reach something by address but lack the
+permission, the server refuses it (403). The bell in the top bar shows what needs your attention.
+
+## 4. Working with the screens
+
+### Dashboard
+
+Cash and bank, receivables, overdue invoices, payables, inventory value, net revenue, tax payable and gross profit; the order pipeline; receivables
+ageing; recent invoices; and a **Low stock** card. Items with a reorder level are listed when at or below it; items without one when they have been
+stocked and have 8 or fewer. The card shows the six lowest and "+N more" with a link.
+
+### Sales
+
+- **Customers:** code, name, contact and payment terms.
+- **Sales orders:** create a draft, add lines, *Confirm order*, *Release for invoicing*, then *Create invoice*. Invoicing issues the stock, posts the
+  receivable, revenue, tax and cost of goods sold, and cannot oversell.
+- **Invoices and payments:** record full or partial payments (overpaying is refused). Overdue invoices are flagged. A **credit note** returns goods to
+  stock at their original cost and reverses revenue, tax and cost; a **refund** pays the customer back against a credit note.
+
+### Purchasing
+
+- **Vendors:** terms and an optional price, over-delivery and under-delivery tolerance.
+- **Purchase orders:** draft, confirm, release, then **receive goods** (partial deliveries are fine; stock goes in at the order cost with an accrual
+  for goods received not yet invoiced). *Close short* ends an order that will not be completed.
+- **Bills:** enter the vendor's bill against an order. It is matched to the order and what was received: a billed price within the **price tolerance**
+  (2% by default; per vendor, item or order line) is accepted and marked "within tolerance"; beyond it the bill is refused unless a user who may approve
+  variances overrides it. The difference is posted to purchase price variance. Pay bills in full or in part.
+- **Tolerances and approval:** over- and under-delivery follow tolerances too. Someone with the *approve order tolerance overrides* permission can set them
+  on an order line directly. Anyone who manages orders can instead **Request tolerance change** with a reason; the request is listed under
+  **Tolerance requests**, a **different** person approves or rejects it (nobody decides their own), and only one request can be open per order.
+- **Returns, debit notes and vendor refunds** reverse received goods and billed amounts.
+
+### Inventory
+
+**Items and stock:** each item has a SKU, price, cost, unit, tax code, optional tolerances and an optional **reorder level** (the on-hand quantity at or
+below which people who manage stock are told; blank means not monitored). *Receive* adds stock, *Adjust* corrects it, *Ledger* shows every movement.
+Stock is valued from the ledger, so it always agrees with the general ledger.
+
+### Finance (Ledger and reports)
+
+The trial balance (with a "Balanced" check), the chart of accounts, journals and reversals, **Account mapping** (which ledger account each posting role uses) and
+**Tax** (tax codes and the net payable for a period). Prices are tax-exclusive: an item's tax code adds output tax on invoices and input tax on bills,
+and credit and debit notes return the tax that was charged.
+
+## 5. Notifications, email and reminders
+
+### The bell
+
+Click the bell in the top bar. Unread messages are highlighted; clicking one opens the page it is about and marks it read; **Mark all read** clears
+the count. The panel also holds your email switches and a line telling you how long messages are kept, including any categories that follow a different rule.
+
+### What is sent, and to whom
+
+| Event | Who is told | Category | Email |
+|---|---|---|---|
+| A tolerance change is requested | People who can approve order tolerance overrides, except the requester | approval | yes |
+| A request is approved or rejected | The requester | decision | yes |
+| Invoices are past their due date | People who can record customer payments | overdue-invoice | yes |
+| Vendor bills are past their due date | People who can pay vendor bills | overdue-bill | yes |
+| Items are at or below their reorder level (and not covered by released purchase orders) | People who manage stock | low-stock | yes |
+| Accounting periods have ended but are still open | People who manage accounting periods | period-close | yes |
+| Your own account is created or deactivated, or your company access or roles change | You, by email only | account | always |
+
+The scheduled ones (overdue, low stock, period close) are **one summary per company per day**, sent from the configured hour, replacing the previous
+summary, and clearing themselves when the cause is resolved.
+
+### Email
+
+Email is **off until configured** (README, Configuration). When on, messages are queued in an outbox and sent by a background worker with retries, so a
+mail-server outage never makes an approval or a bill fail. **Your preferences** (bell panel): a master switch, and one checkbox per category. In-app
+messages are unaffected by these. **Security notices** (the `account` row above) ignore your preferences; they say so in the email and are not listed as choices.
+Administrators see what is waiting, sent and failed under *Administration → Notifications*.
+
+### Retention
+
+Read messages are deleted 30 days after being read and unread ones 180 days after being sent, by default. Under *Administration → Notifications* a
+company can change both, and set its own rule for a single category (for example keep decisions longer than approval requests). Blank inherits; 0 unread days keeps
+unread messages forever. Changes take effect at the next daily purge.
+
+## 6. Administration
+
+Open **Administration** (needs the relevant permissions).
+
+- **Accounting periods:** postings are accepted only into an open period. *Close* a period when its postings are complete (a reminder tells you when one has ended
+  but is still open); *Lock* a closed period to make it permanent; *Reopen* a closed one if you must.
+- **Number sequences:** per-company document numbers (prefix, padded number, suffix); issuing is safe across several API instances; gaps may occur and numbers are never reused.
+- **Users:** create users, activate and deactivate them, grant or revoke access to a company, and assign global roles. The person is emailed about each change to their own access.
+- **Audit log:** an append-only history of administrative and security actions, filterable by date, actor, company, category, action and outcome.
+- **Notifications:** retention for the company and per category, and the email delivery status.
+
+## 7. Roles and permissions
+
+Users receive **global roles**; roles hold **permissions** of the form `module.resource.action` (for example `purchasing.payments.record`). Permissions are looked up
+on the server on every request and are not copied into the sign-in token, so changing a role takes effect immediately. **Company access** is separate:
+a user can act in a company only if access was granted, and the administrator role has no implicit access to every company. Inactive users and roles authorise nothing.
+
+The first (bootstrap) administrator holds `SYSTEM_ADMIN`, which receives every permission, including new ones introduced by later versions (granted at API start-up).
+Useful endpoints: `GET /api/v1/permissions`, `GET|POST /api/v1/roles`, `POST|DELETE /api/v1/roles/{id}/permissions/{code}`, `POST|DELETE /api/v1/users/{id}/roles/{roleId}`,
+`POST|DELETE /api/v1/users/{id}/companies/{companyId}`.
+
+## 8. Using the API directly
+
+Everything the web app does goes through the API under `/api/v1`. The OpenAPI document is at `/openapi/v1.json` and `src/Host/Erp.Api/Erp.Api.http` has ready-made requests.
+
+```bash
+# sign in
+TOKEN=$(curl -s -X POST http://localhost:5004/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"userName":"admin","password":"Admin#123456"}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])')
+
+# find your companies (no company header needed for this call)
+curl -s http://localhost:5004/api/v1/auth/me/companies -H "Authorization: Bearer $TOKEN"
+
+# company-scoped calls need the company id too
+curl -s http://localhost:5004/api/v1/finance/trial-balance -H "Authorization: Bearer $TOKEN" -H "X-Company-Id: <company-id>"
 ```
 
-If the database already exists, PostgreSQL will report that fact; no data is
-deleted by this command.
+`401` means not signed in, `403` means signed in without the permission, `400` carries a readable `detail` explaining a rule that was broken (for example "Payment exceeds the invoice balance").
 
-### Configure the connection
+The **first user** is created once with the bootstrap secret: `POST /api/v1/users` with `X-Bootstrap-Secret: <Authentication:BootstrapSecret>`. After that, users are managed by administrators.
+`scripts/smoke/smoke.py` is a good worked example of driving the whole API.
 
-Development settings are loaded from:
+## 9. Databases and migrations
 
-```text
-src/Host/Erp.Api/appsettings.Development.json
+EF Core migrations are authoritative and each module has its own schema and history table (`platform`, `finance`, `inventory`, `sales`, `purchasing`). They are applied with
+`bash scripts/dev-setup.sh` (or `dotnet ef database update` per module), never automatically at start-up. A database created by the old SQL bootstrap needs a backup and the
+adoption script in `scripts/database` (read-only check first, then `-Apply`); see [ADR 0012](adr/0012-database-migration-authority.md). To add a migration:
+
+```bash
+dotnet ef migrations add <Name> --startup-project src/Host/Erp.Api --project src/Modules/<Module>/Erp.Modules.<Module>.Infrastructure \
+  --context <Module>DbContext --output-dir Persistence/Migrations      # with ERP_DATABASE_CONNECTION set
 ```
 
-Keep the local password in that ignored file or set the standard ASP.NET Core
-environment variable:
-
-```powershell
-$env:ConnectionStrings__Erp = "Host=localhost;Port=5432;Database=gtek_erp;Username=postgres;Password=<your-password>"
-```
-
-The environment-variable value takes precedence over the JSON configuration.
-Never commit a production password or credential to the repository.
-
-### Build and run
-
-From the repository root:
-
-```powershell
-dotnet restore
-dotnet build
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj
-```
-
-The API uses the Development environment from its launch profile:
-
-```text
-HTTP:  http://localhost:5004
-HTTPS: https://localhost:7104
-```
-
-If you run without the launch profile, specify the URL explicitly:
-
-```powershell
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj --urls http://localhost:5004
-```
-
-Stop the process with `Ctrl+C`.
-
-## 3. Verify the running service
-
-Open another PowerShell terminal and call the health endpoint:
-
-```powershell
-$response = Invoke-WebRequest http://localhost:5004/api/v1/health
-$response.StatusCode
-$response.Content
-```
-
-Expected result:
-
-```text
-200
-Healthy
-```
-
-If the API is not running, PowerShell reports that the connection was refused.
-Check the terminal running `dotnet run` for startup errors.
-
-## 4. Use the current endpoints
-
-### Health
-
-```powershell
-Invoke-WebRequest http://localhost:5004/api/v1/health
-```
-
-This checks that the web host is accepting requests. It is not yet a complete
-database-readiness check.
-
-### Companies
-
-```powershell
-Invoke-RestMethod http://localhost:5004/api/v1/companies
-```
-
-Create a company, then use the returned ID for lifecycle operations:
-
-```powershell
-$company = Invoke-RestMethod -Method Post `
-  -Uri http://localhost:5004/api/v1/companies `
-  -ContentType "application/json" `
-  -Body '{"code":"DEMO","name":"Demo Company"}'
-$company
-Invoke-RestMethod http://localhost:5004/api/v1/companies
-Invoke-RestMethod "http://localhost:5004/api/v1/companies/$($company.id)"
-```
-
-Company codes are trimmed and normalized to uppercase. New companies are
-active. Rename, activate, and deactivate operations are available at
-`/api/v1/companies/{id}/name`, `/activate`, and `/deactivate`.
-
-Company-management endpoints are system endpoints and do not require a header.
-Company-scoped endpoints require `X-Company-Id`:
-
-```powershell
-Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts `
-  -Headers @{ "X-Company-Id" = $company.id }
-```
-
-Missing or malformed headers return `400`, an unknown company returns `404`,
-an inactive company returns `409`, and a user without active company access
-returns `403`.
-
-### Finance accounts
-
-```powershell
-Invoke-RestMethod http://localhost:5004/api/v1/finance/accounts
-```
-
-This is currently a representative company-scoped endpoint and returns an empty
-array. Finance account management is planned for a later phase.
-
-### OpenAPI
-
-Open the generated API description in a browser:
-
-```text
-http://localhost:5004/openapi/v1.json
-```
-
-This is the machine-readable API document. A Swagger UI is not included in the
-current host configuration.
-
-### Audit history
-
-Phase 1.5 records intentional administrative and security actions in the
-append-only Platform audit table. It covers company, user, role,
-role-permission, user-role, user-company-access, and successful or failed
-authentication actions. Audit history is separate from operational logs and
-financial ledgers.
-
-Users with `platform.audit.read` can query the system-scoped endpoint:
-
-```powershell
-Invoke-RestMethod "http://localhost:5004/api/v1/audit?page=1&pageSize=50" `
-  -Headers @{ Authorization = "Bearer $token" }
-```
-
-Supported filters are `from`, `to`, `actorUserId`, `companyId`, `category`,
-`action`, `entityType`, `entityId`, and `outcome`. Results are newest first,
-default to 50 entries, and accept at most 200 entries per page. The endpoint
-does not require `X-Company-Id`; `companyId` is an explicit filter for
-platform auditors.
-
-Metadata is deliberately limited to safe identifiers and before/after values.
-Passwords, hashes, JWTs, signing keys, connection strings, tokens, and full
-request bodies are never stored. Audit entries have no update or delete use
-case, and no automatic retention purge is enabled.
-
-### Accounting periods
-
-Accounting periods are company-scoped and begin in the `Open` state. Create
-periods through `POST /api/v1/accounting-periods`, then close or lock them with
-the corresponding lifecycle endpoints. A period must be closed before it can
-be locked, and locked periods cannot be reopened or renamed. Periods for the
-same company may not overlap.
-
-## 5. Optional Docker database
-
-Local PostgreSQL is the recommended setup for this workspace. Docker remains
-available for another developer or CI-like local environment:
-
-```powershell
-docker compose up -d postgres
-docker compose ps
-docker compose logs -f postgres
-```
-
-The Docker container uses the values defined in
-[docker-compose.yml](../docker-compose.yml), not the local `postgres` account
-configuration. Do not start it on port `5432` while another PostgreSQL server
-is already using that port unless you change the port mapping.
-
-Stop the optional container with:
-
-```powershell
-docker compose down
-```
-
-## 6. Run validation
-
-Run the complete validation before submitting a change:
-
-```powershell
-dotnet restore
-dotnet build
-dotnet test
-```
-
-Target a specific test project when iterating:
-
-```powershell
-dotnet test .\tests\Erp.UnitTests\Erp.UnitTests.csproj
-dotnet test .\tests\Erp.IntegrationTests\Erp.IntegrationTests.csproj
-dotnet test .\tests\Erp.ArchitectureTests\Erp.ArchitectureTests.csproj
-dotnet test .\tests\Erp.FunctionalTests\Erp.FunctionalTests.csproj
-```
-
-## 7. What is currently implemented
-
-### Platform foundations
-
-- `CompanyId` and company-scoped aggregate foundations
-- `ICompanyContext`
-- `IClock` and `SystemClock`
-- `Company` and database-backed `User` aggregate
-- JWT authentication and HTTP-independent `ICurrentUser`
-
-### Finance foundations
-
-- Accounts and account types
-- Currencies and accounting periods
-- General journals with debit/credit lines
-- Rejection of unbalanced journals
-- Immutable `GeneralLedgerEntry` records
-- Protection against changing a posted journal
-
-### Sales and purchasing foundations
-
-- Customer and vendor concepts
-- Sales-order and purchase-order lines
-- Controlled document status transitions
-- Validation that draft documents contain valid lines before opening/releasing
-
-### Inventory foundations
-
-- Item and location concepts
-- Units of measure
-- Immutable item-ledger movement concept
-
-## 8. Authentication and first-user bootstrap
-
-Set the bootstrap secret and, outside Development, a persistent base64 JWT
-signing key as environment variables:
-
-```powershell
-$env:Authentication__BootstrapSecret = "operator-supplied-bootstrap-secret"
-$env:Authentication__Jwt__SigningKey = "<base64-encoded-32-byte-key>"
-```
-
-Create the first user once:
-
-```powershell
-$body = '{"userName":"admin","email":"admin@example.com","password":"use-a-long-unique-password"}'
-curl.exe -X POST http://localhost:5004/api/v1/users `
-  -H "Content-Type: application/json" `
-  -H "X-Bootstrap-Secret: $env:Authentication__BootstrapSecret" `
-  -d $body
-```
-
-Login is anonymous and returns a one-hour JWT:
-
-```powershell
-$login = curl.exe -s -X POST http://localhost:5004/api/v1/auth/login `
-  -H "Content-Type: application/json" `
-  -d '{"userName":"admin","password":"use-a-long-unique-password"}' | ConvertFrom-Json
-curl.exe http://localhost:5004/api/v1/auth/me `
-  -H "Authorization: Bearer $($login.accessToken)"
-```
-
-Invalid credentials and inactive users return the same unauthorized result.
-Password hashes and passwords are never returned. Deactivation blocks future
-logins; already-issued tokens remain valid until their one-hour expiry.
-
-User-management and company-management endpoints require the appropriate
-server-side permission.
-Authentication and active-company selection remain separate: authenticated
-company-scoped requests still require `X-Company-Id`.
-
-## 9. What is not implemented yet
-
-The following are intentionally deferred to later phases:
-
-- Frontend screens
-- Generic CRUD architecture and broad database-backed read models
-- Finance account persistence and database-backed account queries
-- Company-specific roles or permissions
-- Financial posting application services and APIs
-- Sales quotes, shipments, invoices, and customer payments
-- Purchase receipts, vendor invoices, and vendor payments
-- Inventory reservations, costing, warehouse execution, and stock balances
-- Fixed assets, projects, manufacturing, service, CRM, HR, and reporting
-
-The implementation roadmap and acceptance criteria are documented in
-[ERP-IMPLEMENTATION-SPECIFICATION.md](../ERP-IMPLEMENTATION-SPECIFICATION.md).
-
-## 10. Common problems
-
-### PostgreSQL connection refused
-
-Confirm that PostgreSQL is running and listening on port 5432:
-
-```powershell
-Test-NetConnection localhost -Port 5432
-```
-
-Then verify the connection settings and database name.
-
-### Database does not exist
-
-Create it with:
-
-```powershell
-psql -U postgres -h localhost -c "CREATE DATABASE gtek_erp;"
-```
-
-### Port 5004 is already in use
-
-Run the API on another port:
-
-```powershell
-dotnet run --project .\src\Host\Erp.Api\Erp.Api.csproj --urls http://localhost:5050
-```
-
-Use `http://localhost:5050` for the endpoint examples.
-
-### HTTPS development certificate warning
-
-Use the HTTP URL while developing:
-
-```text
-http://localhost:5004
-```
-
-HTTPS is optional for local Phase 1.4 development.
-## Roles and permissions
-
-Users receive global roles, and roles receive explicit permissions. Permission
-codes follow `module.resource.action`, for example
-`finance.accounts.read`. Use the role and permission endpoints to inspect and
-manage assignments:
-
-- `GET /api/v1/permissions`
-- `GET|POST /api/v1/roles`
-- `GET /api/v1/roles/{id}/permissions`
-- `POST|DELETE /api/v1/roles/{id}/permissions/{permissionCode}`
-- `GET /api/v1/users/{userId}/roles`
-- `POST|DELETE /api/v1/users/{userId}/roles/{roleId}`
-
-`SYSTEM_ADMIN` is created with explicit rows for the current permission
-catalogue and is assigned to the first bootstrap administrator. The JWT
-contains identity, not permissions; changing a role or permission takes effect
-without issuing a new token. Inactive users and roles do not authorize access.
-
-Authorization is separate from company selection. Global roles grant
-capability, while `UserCompanyAccess` grants company scope. `SYSTEM_ADMIN`
-has no implicit access to every company; access must be explicitly granted.
-`GET /api/v1/auth/me/companies` does not require `X-Company-Id`, while
-company-scoped operations require both the header and active access.
-
-Grant and revoke access with the system-scoped administrative endpoints:
-
-```powershell
-Invoke-RestMethod -Method Post `
-  -Uri "http://localhost:5004/api/v1/users/$userId/companies/$companyId" `
-  -Headers @{ Authorization = "Bearer $token" }
-
-Invoke-RestMethod -Method Delete `
-  -Uri "http://localhost:5004/api/v1/users/$userId/companies/$companyId" `
-  -Headers @{ Authorization = "Bearer $token" }
-```
-
-The permission catalogue includes `platform.company-access.read` and
-`platform.company-access.manage`. Permission and company-access changes are
-resolved server-side and therefore affect an already-issued JWT immediately.
-## Number sequences
-
-Number sequences are configured per company. Supply `X-Company-Id` and a token
-with the appropriate platform permission. Management endpoints require
-`platform.number-sequences.manage`; listing and issuing require
-`platform.number-sequences.read`.
-
-`POST /api/v1/number-sequences` creates a sequence. Generated values use
-`prefix + padded number + suffix`, for example `INV-000001`. Use
-`POST /api/v1/number-sequences/{code}/next` to reserve the next value.
-Reservations are transactionally locked in PostgreSQL and safe across multiple
-API instances. Gaps can occur, and reserved values are never reused.
-
-## Database migrations
-
-EF Core migrations are authoritative. New databases use the dependency-safe
-`20261005164810_PlatformBaseline` migration. Existing SQL-bootstrap databases
-require a backup and explicit schema validation with
-`scripts/database/adopt-platform-bootstrap.ps1`; run it once without `-Apply`
-to review checks, then use `-Apply` only for a compatible schema. Mismatches
-are rejected without dropping data. See [ADR 0012](adr/0012-database-migration-authority.md).
+Docker alternative: `docker compose up -d postgres` (PostgreSQL 16, user `gtek`).
+
+## 10. Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| API will not start and prints a list of problems | An invalid `Email`, `Reminders` or `Notifications:Retention` setting; the message names each one |
+| "Connection refused" or "database does not exist" | PostgreSQL is running on 5432; the `gtek` role and `gtek_erp` database exist (`scripts/dev-db.sql`); the connection string matches |
+| Pages fail after an update | New migrations: run `bash scripts/dev-setup.sh` |
+| Port 5004 or 5173 already in use | Stop the other process, or run the API with `--urls http://localhost:5050` (and set `VITE_API_TARGET` for the web app) |
+| Reminders do not appear | They run once about two minutes after start and then hourly, from the configured hour (`Reminders:Hour`, in `Reminders:TimeZone`); each is sent at most once a day |
+| No emails | `Email:Enabled` is false by default; check *Administration → Notifications* for pending or failed messages and the last error; your own email switch and category checkbox |
+| 403 on a screen or action | The user's role lacks the permission, or no access was granted to the company |
+| "Insufficient stock" on invoicing | The ledger is the authority; receive stock first or adjust it (with a reason) |
+| A bill is refused for price | It exceeds the price tolerance in effect for that line; request a tolerance change or have an approver override |
+
+Run `scripts/smoke/run.sh` to check that everything works together on a throwaway database; if it passes, the problem is in your environment or data.
