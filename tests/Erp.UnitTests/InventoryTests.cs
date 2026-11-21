@@ -74,4 +74,18 @@ public class InventoryTests
         Assert.Null(item.QuantityTolerancePercent);
         Assert.Throws<DomainException>(() => item.Update("Q", "EA", 10m, 5m, null, null, 101m));
     }
+
+    [Fact]
+    public void Item_under_delivery_tolerance_is_optional_validated_and_independent()
+    {
+        var item = Item.Create(Company, "U-1", "U", "EA", 10m, 5m, DateTimeOffset.UtcNow, null, null, 5m, 3m);
+        Assert.Equal(5m, item.QuantityTolerancePercent);
+        Assert.Equal(3m, item.UnderDeliveryTolerancePercent);
+        item.Update("U", "EA", 10m, 5m, null, null, 5m, 0m);
+        Assert.Equal(0m, item.UnderDeliveryTolerancePercent);
+        item.Update("U", "EA", 10m, 5m, null, null, 5m, null);
+        Assert.Null(item.UnderDeliveryTolerancePercent);
+        var ex = Assert.Throws<DomainException>(() => item.Update("U", "EA", 10m, 5m, null, null, null, 100.5m));
+        Assert.Contains("Under-delivery tolerance", ex.Message);
+    }
 }

@@ -185,6 +185,98 @@ public class PurchasingTests
     public void Receipt_line_keeps_the_tolerance_it_was_accepted_under() =>
         Assert.Equal(5m, new GoodsReceiptLine(ItemA, "A", "Item A", 10.5m, 25m, 5m).QuantityTolerancePercent);
 
+    // ---- under-delivery (short tolerance) ----------------------------------------------------------------------
+
+    private static Dictionary<Guid, decimal> Under(decimal a, decimal b = 0m) => new() { [ItemA] = a, [ItemB] = b };
+
+    [Theory]
+    [InlineData(10, 0, 10)]
+    [InlineData(10, 5, 9.5)]
+    [InlineData(4, 25, 3)]
+    [InlineData(3, 10, 2.7)]
+    [InlineData(10, 100, 0)]
+    public void Minimum_complete_quantity_is_the_ordered_quantity_less_tolerance(double ordered, double tolerance, double expected) =>
+        Assert.Equal((decimal)expected, ThreeWayMatch.MinCompleteQuantity((decimal)ordered, (decimal)tolerance));
+
+    [Theory]
+    [InlineData(2.0, 5.0, 2.0)]
+    [InlineData(0.0, 5.0, 0.0)]       // an item set to 0 is not "unset"
+    [InlineData(null, 5.0, 5.0)]
+    [InlineData(null, null, 0.0)]
+    public void Effective_under_delivery_tolerance_prefers_item_then_vendor_then_none(double? item, double? vendor, double expected) =>
+        Assert.Equal((decimal)expected, ThreeWayMatch.EffectiveUnderDeliveryTolerance((decimal?)item, (decimal?)vendor));
+
+    [Fact]
+    public void A_short_delivery_within_tolerance_completes_the_order()
+    {
+        var order = Released();                                   // 10 x A, 4 x B
+        order.RecordReceipt(Qty(9.5m, 3.8m), underDeliveryTolerances: Under(5m, 5m));   // both exactly at -5%
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);
+    }
+
+    [Fact]
+    public void A_short_delivery_beyond_tolerance_leaves_the_order_open()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(9.4m, 4m), underDeliveryTolerances: Under(5m));
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status);
+        order.RecordReceipt([(ItemA, 0.1m)], underDeliveryTolerances: Under(5m));   // 9.5 reaches the threshold
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);
+    }
+
+    [Fact]
+    public void Every_line_must_be_complete_under_its_own_tolerance()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(9.5m, 3.8m), underDeliveryTolerances: Under(5m, 0m));   // B has no tolerance, so still short
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status);
+    }
+
+    [Fact]
+    public void Without_a_tolerance_a_short_delivery_stays_partial_as_before()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(9.99m, 4m));
+        Assert.Equal(PurchaseOrderStatus.PartiallyReceived, order.Status);
+    }
+
+    [Fact]
+    public void A_completed_short_order_accepts_no_more_goods_and_nothing_is_billed_beyond_what_arrived()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(9.5m, 4m), underDeliveryTolerances: Under(5m));
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);
+        Assert.Throws<DomainException>(() => order.RecordReceipt([(ItemA, 0.5m)]));
+        Assert.Throws<DomainException>(() => order.RecordBilling([(ItemA, 10m)]));
+        order.RecordBilling([(ItemA, 9.5m), (ItemB, 4m)]);
+        Assert.Equal(PurchaseOrderStatus.Billed, order.Status);
+    }
+
+    [Fact]
+    public void Over_and_under_delivery_tolerances_work_together_across_lines()
+    {
+        var order = Released();
+        order.RecordReceipt(Qty(10.5m, 3.8m), Tol(5m, 0m), Under(0m, 5m));
+        Assert.Equal(PurchaseOrderStatus.Received, order.Status);
+    }
+
+    [Fact]
+    public void Vendor_under_delivery_tolerance_is_validated_optional_and_independent()
+    {
+        var vendor = Vendor.Create(new CompanyId(Guid.NewGuid()), "V1", "Vendor", null, null, 30, DateTimeOffset.UtcNow, 3m, 7m, 4m);
+        Assert.Equal(4m, vendor.UnderDeliveryTolerancePercent);
+        Assert.Equal(7m, vendor.QuantityTolerancePercent);
+        vendor.Update("Vendor", null, null, 30, 3m, 7m, null);
+        Assert.Null(vendor.UnderDeliveryTolerancePercent);
+        Assert.Equal(7m, vendor.QuantityTolerancePercent);
+        var ex = Assert.Throws<DomainException>(() => vendor.Update("Vendor", null, null, 30, null, null, 101m));
+        Assert.Contains("Under-delivery tolerance", ex.Message);
+    }
+
+    [Fact]
+    public void Receipt_line_keeps_the_under_delivery_tolerance_in_force() =>
+        Assert.Equal(5m, new GoodsReceiptLine(ItemA, "A", "Item A", 9.5m, 25m, 0m, 5m).UnderDeliveryTolerancePercent);
+
     [Fact]
     public void Fully_received_order_accepts_no_more_goods()
     {

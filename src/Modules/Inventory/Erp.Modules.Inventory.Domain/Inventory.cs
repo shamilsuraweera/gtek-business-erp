@@ -44,16 +44,19 @@ public sealed class Item : AggregateRoot<ItemId>
     public decimal? PriceTolerancePercent { get; private set; }
     /// <summary>How far above the ordered quantity a delivery of this item may go; none defers to the vendor, then to no over-delivery.</summary>
     public decimal? QuantityTolerancePercent { get; private set; }
+    /// <summary>How far below the ordered quantity a delivery of this item still counts as complete; none defers to the vendor, then to exact quantities.</summary>
+    public decimal? UnderDeliveryTolerancePercent { get; private set; }
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Item Create(CompanyId companyId, string sku, string name, string unitOfMeasure,
-        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null)
+        decimal unitPrice, decimal unitCost, DateTimeOffset createdAt, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
     {
         var item = new Item(new ItemId(Guid.NewGuid()), companyId, sku, name, unitOfMeasure, unitPrice, unitCost, createdAt);
         item.TaxCode = NormalizeTaxCode(taxCode);
         item.PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
         item.QuantityTolerancePercent = ValidateTolerance(quantityTolerancePercent, "Quantity");
+        item.UnderDeliveryTolerancePercent = ValidateTolerance(underDeliveryTolerancePercent, "Under-delivery");
         return item;
     }
 
@@ -68,11 +71,12 @@ public sealed class Item : AggregateRoot<ItemId>
     public static string NormalizeSku(string sku) =>
         string.IsNullOrWhiteSpace(sku) ? throw new DomainException("Item SKU is required.") : sku.Trim().ToUpperInvariant();
 
-    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null)
+    public void Update(string name, string unitOfMeasure, decimal unitPrice, decimal unitCost, string? taxCode = null, decimal? priceTolerancePercent = null, decimal? quantityTolerancePercent = null, decimal? underDeliveryTolerancePercent = null)
     {
         TaxCode = NormalizeTaxCode(taxCode);
         PriceTolerancePercent = ValidateTolerance(priceTolerancePercent);
         QuantityTolerancePercent = ValidateTolerance(quantityTolerancePercent, "Quantity");
+        UnderDeliveryTolerancePercent = ValidateTolerance(underDeliveryTolerancePercent, "Under-delivery");
         Name = NormalizeName(name);
         UnitOfMeasure = NormalizeUom(unitOfMeasure);
         UnitPrice = RequireNonNegative(unitPrice, "Unit price");

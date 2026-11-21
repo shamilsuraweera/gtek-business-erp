@@ -20,14 +20,16 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
   const toleranceValue = tolerance.trim() === '' ? null : Number(tolerance)
   const [qtyTolerance, setQtyTolerance] = useState(item?.quantityTolerancePercent == null ? '' : String(item.quantityTolerancePercent))
   const qtyToleranceValue = qtyTolerance.trim() === '' ? null : Number(qtyTolerance)
+  const [underTolerance, setUnderTolerance] = useState(item?.underDeliveryTolerancePercent == null ? '' : String(item.underDeliveryTolerancePercent))
+  const underToleranceValue = underTolerance.trim() === '' ? null : Number(underTolerance)
   const { can } = useAuth()
   const taxCodes = useApiQuery<TaxCode[]>('/finance/tax-codes', { enabled: can(P.accountsRead) })
   // Keep the item's current code selectable even if it was deactivated since.
   const options = (taxCodes.data ?? []).filter((t) => t.isActive || t.code === item?.taxCode)
   const save = useApiMutation<void>(
     () => item
-      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue } }
-      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue } },
+      ? { path: `/inventory/items/${item.id}`, method: 'PUT', body: { name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue, underDeliveryTolerancePercent: underToleranceValue } }
+      : { path: '/inventory/items', body: { sku, name, unitOfMeasure: uom, unitPrice: Number(price), unitCost: Number(cost), taxCode: taxCode || null, priceTolerancePercent: toleranceValue, quantityTolerancePercent: qtyToleranceValue, underDeliveryTolerancePercent: underToleranceValue } },
     onClose,
   )
   return (
@@ -50,6 +52,9 @@ function ItemForm({ item, onClose }: { item?: Item; onClose: () => void }) {
           </Field>
           <Field label="Over-delivery tolerance (%)" hint="How far above the ordered quantity a delivery of this item may go. Blank defers to the vendor's tolerance, then none; 0 means no over-delivery at all.">
             <input type="number" min={0} max={100} step="0.01" value={qtyTolerance} placeholder="Default" onChange={(e) => setQtyTolerance(e.target.value)} />
+          </Field>
+          <Field label="Under-delivery tolerance (%)" hint="How far below the ordered quantity a delivery of this item still counts as complete. Blank defers to the vendor's tolerance, then exact quantities; 0 means the full quantity is always required.">
+            <input type="number" min={0} max={100} step="0.01" value={underTolerance} placeholder="Default" onChange={(e) => setUnderTolerance(e.target.value)} />
           </Field>
         </div>
         <ErrorNote error={save.error} />
@@ -140,7 +145,7 @@ export function Items() {
         <div className="card flush scroll-x">
           {rows.length === 0 ? <Empty>No items match.</Empty> : (
             <table className="data">
-              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">Price tol.</th><th className="num">Over-delivery</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>SKU</th><th>Name</th><th className="num">Price</th><th className="num">Cost</th><th>Tax</th><th className="num">Price tol.</th><th className="num">Over-delivery</th><th className="num">Under-delivery</th><th className="num">On hand</th><th className="num">Value</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {rows.map((item) => {
                   const s = level(item.id)
@@ -151,6 +156,7 @@ export function Items() {
                       <td>{item.taxCode ?? <span className="muted">—</span>}</td>
                       <td className="num">{item.priceTolerancePercent == null ? <span className="muted">—</span> : `${item.priceTolerancePercent}%`}</td>
                       <td className="num">{item.quantityTolerancePercent == null ? <span className="muted">—</span> : `${item.quantityTolerancePercent}%`}</td>
+                      <td className="num">{item.underDeliveryTolerancePercent == null ? <span className="muted">—</span> : `${item.underDeliveryTolerancePercent}%`}</td>
                       <td className="num">{s ? <Badge value={`${formatNumber(s.onHand)} ${item.unitOfMeasure}`} tone={s.onHand <= 0 ? 'bad' : s.onHand <= 8 ? 'warn' : 'neutral'} /> : '—'}</td>
                       <td className="num">{s ? formatMoney(s.value) : '—'}</td>
                       <td><Badge value={item.isActive ? 'Active' : 'Inactive'} /></td>

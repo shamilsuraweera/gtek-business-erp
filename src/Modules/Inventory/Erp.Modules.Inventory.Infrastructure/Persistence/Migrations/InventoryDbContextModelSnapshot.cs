@@ -59,6 +59,10 @@ namespace Erp.Modules.Inventory.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<decimal?>("UnderDeliveryTolerancePercent")
+                        .HasPrecision(7, 4)
+                        .HasColumnType("numeric(7,4)");
+
                     b.Property<decimal>("UnitCost")
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
