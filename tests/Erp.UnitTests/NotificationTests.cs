@@ -79,7 +79,10 @@ public class NotificationTests
             Purges.Add((scope, readBefore, unreadBefore, batchSize));
             return Task.FromResult(new PurgeResult(2, 1));
         }
-        public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult(Settings.SingleOrDefault(x => x.CompanyId == companyId));
+        public Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, string category, CancellationToken ct) => Task.FromResult(Settings.SingleOrDefault(x => x.CompanyId == companyId && x.Category == category));
+        public Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult<IReadOnlyList<NotificationRetentionSetting>>(Settings.Where(x => x.CompanyId == companyId).ToList());
+        public List<string> Categories { get; } = [];
+        public Task<IReadOnlyList<string>> ListCategoriesAsync(CompanyId companyId, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>(Categories);
         public Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<NotificationRetentionSetting>>(Settings.ToList());
         public Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken ct) { Settings.Add(setting); return Task.CompletedTask; }
         public void RemoveRetentionSetting(NotificationRetentionSetting setting) => Settings.Remove(setting);
@@ -224,9 +227,9 @@ public class NotificationTests
 
     // ---- per-company retention ---------------------------------------------------------------------------------------
 
-    private static NotificationRetentionSetting Override(CompanyId company, int? read, int? unread)
+    private static NotificationRetentionSetting Override(CompanyId company, int? read, int? unread, string? category = null)
     {
-        var s = NotificationRetentionSetting.Create(company);
+        var s = NotificationRetentionSetting.Create(company, category);
         s.Set(read, unread, Now, null);
         return s;
     }
@@ -302,6 +305,87 @@ public class NotificationTests
         await new NotificationRetention(store, new NotificationRetentionOptions(), new FixedClock()).PurgeAsync(default);
         var forA = store.Purges.Single(p => p.Scope.Only == a);
         Assert.Equal((Now.AddDays(-200), (DateTimeOffset?)Now.AddDays(-200)), (forA.ReadBefore, forA.UnreadBefore));
+    }
+
+    // ---- per-category retention -------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(null, null, null, null, 30, 180)]      // nothing set: system defaults
+    [InlineData(60, 90, null, null, 60, 90)]           // company only
+    [InlineData(60, 90, 7, null, 7, 90)]               // category read overrides, unread falls to the company's
+    [InlineData(60, 90, null, 0, 60, 0)]               // category keeps unread forever
+    [InlineData(null, null, 7, 14, 7, 14)]             // category with no company row
+    [InlineData(null, null, 200, null, 200, 200)]      // inherited unread is lifted to the longer read period
+    public void A_category_overrides_the_company_which_overrides_the_default(int? companyRead, int? companyUnread, int? catRead, int? catUnread, int expectedRead, int expectedUnread)
+    {
+        var company = companyRead is null && companyUnread is null ? null : Override(Company, companyRead, companyUnread);
+        var category = catRead is null && catUnread is null ? null : Override(Company, catRead, catUnread, "approval");
+        Assert.Equal((expectedRead, expectedUnread), new NotificationRetentionOptions().EffectiveFor(company, category));
+    }
+
+    [Fact]
+    public void Category_overrides_are_validated_against_the_company_values_they_inherit()
+    {
+        var options = new NotificationRetentionOptions();
+        var inherited = (Read: 60, Unread: 90);
+        Assert.Empty(options.ValidateOverrides(7, null, inherited, "inherited from the company setting"));
+        var errors = options.ValidateOverrides(120, null, inherited, "inherited from the company setting");   // unread 90 inherited < 120
+        Assert.Contains(errors, e => e.Contains("inherited from the company setting"));
+        Assert.DoesNotContain(errors, e => e.Contains("system default"));
+    }
+
+    [Theory]
+    [InlineData("Approval", "approval")]
+    [InlineData("  decision ", "decision")]
+    [InlineData("my_cat-2", "my_cat-2")]
+    [InlineData(null, "")]
+    [InlineData("  ", "")]
+    public void Categories_are_normalised(string? input, string expected) => Assert.Equal(expected, NotificationRetentionSetting.NormaliseCategory(input));
+
+    [Theory]
+    [InlineData("a b")]
+    [InlineData("a/b")]
+    [InlineData("a;drop")]
+    public void Categories_with_odd_characters_are_refused(string input) =>
+        Assert.Throws<DomainException>(() => NotificationRetentionSetting.NormaliseCategory(input));
+
+    [Fact]
+    public void A_notification_category_is_stored_lower_case()
+    {
+        var n = Notification.Create(Company, new UserId(Guid.NewGuid()), " Approval ", "t", null, null, null, Now);
+        Assert.Equal("approval", n.Category);
+    }
+
+    [Fact]
+    public async Task A_category_with_its_own_retention_is_purged_by_it_and_the_rest_of_the_company_by_the_company_values()
+    {
+        var store = new FakeStore();
+        var a = new CompanyId(Guid.NewGuid());
+        store.Settings.AddRange([Override(a, 60, 120), Override(a, 7, null, "approval"), Override(a, null, 0, "decision")]);
+        await new NotificationRetention(store, new NotificationRetentionOptions(), new FixedClock()).PurgeAsync(default);
+
+        Assert.Equal(4, store.Purges.Count);     // two categories, the rest of the company, everyone else
+        var approval = store.Purges.Single(p => p.Scope.Category == "approval");
+        Assert.Equal(a, approval.Scope.Only);
+        Assert.Equal((Now.AddDays(-7), (DateTimeOffset?)Now.AddDays(-120)), (approval.ReadBefore, approval.UnreadBefore));
+        var decision = store.Purges.Single(p => p.Scope.Category == "decision");
+        Assert.Equal((Now.AddDays(-60), (DateTimeOffset?)null), (decision.ReadBefore, decision.UnreadBefore));
+        var rest = store.Purges.Single(p => p.Scope.Only == a && p.Scope.Category is null);
+        Assert.Equal(["approval", "decision"], rest.Scope.ExceptCategories!.Order());
+        Assert.Equal((Now.AddDays(-60), (DateTimeOffset?)Now.AddDays(-120)), (rest.ReadBefore, rest.UnreadBefore));
+        Assert.Equal([a], store.Purges.Single(p => p.Scope.Only is null).Scope.Except!);
+    }
+
+    [Fact]
+    public async Task A_company_with_only_category_rows_keeps_the_system_defaults_for_its_other_categories()
+    {
+        var store = new FakeStore();
+        var a = new CompanyId(Guid.NewGuid());
+        store.Settings.Add(Override(a, 3, null, "approval"));
+        await new NotificationRetention(store, new NotificationRetentionOptions(), new FixedClock()).PurgeAsync(default);
+        var rest = store.Purges.Single(p => p.Scope.Only == a && p.Scope.Category is null);
+        Assert.Equal((Now.AddDays(-30), (DateTimeOffset?)Now.AddDays(-180)), (rest.ReadBefore, rest.UnreadBefore));
+        Assert.Equal(["approval"], rest.Scope.ExceptCategories!);
     }
 
     // ---- email from the notifier ------------------------------------------------------------------------------------

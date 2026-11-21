@@ -22,8 +22,14 @@ public interface INotificationStore
     /// </summary>
     Task<PurgeResult> PurgeAsync(PurgeScope scope, DateTimeOffset readBefore, DateTimeOffset? unreadBefore, int batchSize, CancellationToken cancellationToken);
 
-    Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, CancellationToken cancellationToken);
+    /// <summary>One row: the company-wide one for <see cref="NotificationRetentionSetting.CompanyWide"/>, or a category's.</summary>
+    Task<NotificationRetentionSetting?> GetRetentionSettingAsync(CompanyId companyId, string category, CancellationToken cancellationToken);
+    /// <summary>Every row of every company, for the purge.</summary>
     Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CancellationToken cancellationToken);
+    /// <summary>Every row of one company.</summary>
+    Task<IReadOnlyList<NotificationRetentionSetting>> ListRetentionSettingsAsync(CompanyId companyId, CancellationToken cancellationToken);
+    /// <summary>The categories the company has notifications in.</summary>
+    Task<IReadOnlyList<string>> ListCategoriesAsync(CompanyId companyId, CancellationToken cancellationToken);
     Task AddRetentionSettingAsync(NotificationRetentionSetting setting, CancellationToken cancellationToken);
     void RemoveRetentionSetting(NotificationRetentionSetting setting);
 
@@ -46,7 +52,7 @@ public sealed class NotificationService(
 {
     public async Task<NotificationRetentionResponse> GetRetentionAsync(CancellationToken cancellationToken)
     {
-        var setting = await store.GetRetentionSettingAsync(Scope().Company, cancellationToken);
+        var setting = await store.GetRetentionSettingAsync(Scope().Company, NotificationRetentionSetting.CompanyWide, cancellationToken);
         var (read, unread) = retention.Effective(setting?.ReadDays, setting?.UnreadDays);
         return new NotificationRetentionResponse(retention.Enabled, read, unread);
     }

@@ -12,9 +12,9 @@ public sealed class NotificationRetentionPostgreSqlTests
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
     private static DateTimeOffset DaysAgo(int days) => Now.AddDays(-days);
 
-    private static Notification Make(CompanyId company, UserId user, string title, int createdDaysAgo, int? readDaysAgo = null)
+    private static Notification Make(CompanyId company, UserId user, string title, int createdDaysAgo, int? readDaysAgo = null, string category = "test")
     {
-        var n = Notification.Create(company, user, "test", title, null, null, null, DaysAgo(createdDaysAgo));
+        var n = Notification.Create(company, user, category, title, null, null, null, DaysAgo(createdDaysAgo));
         if (readDaysAgo is { } d) n.MarkRead(DaysAgo(d));
         return n;
     }
@@ -157,6 +157,78 @@ public sealed class NotificationRetentionPostgreSqlTests
             Assert.Equal(new[] { "old unread", "fresh" }.Order(), (await TitlesAsync(options, b)).Order());   // "old read" (read 80 days ago) goes; the unread one stays
         }
         finally { await CleanUpAsync(options, a); await CleanUpAsync(options, b); await CleanUpAsync(options, c); }
+    }
+
+    [Fact]
+    public async Task A_category_scope_touches_only_that_category_and_an_except_scope_spares_it()
+    {
+        var options = CreateOptions(RequireConnectionString());
+        var company = new CompanyId(Guid.NewGuid());
+        var other = new CompanyId(Guid.NewGuid());
+        var user = new UserId(Guid.NewGuid());
+        await using (var setup = new PlatformDbContext(options))
+        {
+            foreach (var c in new[] { company, other })
+                setup.Notifications.AddRange(
+                    Make(c, user, "approval read 20d", 30, 20, "approval"),
+                    Make(c, user, "decision read 20d", 30, 20, "decision"),
+                    Make(c, user, "general read 20d", 30, 20, "general"));
+            await setup.SaveChangesAsync();
+        }
+
+        try
+        {
+            // The approval category keeps read messages for 10 days: its 20-day-old one goes, the other categories stay.
+            await PurgeAsync(options, 10, 180, 1000, PurgeScope.CompanyCategory(company, "approval"));
+            Assert.Equal(new[] { "decision read 20d", "general read 20d" }.Order(), (await TitlesAsync(options, company)).Order());
+            Assert.Equal(3, (await TitlesAsync(options, other)).Count);   // another company's approval message is untouched
+
+            // The rest of the company keeps read messages 30 days, sparing the categories with their own rule.
+            await PurgeAsync(options, 30, 180, 1000, PurgeScope.Company(company, ["decision"]));
+            Assert.Equal(2, (await TitlesAsync(options, company)).Count);
+
+            // Sparing a category means it is not purged even with a rule that would remove everything read.
+            await PurgeAsync(options, 1, 180, 1000, PurgeScope.Company(company, ["decision"]));
+            Assert.Equal(["decision read 20d"], await TitlesAsync(options, company));
+        }
+        finally { await CleanUpAsync(options, company); await CleanUpAsync(options, other); }
+    }
+
+    [Fact]
+    public async Task Category_rows_are_unique_per_company_and_company_wide_rows_coexist_with_them()
+    {
+        var options = CreateOptions(RequireConnectionString());
+        var company = new CompanyId(Guid.NewGuid());
+        await using (var context = new PlatformDbContext(options))
+        {
+            var wide = NotificationRetentionSetting.Create(company);
+            wide.Set(60, null, Now, null);
+            var cat = NotificationRetentionSetting.Create(company, "Approval");
+            cat.Set(7, null, Now, null);
+            context.NotificationRetentionSettings.AddRange(wide, cat);
+            await context.SaveChangesAsync();
+        }
+
+        try
+        {
+            await using var context = new PlatformDbContext(options);
+            var store = new NotificationStore(context);
+            Assert.Equal(60, (await store.GetRetentionSettingAsync(company, NotificationRetentionSetting.CompanyWide, default))!.ReadDays);
+            Assert.Equal(7, (await store.GetRetentionSettingAsync(company, "approval", default))!.ReadDays);
+            Assert.Null(await store.GetRetentionSettingAsync(company, "decision", default));
+            Assert.Equal(2, (await store.ListRetentionSettingsAsync(company, default)).Count);
+
+            await using var again = new PlatformDbContext(options);
+            var duplicate = NotificationRetentionSetting.Create(company, "approval");
+            duplicate.Set(9, null, Now, null);
+            again.NotificationRetentionSettings.Add(duplicate);
+            await Assert.ThrowsAsync<DbUpdateException>(() => again.SaveChangesAsync());
+        }
+        finally
+        {
+            await using var cleanup = new PlatformDbContext(options);
+            await cleanup.NotificationRetentionSettings.Where(x => x.CompanyId == company).ExecuteDeleteAsync();
+        }
     }
 
     private static async Task<List<string>> TitlesAsync(DbContextOptions<PlatformDbContext> options, CompanyId company)

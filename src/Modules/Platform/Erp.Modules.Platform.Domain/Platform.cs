@@ -741,7 +741,7 @@ public sealed class Notification
         string? subject, DateTimeOffset createdAt)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("A notification needs a title.");
-        return new Notification(Guid.NewGuid(), companyId, userId, string.IsNullOrWhiteSpace(category) ? "general" : category.Trim(),
+        return new Notification(Guid.NewGuid(), companyId, userId, string.IsNullOrWhiteSpace(category) ? "general" : category.Trim().ToLowerInvariant(),
             Trim(title, 200)!, Trim(body, 1000), Trim(link, 300), Trim(subject, 200), createdAt);
     }
 
@@ -752,28 +752,47 @@ public sealed class Notification
 }
 
 /// <summary>
-/// A company's own notification retention (ADR 0025). A null value inherits the system default; a row with both null is never stored.
+/// A company's own notification retention (ADR 0025), optionally narrowed to one notification category (ADR 0027). The company-wide row has an
+/// empty <see cref="Category"/>. A null value inherits (category row: the company's value, then the system default); a row with both null is never stored.
 /// </summary>
 public sealed class NotificationRetentionSetting
 {
+    /// <summary>The category of the company-wide row.</summary>
+    public const string CompanyWide = "";
+
     private NotificationRetentionSetting()
     {
+        Category = CompanyWide;
     }
 
-    private NotificationRetentionSetting(CompanyId companyId)
+    private NotificationRetentionSetting(CompanyId companyId, string category)
     {
         CompanyId = companyId;
+        Category = category;
     }
 
     public CompanyId CompanyId { get; private set; }
-    /// <summary>Days a message is kept after it was read; null inherits the system default.</summary>
+    /// <summary>The notification category this row applies to, lower case; empty for the whole company.</summary>
+    public string Category { get; private set; }
+    /// <summary>Days a message is kept after it was read; null inherits.</summary>
     public int? ReadDays { get; private set; }
-    /// <summary>Days an unread message is kept after it was sent; 0 keeps it forever; null inherits the system default.</summary>
+    /// <summary>Days an unread message is kept after it was sent; 0 keeps it forever; null inherits.</summary>
     public int? UnreadDays { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
     public UserId? UpdatedBy { get; private set; }
 
-    public static NotificationRetentionSetting Create(CompanyId companyId) => new(companyId);
+    public bool IsCompanyWide => Category.Length == 0;
+
+    public static NotificationRetentionSetting Create(CompanyId companyId, string? category = null) => new(companyId, NormaliseCategory(category));
+
+    /// <summary>Lower-cases and checks a category: letters, digits, '-' and '_', at most 50; null or blank means the whole company.</summary>
+    public static string NormaliseCategory(string? category)
+    {
+        var value = (category ?? string.Empty).Trim().ToLowerInvariant();
+        if (value.Length > 50 || !value.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_'))
+            throw new DomainException("A category is up to 50 letters, digits, '-' or '_'.");
+        return value;
+    }
 
     public bool InheritsEverything => ReadDays is null && UnreadDays is null;
 
