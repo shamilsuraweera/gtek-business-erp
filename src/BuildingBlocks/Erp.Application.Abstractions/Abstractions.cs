@@ -59,7 +59,8 @@ public interface IUserDirectory
 /// <param name="Category">A short grouping such as "approval" or "decision".</param>
 /// <param name="Link">An in-app path the notification opens, e.g. "/tolerance-requests".</param>
 /// <param name="Subject">Identifies what the notification is about (e.g. "tolerance-request:{id}"), so it can be resolved later.</param>
-public sealed record NotificationMessage(string Category, string Title, string? Body, string? Link, string? Subject = null);
+/// <param name="Email">Also send it by email to recipients who have email on (ADR 0026). Reserve it for things that need action or report a decision.</param>
+public sealed record NotificationMessage(string Category, string Title, string? Body, string? Link, string? Subject = null, bool Email = false);
 
 /// <summary>Delivers in-app notifications to users of the active company without referencing Platform.</summary>
 public interface INotifier

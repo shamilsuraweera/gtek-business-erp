@@ -57,7 +57,7 @@ Notes:
   The API also grants newly introduced permissions to the system administrator role at startup.
 - MVP limitations: default account codes are 1000/1010 cash and bank, 1100 receivable, 1200 inventory, 2000 payable, 2100 goods received
   not invoiced, 4000 revenue, 4100 sales returns, 5000 COGS, 5100 purchase price variance, 2200 output tax payable, 1300 input tax recoverable; manual stock receipts do not post to the ledger;
-  the three-way match price tolerance defaults to 2% and can be set per vendor and per item (ADR 0018); over-delivery is refused unless a per-vendor or per-item quantity tolerance allows it (ADR 0019), and a short delivery completes the order automatically only within an under-delivery tolerance (ADR 0020), otherwise use *Close short*; any of the three tolerances can be overridden per order line directly by users with the *Approve order tolerance overrides* permission (ADR 0021), or by request: anyone who manages orders can raise a request with a reason, and an approver other than the requester approves or rejects it (ADR 0022); approvers and requesters are told through the notification bell in the top bar (ADR 0023), and read messages are purged after 30 days, unread ones after 180, configurable under `Notifications:Retention` (ADR 0024), and each company can set its own under Administration → Notifications (ADR 0025); credit notes are at the invoiced
+  the three-way match price tolerance defaults to 2% and can be set per vendor and per item (ADR 0018); over-delivery is refused unless a per-vendor or per-item quantity tolerance allows it (ADR 0019), and a short delivery completes the order automatically only within an under-delivery tolerance (ADR 0020), otherwise use *Close short*; any of the three tolerances can be overridden per order line directly by users with the *Approve order tolerance overrides* permission (ADR 0021), or by request: anyone who manages orders can raise a request with a reason, and an approver other than the requester approves or rejects it (ADR 0022); approvers and requesters are told through the notification bell in the top bar (ADR 0023) and, when email is configured, by email (ADR 0026), and read messages are purged after 30 days, unread ones after 180, configurable under `Notifications:Retention` (ADR 0024), and each company can set its own under Administration → Notifications (ADR 0025); credit notes are at the invoiced
   price (no partial price adjustments); there is no multi-currency yet.
 - Tax: prices are tax-exclusive. Create tax codes under **Finance → Tax** (the demo has `VAT18` 18% and `ZERO`) and assign one to each item;
   invoices then charge output tax (posted to 2200) and vendor bills record input tax (1300). Credit notes and debit notes return the tax
@@ -371,3 +371,27 @@ assignments but has no implicit access to every company. Grant access with
 `POST /api/v1/users/{userId}/companies/{companyId}` and discover selectable
 companies with `GET /api/v1/auth/me/companies`; neither endpoint requires an
 active company header.
+
+## Email
+
+Approval requests and their decisions can be emailed as well as shown in the app. Email is **off by default**; turn it on in the API's
+configuration (appsettings or environment variables, e.g. `Email__Host`):
+
+```json
+"Email": {
+  "Enabled": true,
+  "Host": "smtp.example.com",
+  "Port": 587,
+  "Security": "StartTls",          // None | StartTls | SslOnConnect
+  "Username": "mailer",
+  "Password": "…",                 // keep secrets out of source control: use an environment variable or secret store
+  "FromAddress": "erp@example.com",
+  "FromName": "GTEK ERP",
+  "BaseUrl": "https://erp.example.com"   // the web app's address, used for the links in the emails
+}
+```
+
+The API refuses to start with a clear list of problems if email is enabled but incomplete. Optional tuning: `PollSeconds` (20), `MaxAttempts` (5),
+`RetryMinutes` (`[1, 5, 30, 120, 720]`), `KeepSentDays` (14) and `KeepFailedDays` (90). Each user can turn emails off from the notification bell, and
+Administration → Notifications shows what is waiting or has failed. See ADR 0026. For local testing, point `Host` at any SMTP catcher
+(for example `127.0.0.1:1025` with `Security` set to `None`).

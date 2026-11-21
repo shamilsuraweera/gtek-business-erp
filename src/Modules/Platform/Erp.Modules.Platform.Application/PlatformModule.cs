@@ -520,6 +520,10 @@ public static class PlatformModule
         services.AddScoped<INotificationRetention, NotificationRetention>();
         services.AddScoped<INotificationRetentionSettings, NotificationRetentionSettingsService>();
         services.TryAddSingleton(new NotificationRetentionOptions());
+        services.TryAddSingleton(new EmailOptions());
+        services.AddScoped<IEmailDelivery, EmailDelivery>();
+        services.AddScoped<IEmailStatusService, EmailStatusService>();
+        services.AddScoped<IUserPreferenceService, UserPreferenceService>();
         services.AddScoped<ActiveCompanyContext>();
         services.AddScoped<ICompanyContext>(provider => provider.GetRequiredService<ActiveCompanyContext>());
         return services;

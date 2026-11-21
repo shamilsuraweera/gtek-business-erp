@@ -19,5 +19,6 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.CreatedAt).IsRequired();
         builder.Property(user => user.ModifiedAt);
         builder.Property(user => user.IsBootstrapAdministrator).IsRequired();
+        builder.Property(user => user.EmailNotifications).IsRequired().HasDefaultValue(true);
     }
 }
