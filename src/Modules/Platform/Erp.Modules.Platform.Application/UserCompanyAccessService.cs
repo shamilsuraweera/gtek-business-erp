@@ -7,7 +7,8 @@ namespace Erp.Modules.Platform.Application;
 public sealed class UserCompanyAccessService(
     IUserCompanyAccessStore store,
     IClock clock,
-    IAuditTrail audit) : IUserCompanyAccessService, ICompanyAccessAuthorizer
+    IAuditTrail audit,
+    IAccountNotices? notices = null) : IUserCompanyAccessService, ICompanyAccessAuthorizer
 {
     public Task<bool> CanAccessCompanyAsync(UserId userId, CompanyId companyId, CancellationToken cancellationToken) =>
         store.HasActiveAccessAsync(userId, companyId, cancellationToken);
@@ -47,6 +48,7 @@ public sealed class UserCompanyAccessService(
                 $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
                 new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
             await store.SaveChangesAsync(cancellationToken);
+            await NotifyAsync(actorUserId, targetUserId, companyId, AccountAccessChange.Restored, cancellationToken);
             return MapAccess(existing);
         }
 
@@ -56,6 +58,7 @@ public sealed class UserCompanyAccessService(
             $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
             new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        await NotifyAsync(actorUserId, targetUserId, companyId, AccountAccessChange.Granted, cancellationToken);
         return MapAccess(access);
     }
 
@@ -74,6 +77,7 @@ public sealed class UserCompanyAccessService(
             $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
             new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        await NotifyAsync(actorUserId, targetUserId, companyId, AccountAccessChange.Revoked, cancellationToken);
         return MapAccess(access);
     }
 
@@ -92,8 +96,12 @@ public sealed class UserCompanyAccessService(
             $"{targetUserId.Value}:{companyId.Value}", targetUserId.Value.ToString(), AuditOutcome.Succeeded,
             new Dictionary<string, object?> { ["TargetUserId"] = targetUserId.Value, ["CompanyId"] = companyId.Value }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        await NotifyAsync(actorUserId, targetUserId, companyId, AccountAccessChange.Restored, cancellationToken);
         return MapAccess(access);
     }
+
+    private Task NotifyAsync(UserId actor, UserId target, CompanyId company, AccountAccessChange change, CancellationToken cancellationToken) =>
+        notices is null ? Task.CompletedTask : notices.CompanyAccessChangedAsync(actor, target, company, change, cancellationToken);
 
     private static CompanyResponse MapCompany(Company company) =>
         new(company.Id.Value, company.Code, company.Name, company.Status, company.CreatedAt, company.ModifiedAt);

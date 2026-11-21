@@ -4,7 +4,8 @@ using Erp.SharedKernel;
 
 namespace Erp.Modules.Platform.Application;
 
-public sealed class RolePermissionService(IRolePermissionStore store, IClock clock, IAuditTrail audit) : IRolePermissionService
+public sealed class RolePermissionService(
+    IRolePermissionStore store, IClock clock, IAuditTrail audit, ICurrentUser? currentUser = null, IAccountNotices? notices = null) : IRolePermissionService
 {
     public async Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken)
     {
@@ -115,6 +116,7 @@ public sealed class RolePermissionService(IRolePermissionStore store, IClock clo
         await audit.RecordAsync("RoleManagement", "user.role.granted", "User", userId.Value.ToString(), userId.Value.ToString(), AuditOutcome.Succeeded,
             new Dictionary<string, object?> { ["TargetUserId"] = userId.Value, ["RoleCode"] = role.Code }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        if (notices is not null) await notices.RoleChangedAsync(currentUser?.UserId, userId, role.Name, granted: true, cancellationToken);
         return true;
     }
 
@@ -127,6 +129,7 @@ public sealed class RolePermissionService(IRolePermissionStore store, IClock clo
         await audit.RecordAsync("RoleManagement", "user.role.revoked", "User", userId.Value.ToString(), userId.Value.ToString(), AuditOutcome.Succeeded,
             new Dictionary<string, object?> { ["TargetUserId"] = userId.Value, ["RoleCode"] = role?.Code }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        if (notices is not null && role is not null) await notices.RoleChangedAsync(currentUser?.UserId, userId, role.Name, granted: false, cancellationToken);
         return true;
     }
 

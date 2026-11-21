@@ -4,7 +4,8 @@ using Erp.SharedKernel;
 
 namespace Erp.Modules.Platform.Application;
 
-public sealed class UserService(IUserStore store, IRolePermissionStore rolePermissions, IPasswordService passwords, IClock clock, IAuditTrail audit) : IUserService
+public sealed class UserService(IUserStore store, IRolePermissionStore rolePermissions, IPasswordService passwords, IClock clock, IAuditTrail audit,
+    ICurrentUser? currentUser = null, IAccountNotices? notices = null) : IUserService
 {
     public async Task<UserResponse> CreateAsync(CreateUserRequest request, bool isBootstrapAdministrator, CancellationToken cancellationToken)
     {
@@ -28,6 +29,9 @@ public sealed class UserService(IUserStore store, IRolePermissionStore rolePermi
             await rolePermissions.EnsureSystemAdministratorAsync(user.Id, cancellationToken);
             await rolePermissions.SaveChangesAsync(cancellationToken);
         }
+        // Only an administrator creating the account tells its owner; the first (bootstrap) administrator has nobody to tell.
+        if (notices is not null && !isBootstrapAdministrator && currentUser?.UserId is { } creator)
+            await notices.AccountCreatedAsync(creator, user.Id, cancellationToken);
         return Map(user);
     }
 
@@ -87,6 +91,7 @@ public sealed class UserService(IUserStore store, IRolePermissionStore rolePermi
         await audit.RecordAsync("UserManagement", action, "User", user.Id.Value.ToString(), user.UserName, AuditOutcome.Succeeded,
             new Dictionary<string, object?> { ["PreviousStatus"] = previousStatus, ["NewStatus"] = user.Status.ToString() }, cancellationToken);
         await store.SaveChangesAsync(cancellationToken);
+        if (notices is not null) await notices.AccountStatusChangedAsync(currentUser?.UserId, user.Id, user.Status == UserStatus.Active, cancellationToken);
         return Map(user);
     }
 
